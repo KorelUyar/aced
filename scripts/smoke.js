@@ -369,6 +369,31 @@ app.whenReady().then(async () => {
       await until(`!!document.querySelector('.stage.again')`);
       assert.match(await text(".stage.again"), /Again: Säuren und pH-Wert/);
       assert.match(await text(".stage.final"), /5 of 7 points/);
+      // "My result was right": one click overrules a mark; points, grade and list follow.
+      await click("#finalSee");
+      await click(".question-card.wrong .overrule");
+      await until(`/7 of 7 points/.test(document.querySelector('.result-line')?.textContent || '')`);
+      assert.deepEqual([exam().sets[set.key].result.weak, exam().again.length], [[], 0], "the topic is no longer weak and leaves the list");
+      await click("#toPlan");
+      await until(`!!document.querySelector('.path .step') && !document.querySelector('.stage.again')`);
+      // ---- a new strategy keeps what was done: ticks, the exam result; and one click takes it back
+      const ticksBefore = Object.keys(exam().done).length;
+      await click("#toSetup");
+      await click("#workOut");
+      await click("#startAnalysis");
+      await until(`!!document.querySelector('.path .step')`, 40000);
+      await until(`/New plan/.test(document.querySelector('.toast')?.textContent || '')`);
+      assert.ok(await has(".toast-btn"), "what became of the ticks is said, with the way back");
+      assert.deepEqual([Object.keys(exam().done).length, exam().sets[set.key].result.points, Boolean(exam().previous)], [ticksBefore, 7, true], "ticks and the exam result are still there, and the earlier plan is kept");
+      assert.match(await text(".stage.final"), /7 of 7 points/);
+      await click("#toSetup");
+      await click("#undoPlan");
+      await until(`!document.querySelector('#undoNote')`);
+      assert.equal(exam().previous, undefined);
+      await click(".bar > .bar-btn");
+      await until(`!!document.querySelector('.path .step')`);
+      // The page can reach the app's own book address and nothing on the disk.
+      assert.equal(await js(`fetch('file:///etc/passwd').then((r) => r.status, () => 'refused')`), "refused");
       // ---- questions on the topic whose book has no exercises
       await click(".step.asks .jump");
       await until(`document.querySelectorAll('.question-card').length === 4`, 30000);
@@ -471,7 +496,8 @@ app.whenReady().then(async () => {
       assert.ok(!fs.existsSync(path.join(userData, "spurt.json")), "sample data is never written to disk");
       console.log("ok: the sample exams: plan, formulas, a final exam, questions on a topic, settings");
     }
-    assert.deepEqual(errors, [], "no errors in the page");
+    // (The refused fetch of a file, tried on purpose above, is the one error that belongs there.)
+    assert.deepEqual(errors.filter((e) => !/etc\/passwd/.test(e)), [], "no errors in the page");
   } catch (e) {
     const said = await js(`(window.__run || '') + ' || ' + (document.querySelector('.toast')?.textContent || '') + ' || ' + (document.querySelector('.analysis, .set-foot, .cc-state')?.innerText || '').slice(0, 300)`).catch(() => "");
     console.log("FAIL", e.message, errors.join(" | "), said ? "| the app said: " + said : "");

@@ -62,4 +62,6 @@ contextBridge.exposeInMainWorld("spurt", {
   openSet: (id, what) => call("set:open", id, what),
   saveDraft: (id, key, draft) => call("set:draft", id, key, draft),
   submitSet: (id, key, typed) => call("set:submit", id, key, typed),
+  overrule: (id, key, questionId) => call("set:overrule", id, key, questionId),
+  undoStrategy: (id) => call("strategy:undo", id),
 });

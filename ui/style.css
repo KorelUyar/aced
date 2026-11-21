@@ -2532,6 +2532,12 @@ select.field {
   color: var(--text);
 }
 
+.overrule {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
 .set .solution {
   margin-top: 14px;
   padding-top: 12px;
@@ -2688,6 +2694,47 @@ select.field {
 
 .wizard-top .mini {
   margin-left: auto;
+}
+
+/* A step is never cut or wrapped for the sake of a chapter title: the title gives way. */
+.jump span:not(:only-child) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.jump small {
+  flex: 0 1 auto;
+}
+
+/* A low window: the head of the plan takes less room, and the topic's formulas stay in the panel, so steps are in view. */
+@media (max-height: 700px) {
+  .path-head {
+    padding: 2px 0 14px;
+  }
+
+  .percent b {
+    font-size: 64px;
+  }
+
+  .percent i {
+    font-size: 22px;
+  }
+
+  .path-head .lane {
+    margin-top: 12px;
+  }
+
+  .path-now {
+    margin-top: 8px;
+  }
+
+  .own-formulas {
+    display: none;
+  }
+
+  [data-look="a"] .stage {
+    padding-top: 14px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

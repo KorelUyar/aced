@@ -172,17 +172,29 @@ function plannerChecks() {
 
 function answerChecks() {
   const a = require("../src/answers");
+  // One number, written the ways people write numbers.
   const right = [
     ["21920.70", 21920.7, 0.005], ["21'920.70", 21920.7, 0.005], ["CHF 21 920.70", 21920.7, 0.005], ["21 920,70", 21920.7, 0.005], ["21.920,70", 21920.7, 0.005],
-    ["21,920.70", 21920.7, 0.005], ["21921", 21920.7, 0.005], ["x = 3", 3, 0], ["f(2) = 5", 5, 0], ["3/4", 0.75, 0], ["0,75", 0.75, 0], ["−2.5", -2.5, 0], ["1,5·10^3", 1500, 0],
-    ["1.5e3", 1500, 0], ["12 %", 0.12, 0], ["1,234", 1234, 0], ["1,234", 1.234, 0], ["0.33", 1 / 3, 0.01], ["140 feet", 140, 0], ["h = 2,5 Sekunden", 2.5, 0], ["1 000 000", 1e6, 0],
+    ["21,920.70", 21920.7, 0.005], ["21921", 21920.7, 0.005], ["1 234,5", 1234.5, 0], ["CHF 1’234.50", 1234.5, 0], ["1234.5 m", 1234.5, 0], ["x = 3", 3, 0], ["f(2) = 5", 5, 0],
+    ["2x = 10 → x = 5", 5, 0], ["x_1 = 5", 5, 0], ["5,00", 5, 0], ["3/4", 0.75, 0], ["6/8", 0.75, 0], ["x=3/4", 0.75, 0], [".75", 0.75, 0], ["0,75", 0.75, 0], ["75%", 0.75, 0],
+    ["12 %", 12, 0], ["−2.5", -2.5, 0], ["- 0.75", -0.75, 0], ["-3/4", -0.75, 0], ["1,5·10^3", 1500, 0], ["1,5 x 10^3", 1500, 0], ["1.5e3", 1500, 0], ["10^3", 1000, 0],
+    ["2^3", 8, 0], ["2 1/2", 2.5, 0], ["sqrt(2)", 1.41421356, 0], ["√2", 1.41421356, 0], ["2√2", 2.828427, 0], ["pi/2", 1.570796, 0], ["3π", 9.424778, 0], ["1,234", 1234, 0],
+    ["1,234", 1.234, 0], ["1.000.000", 1e6, 0], ["1 000 000", 1e6, 0], ["140 feet", 140, 0], ["5 m/s", 5, 0], ["12 cm^2", 12, 0], ["12 m²", 12, 0], ["9.81 m/s^2", 9.81, 0],
+    ["h = 2,5 Sekunden", 2.5, 0], ["0.33", 1 / 3, 0.01],
+    // Rounded to the precision that was typed: right, unless it changes the value by more than a little.
+    ["4.65", 4.646, 0], ["1.41", 1.41421356, 0], ["0.333", 1 / 3, 0], ["0.33", 1 / 3, 0],
   ];
   for (const [typed, expected, tolerance] of right) ok(a.numberRight(typed, expected, tolerance), `"${typed}" is ${expected}`);
-  const wrong = [["21900", 21920.7, 0.005], ["22000", 21920.7, 0.005], ["2.5", -2.5, 0], ["0.33", 1 / 3, 0], ["", 7, 0], ["seven", 7, 0], ["70", 7, 0], ["12", 12.4, 0]];
+  const wrong = [["21900", 21920.7, 0.005], ["22000", 21920.7, 0.005], ["2.5", -2.5, 0], ["-5", 5, 0], ["0.3", 1 / 3, 0], ["", 7, 0], ["seven", 7, 0], ["no solution", 2, 0], ["70", 7, 0], ["31", 3, 0], ["12", 12.4, 0], ["5", 4.646, 0], ["4 (not 5)", 5, 0]];
   for (const [typed, expected, tolerance] of wrong) ok(!a.numberRight(typed, expected, tolerance), `"${typed}" is not ${expected}`);
-  for (const typed of ["x1 = 1; x2 = 3", "3 und 1", "1, 3", "1,3", "{3; 1}", "x=1 or x=3"]) ok(a.numbersRight(typed, [1, 3], 0), `"${typed}" names 1 and 3`);
-  ok(a.numbersRight("1,5 und 3", [1.5, 3], 0) && a.numbersRight("-4.65; 0.65", [0.65, -4.65], 0.005));
-  for (const typed of ["1", "1; 3; 5", "1 oder 4", ""]) ok(!a.numbersRight(typed, [1, 3], 0), `"${typed}" does not name 1 and 3`);
+  // Several numbers, in any order, with any of the usual separators.
+  for (const typed of ["x1 = 2; x2 = 3", "x2=3; x1=2", "3 and 2", "2, 3", "2,3", "{3;2}", "x = 2 or x = 3", "2 und 3", "2 oder 3", "2 3", "x=2, x=3", "x₁=2; x₂=3", "(2, 3)", "x ∈ {2, 3}", "x=2 ∨ x=3", "2 / 3"]) ok(a.numbersRight(typed, [2, 3], 0), `"${typed}" names 2 and 3`);
+  for (const typed of ["x1 = 1,5; x2 = -2", "1,5 / -2", "1.5, -2", "1,5, -2", "-2 und 1,5", "3/2 and -2", "x=3/2, x=-2", "1 1/2 und -2"]) ok(a.numbersRight(typed, [-2, 1.5], 0), `"${typed}" names 1.5 and -2`);
+  ok(a.numbersRight("4,646 / -0,646", [4.646, -0.646], 0.0005), "the notation from the bug report");
+  ok(a.numbersRight("4.65; -0.65", [4.646, -0.646], 0) && a.numbersRight("-4.65; 0.65", [0.65, -4.65], 0.005));
+  for (const typed of ["±2", "+-2", "2 and -2", "x = ±2"]) ok(a.numbersRight(typed, [-2, 2], 0), `"${typed}" names 2 and -2`);
+  ok(a.numbersRight("1/2, 3/4", [0.5, 0.75], 0) && a.numbersRight("2√2 und -2√2", [2.828, -2.828], 0.001));
+  for (const typed of ["2", "2; 2", "2;3;4", "2 oder 4", ""]) ok(!a.numbersRight(typed, [2, 3], 0), `"${typed}" does not name 2 and 3`);
 }
 
 function searchChecks() {
@@ -239,10 +251,33 @@ function storeChecks() {
   const strategy = (labels) => ({ topics: [{ id: "t1", title: "T", share: 1, order: 1, objectives: [], steps: [{ id: "t1/r0", kind: "read", material: "m", from: 3, to: 5, minutes: 10 }, { id: "t1/s0", kind: "solve", material: "m", page: 6, labels, minutes: 10 }] }] });
   store.setStrategy(exam.id, strategy(["1", "2"]));
   store.change(exam.id, (e) => (e.done = { "t1/r0": { date: "2026-01-01", minutes: 10 }, "t1/s0": { date: "2026-01-01", minutes: 10 } }));
-  same(store.progressAfter(store.exam(exam.id), strategy(["1", "3"])), { done: 2, kept: 1, lost: 1 });
+  store.change(exam.id, (e) => {
+    e.sets = { "final#0": { key: "final#0", final: true, variant: 0, topicIds: ["t1"], questions: [{ id: "k0", topicId: "t1" }], spare: {}, result: { weak: ["t1"], topics: { t1: { points: 0, max: 2 } }, points: 0, max: 2 } } };
+    e.again = [{ id: "t1/ax", topicId: "t1", from: "final#0", steps: [{ id: "t1/ax/r0", kind: "read", material: "m", from: 3, to: 5, minutes: 5 }] }];
+    e.formulas = [{ topicId: "t1", formulas: [] }];
+  });
+  // A new strategy never says the same steps again. What was done still counts: pages mostly
+  // read stay read, exercises solved stay solved and are not handed out again, and the exam
+  // result with the topic it put back stays, under the topic's new number.
+  const again = { topics: [{ id: "t1", title: "Other", share: 0.5, order: 1, objectives: [], steps: [{ id: "t1/r0", kind: "read", material: "m", from: 40, to: 41, minutes: 5 }] }, { id: "t2", title: "T", share: 0.5, order: 2, objectives: [], steps: [{ id: "t2/r0", kind: "read", material: "m", from: 4, to: 6, minutes: 12 }, { id: "t2/s0", kind: "solve", material: "m", page: 7, labels: ["2", "1"], minutes: 9 }, { id: "t2/s1", kind: "solve", material: "m", page: 6, labels: ["1", "9"], minutes: 10 }] }] };
+  store.setStrategy(exam.id, again);
+  let now = store.exam(exam.id);
+  same(Object.keys(now.done).sort(), ["t2/r0", "t2/s0"], "read p. 3-5 covers most of p. 4-6; exercises 1 and 2 were solved, also when cited a page off");
+  same([now.strategy.topics[1].steps[2].labels, now.strategy.topics[1].steps[2].solved, now.strategy.topics[1].steps[2].minutes], [["9"], ["1"], 5], "a step with one new exercise hands out only that one");
+  same([now.sets["final#0"].topicIds, now.sets["final#0"].result.weak, now.again[0].topicId, now.sets["final#0"].titles.t2], [["t2"], ["t2"], "t2", "T"], "the exam result and its topic move to the topic's new number");
+  same(store.view(now).undo.lost, 0, "nothing that was ticked is lost");
+  same(store.view(now).final.state, "done");
+  // One click brings the earlier plan back, as it was.
+  store.undoStrategy(exam.id);
+  now = store.exam(exam.id);
+  same([Object.keys(now.done), now.strategy.topics[0].steps[1].labels, now.again[0].topicId, Boolean(now.formulas), now.previous], [["t1/r0", "t1/s0"], ["1", "2"], "t1", true, undefined]);
+  // A plan about something else entirely loses the ticks, says how many, and can be undone too.
+  store.setStrategy(exam.id, { topics: [{ id: "t1", title: "Elsewhere", share: 1, order: 1, objectives: [], steps: [{ id: "t1/r0", kind: "read", material: "m", from: 90, to: 99, minutes: 5 }] }] });
+  same([Object.keys(store.exam(exam.id).done), store.view(store.exam(exam.id)).undo.lost, store.exam(exam.id).again.length, store.exam(exam.id).sets["final#0"].result.points], [[], 2, 0, 0], "the result stays in the record even when its topic is gone");
+  store.undoStrategy(exam.id);
+  store.change(exam.id, (e) => ((e.sets = {}), (e.again = [])));
   store.setStrategy(exam.id, strategy(["1", "3"]));
-  same(Object.keys(store.exam(exam.id).done), ["t1/r0"], "the reading step is the same and stays ticked; the changed exercises start again");
-  same(store.view(store.exam(exam.id)).percent, 50);
+  same(store.view(store.exam(exam.id)).percent, 67, "the reading is done, and of the exercises only the new one is left");
   // The same file or text a second time is said to be there already.
   same(store.addMaterial(exam.id, { hash: "h1", type: "text", title: "First", pages: 1, chars: 10 }, "notes"), "");
   same(store.addMaterial(exam.id, { hash: "h1", type: "text", title: "Copy", pages: 1, chars: 10 }, "notes"), "First");
@@ -261,8 +296,17 @@ function storeChecks() {
   store.recover("backup");
   same([store.problem(), store.exams().length, store.exams()[0].name], [null, 1, "Test"]);
   ok(fs.readdirSync(dir).some((name) => name.startsWith("spurt.damaged-")), "the damaged file is kept beside it");
+  // Backups are also taken while the app stays open, and a few generations are kept.
+  for (let i = 0; i < 60; i++) store.setSettings({ appearance: i % 2 ? "dark" : "light" });
+  ok(fs.existsSync(path.join(dir, "spurt.backup.1.json")) && fs.existsSync(path.join(dir, "spurt.backup.2.json")), "after many changes there are several backups");
+  fs.writeFileSync(path.join(dir, "spurt.backup.json"), "broken too");
+  fs.writeFileSync(file, "{");
+  store.init({ dir, sample: false });
+  ok(store.problem().backup, "when the newest backup is damaged as well, the one before it is offered");
+  store.recover("backup");
+  same(store.exams()[0].name, "Test");
   fs.writeFileSync(file, "{ not json");
-  fs.rmSync(path.join(dir, "spurt.backup.json"));
+  for (const name of fs.readdirSync(dir)) if (name.startsWith("spurt.backup")) fs.rmSync(path.join(dir, name));
   store.init({ dir, sample: false });
   same(store.problem(), { backup: null });
   store.recover("empty");
@@ -592,7 +636,7 @@ async function engineChecks() {
         { topic: 0, book: 1, page: 2, label: "1", minutes: 5 },
       ],
     },
-    "Task: mark results": { results: [{ n: 0, points: 3, note: "" }, { n: 1, points: 0, note: "The slope is wrong." }] },
+    "Task: mark results": { results: [{ n: 0, points: 0, note: "Not the interest." }, { n: 1, points: 2, note: "" }, { n: 2, points: 3, note: "" }, { n: 3, points: 0, note: "The slope is wrong." }] },
     "Task: the formula sheet": { groups: [{ topic: 0, formulas: [{ name: "Square", latex: "$a^2$", note: "n", book: 1, page: 2 }, { name: "Cube", latex: "a^3", note: "", book: 1, page: 77 }] }, { topic: 1, formulas: [] }] },
     "Task: answer the student's question": { answer: "On the exercise page.", pages: [{ book: 1, page: 2, what: "exercises" }, { book: 1, page: 99, what: "nowhere" }, { book: 1, page: 4, what: "from the contents" }] },
   };
@@ -635,12 +679,11 @@ async function engineChecks() {
   let marks = await engine.mark(set.questions, { [q0.id]: "CHF 21'920.70", [q1.id]: "3 und 1", [q2.id]: "b", [q3.id]: "y=2x+1", [q4.id]: "" });
   same(seen.length, before, "nothing is sent when every result can be decided here");
   same(set.questions.map((q) => marks[q.id].points), [2, 2, 1, 3, 0], "a right final number earns all its points, with no working shown");
-  marks = await engine.mark(set.questions, { [q0.id]: "21000", [q1.id]: "1", [q2.id]: "the second one", [q3.id]: "y - 1 = 2x", [q4.id]: "10" });
-  same(seen.length, before + 1, "the results that are not numbers go to the model in one request");
+  marks = await engine.mark(set.questions, { [q0.id]: "21000", [q1.id]: "one and three", [q2.id]: "the second one", [q3.id]: "y - 1 = 2x", [q4.id]: "10" });
+  same(seen.length, before + 1, "what this Mac cannot call right goes to the model in one request: other results, and numbers it could not match");
   ok(/Only the result counts/.test(last(seen.at(-1))) && /never take a point off because steps are missing/i.test(last(seen.at(-1))), "which is told to mark the result only");
-  ok(!last(seen.at(-1)).includes("21000") && last(seen.at(-1)).includes("y - 1 = 2x"), "and gets only what it has to decide");
-  // Items go out in the order of the questions: the choice turned text first, the line second.
-  same(set.questions.map((q) => [marks[q.id].points, marks[q.id].note]), [[0, ""], [0, ""], [1, ""], [0, "The slope is wrong."], [1, ""]]);
+  ok(last(seen.at(-1)).includes("21000") && last(seen.at(-1)).includes("one and three") && !last(seen.at(-1)).includes("<typed>\n10\n"), "a number that looks wrong gets a second look; one that is right is not sent");
+  same(set.questions.map((q) => [marks[q.id].points, marks[q.id].note, marks[q.id].by]), [[0, "Not the interest.", "model"], [2, "", "model"], [1, "", "model"], [0, "The slope is wrong.", "model"], [1, "", "here"]], "a wrong mark is never final from the comparison alone");
 
   // ---- formula sheet: every formula with the page it stands on, where that page was read
   const formulas = await engine.writeFormulas(stored());

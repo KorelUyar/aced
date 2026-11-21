@@ -106,6 +106,12 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
           ${t(exam.missing ? "planMissing" : "planStale")}${" "}
           <button class="link" onClick=${() => app.nav({ name: "setup", id: exam.id })}>${t("setup")}</button>
         </p>`}
+        ${exam.undo &&
+        exam.undo.lost > 0 &&
+        html`<p class="plan-note" role="note">
+          ${t("undoNote", exam.undo.kept, exam.undo.lost)}${" "}
+          <button class="link" id="undoPlan" onClick=${() => api.undoStrategy(exam.id).then(app.putExam, app.fail)}>${t("undoPlan")}</button>
+        </p>`}
         ${run && run.kind !== "formulas" && html`<${RunNote} run=${run} onCancel=${() => api.cancel(exam.id)} />`}
 
         <ol class="route">
@@ -115,7 +121,9 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
             const over = finished === stage.tasks.length;
             const folded = over && !opened.has(stage.id);
             const current = next && stage.tasks.some((task) => task.id === next.id);
-            const must = stage.again ? [] : topic.objectives.map((i) => s.objectives[i]).filter(Boolean);
+            // A topic the model itself named as outside the objectives gets none listed under it.
+            const outside = /not in (the|your) (learning )?objectives|nicht in den lernzielen/i.test(stage.title);
+            const must = stage.again || outside ? [] : topic.objectives.map((i) => s.objectives[i]).filter(Boolean);
             const own = current ? formulasOf(stage.topicId) : [];
             const toggle = () =>
               setOpened((old) => {
@@ -182,6 +190,9 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
                     <span class="min num">${minutes(task.minutes)}</span>
                   </li>`;
                   const notes = [row];
+                  if (step.kind === "solve" && step.solved && step.solved.length && !task.done) {
+                    notes.push(html`<li class="step-note" key=${task.id + "-solved"}>${t("solvedBefore", step.solved)}</li>`);
+                  }
                   if (step.kind === "solve" && step.unconfirmed && step.unconfirmed.length && !task.done) {
                     notes.push(html`<li class="step-note" key=${task.id + "-note"}>${t("unconfirmed", step.unconfirmed)}</li>`);
                   }

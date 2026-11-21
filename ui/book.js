@@ -8,6 +8,10 @@ import { html, useState, useEffect, useRef, Icon, printed } from "./bits.js";
 import { t } from "./i18n.js";
 
 const VENDOR = new URL("./vendor/pdfjs/", import.meta.url).href;
+// What pdf.js loads while it reads a book (decoders, character maps, fonts, a colour profile)
+// comes through the same address as the book itself, which hands out those files and nothing
+// else. So this page may connect to that address only, and to no file on the disk.
+const PARTS = "spurt-book://parts/";
 pdfjs.GlobalWorkerOptions.workerSrc = VENDOR + "pdf.worker.min.mjs";
 
 const PAD = 14; // field around the pages
@@ -99,11 +103,11 @@ function bookOf(hash) {
         rangeChunkSize: PART,
         isEvalSupported: false,
         enableXfa: false,
-        standardFontDataUrl: VENDOR + "standard_fonts/",
+        standardFontDataUrl: PARTS + "standard_fonts/",
         // for scanned books and books whose letters are shapes: picture decoders, colour profiles, character maps
-        wasmUrl: VENDOR + "wasm/",
-        iccUrl: VENDOR + "iccs/",
-        cMapUrl: VENDOR + "cmaps/",
+        wasmUrl: PARTS + "wasm/",
+        iccUrl: PARTS + "iccs/",
+        cMapUrl: PARTS + "cmaps/",
         cMapPacked: true,
         verbosity: 0,
       });

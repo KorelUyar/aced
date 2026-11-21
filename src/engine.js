@@ -183,7 +183,7 @@ function checkExercise(source, page, label, offset = 0) {
 
 // ------------------------------------------------------------ strategy
 
-async function analyze(exam, { today, daysLeft, minutesTotal, minutesPerDay }, { onProgress, onUsage, onKey, signal, fresh } = {}) {
+async function analyze(exam, { today, daysLeft, minutesTotal, minutesPerDay, solved = [] }, { onProgress, onUsage, onKey, signal, fresh } = {}) {
   const g = gather(exam);
   if (!g.sources.length) throw coded(g.scanned.length ? "scanned" : "noMaterial");
   const { whole, large, budget } = split(g.sources);
@@ -231,7 +231,13 @@ async function analyze(exam, { today, daysLeft, minutesTotal, minutesPerDay }, {
       name: "strategy",
       system: P.SYSTEM,
       material: material(g.objectives, pagesBlock(g.sources, selection)),
-      prompt: P.strategyTask({ exam, daysLeft, minutesTotal, minutesPerDay }),
+      prompt: P.strategyTask({
+        exam,
+        daysLeft,
+        minutesTotal,
+        minutesPerDay,
+        solved: solved.map((x) => ({ ...x, n: (g.sources.find((src) => src.m.id === x.material) || {}).n })).filter((x) => x.n).map((x) => `book ${x.n} page ${x.page}: ${x.labels.join(", ")}`).join("; "),
+      }),
       schema: P.STRATEGY,
       maxTokens: 64000,
       effort: "high",
@@ -439,9 +445,12 @@ async function writeQuestions(exam, { key, topicIds, count, final = false, varia
 }
 
 /**
- * Marks what was typed. Numbers, sets of numbers and choices are decided here; results that
- * are not numbers (an equation, an interval) go to the model in one request, which is told to
- * look at the result only. Returns { [question id]: { points, max, note } }.
+ * Marks what was typed. A choice is decided here. A number, or a set of numbers, that this Mac
+ * reads as the expected one is right, at once and for certain. Everything else goes to the
+ * model in one request, told to look at the result only: results that are not numbers, and
+ * numbers this Mac could not match, because "wrong" from a comparison of notations is not
+ * certain enough to cost someone a topic. Returns { [question id]: { points, max, note, by } },
+ * `by` saying who decided ("here" or "model").
  */
 async function mark(questions, typed, { onUsage, onKey, signal } = {}) {
   const out = {};
@@ -452,11 +461,11 @@ async function mark(questions, typed, { onUsage, onKey, signal } = {}) {
     let right = null;
     if (q.type === "choice") right = given === q.correct;
     else if (!text) right = false;
-    else if (q.type === "number") right = answers.numberRight(text, q.value, q.tolerance);
-    else if (q.type === "numbers") right = answers.numbersRight(text, q.values, q.tolerance);
+    else if (q.type === "number") right = answers.numberRight(text, q.value, q.tolerance) || null;
+    else if (q.type === "numbers") right = answers.numbersRight(text, q.values, q.tolerance) || null;
     else if (tidy(text) === tidy(q.answer)) right = true;
     if (right === null) open.push({ n: open.length, q, text: text.slice(0, 2000) });
-    else out[q.id] = { points: right ? q.points : 0, max: q.points, note: "" };
+    else out[q.id] = { points: right ? q.points : 0, max: q.points, note: "", by: "here" };
   }
   if (open.length) {
     const raw = await ai.ask(
@@ -474,7 +483,7 @@ async function mark(questions, typed, { onUsage, onKey, signal } = {}) {
     for (const x of open) {
       const r = raw.results.find((y) => y.n === x.n);
       const points = clamp(r.points, 0, x.q.points);
-      out[x.q.id] = { points, max: x.q.points, note: points < x.q.points ? r.note.trim() : "" };
+      out[x.q.id] = { points, max: x.q.points, note: points < x.q.points ? r.note.trim() : "", by: "model" };
     }
   }
   return out;

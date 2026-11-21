@@ -59,7 +59,8 @@ export function Setup({ exam, run, app, toSettings }) {
     api.analyze(exam.id, { again }).then(
       ({ exam: next, kept, lost }) => {
         app.putExam(next);
-        if (lost > 0) app.notify(t("progressLost", lost, kept));
+        // What became of the ticks, said every time there were any, with the way back.
+        if (next.undo) app.notify(t("progressKept", kept, lost), { label: t("undoPlan"), run: () => api.undoStrategy(exam.id).then(app.putExam, app.fail) });
         // Only someone still looking at this exam is taken to its plan.
         const at = app.at();
         if (at.id === exam.id && (at.name === "setup" || at.name === "exam")) app.nav({ name: "exam", id: exam.id });
@@ -164,7 +165,13 @@ export function Setup({ exam, run, app, toSettings }) {
           ${t("strategyMade", longDate(s.createdOn), s.model && s.model !== "sample" ? modelName(s.model) : "", s.pagesRead || 0)}
           ${s.stale && html`${" "}<strong>${t("strategyStale")}</strong>`}
         </p>`}
-      ${run && run.kind !== "read"
+      ${exam.undo &&
+      !run &&
+      html`<p class="plan-note" id="undoNote">
+        ${t("undoNote", exam.undo.kept, exam.undo.lost)}${" "}
+        <button class="link" id="undoPlan" onClick=${() => api.undoStrategy(exam.id).then(app.putExam, app.fail)}>${t("undoPlan")}</button>
+      </p>`}
+            ${run && run.kind !== "read"
         ? html`<${RunNote} run=${run} onCancel=${() => api.cancel(exam.id)} />`
         : estimate
           ? html`<${Estimate} est=${estimate} exam=${exam} onStart=${start} onCancel=${() => setEstimate(null)} onAgain=${ask} toSettings=${toSettings} />`

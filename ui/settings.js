@@ -181,7 +181,7 @@ export function Settings({ settings, ai, onChange, app }) {
             <button class="pace" role="radio" aria-checked=${String(ai.provider === id)} onClick=${() => setAi({ provider: id })}>
               <i class="dot"></i>
               <strong>${t("prov_" + id)}</strong>
-              <span>${missing ? t("prov_claudeCode_missing") : t("prov_" + id + "_text")}</span>
+              <span>${missing && ai.provider !== id ? t("prov_claudeCode_missing") : t("prov_" + id + "_text")}</span>
             </button>
             ${ai.provider === id && fields}
           </div>`;

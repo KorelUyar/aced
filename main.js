@@ -166,8 +166,14 @@ app.whenReady().then(() => {
   // The book panel asks for a large file in parts (a 300 MB scan need not sit in memory whole):
   // a request with a Range gets exactly that part, said the way a web server says it.
   protocol.handle("spurt-book", async (request) => {
-    const hash = new URL(request.url).pathname.replace(/^\/+/, "");
-    const file = /^[a-f0-9]{64}$/.test(hash) ? files.pdfPath(hash) : null;
+    const url = new URL(request.url);
+    const name = url.pathname.replace(/^\/+/, "");
+    // "parts": what pdf.js needs to draw a page, from the app's own files, by exact name.
+    if (url.hostname === "parts") {
+      const part = /^(wasm|cmaps|iccs|standard_fonts)\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) ? path.join(__dirname, "ui", "vendor", "pdfjs", name) : null;
+      return part && fs.existsSync(part) ? net.fetch(pathToFileURL(part).href) : new Response("not found", { status: 404 });
+    }
+    const file = url.hostname === "book" && /^[a-f0-9]{64}$/.test(name) ? files.pdfPath(name) : null;
     if (!file || !fs.existsSync(file)) return new Response("not found", { status: 404 });
     const size = fs.statSync(file).size;
     const headers = { "Content-Type": "application/pdf", "Accept-Ranges": "bytes" };
@@ -464,10 +470,11 @@ handle("analysis:run", (id, options) =>
     const minutesPerDay = exam.time.mode === "perDay" ? exam.time.minutes : Math.round(exam.time.minutes / days);
     const minutesTotal = exam.time.mode === "perDay" ? minutesPerDay * days : exam.time.minutes;
     say({ stage: "strategy" });
-    const strategy = await engine.analyze(exam, { today: today(), daysLeft, minutesTotal, minutesPerDay }, { onProgress: (p) => say(p), ...tracked(id, signal), fresh: Boolean(options && options.again) });
+    // Exercises that are ticked off are named, so the new plan hands out others where the book has them.
+    const strategy = await engine.analyze(exam, { today: today(), daysLeft, minutesTotal, minutesPerDay, solved: store.solved(exam) }, { onProgress: (p) => say(p), ...tracked(id, signal), fresh: Boolean(options && options.again) });
     strategy.basis = basisOf(exam);
-    const progress = store.progressAfter(exam, strategy);
     store.setStrategy(id, strategy);
+    const progress = store.exam(id).previous || { kept: 0, lost: 0 };
     // The formula sheet belongs to the strategy. If it fails, the strategy still stands; the sheet is asked for again when it is opened.
     try {
       say({ stage: "formulas" });
@@ -479,6 +486,12 @@ handle("analysis:run", (id, options) =>
     return { exam: view(id), kept: progress.kept, lost: progress.lost };
   }),
 );
+
+/** Takes the last new strategy back: the plan before it, with its ticks, results and formula sheet. */
+handle("strategy:undo", (id) => {
+  if (runs.has(id)) throw coded("busy");
+  return store.view(store.undoStrategy(id));
+});
 
 /** Stops what is running for one exam (or everything, when no exam is named). */
 handle("cancel", (id) => {
@@ -536,18 +549,18 @@ handle("task:undo", (id, taskId) => {
 
 /** A question as it is asked: without its answer. */
 const asked = ({ id, topicId, type, prompt, unit, choices, points }) => ({ id, topicId, type, prompt, unit: unit || "", choices: choices || [], points });
-const topicTitle = (exam, topicId) => (exam.strategy.topics.find((t) => t.id === topicId) || {}).title || "";
+const topicTitle = (exam, topicId, set) => (exam.strategy.topics.find((t) => t.id === topicId) || {}).title || (set && set.titles && set.titles[topicId]) || "";
 
 /** A set as the window gets it. The answers come along only once it has a result. */
 function shown(exam, set) {
   return {
     key: set.key,
     final: set.final,
-    title: set.final ? "" : topicTitle(exam, set.topicIds[0]),
+    title: set.final ? "" : topicTitle(exam, set.topicIds[0], set),
     questions: set.result ? set.questions : set.questions.map(asked),
     draft: set.draft || {},
     result: set.result || null,
-    topics: Object.fromEntries(set.topicIds.map((t) => [t, topicTitle(exam, t)])),
+    topics: Object.fromEntries([...new Set([...set.topicIds, ...Object.keys((set.result && set.result.topics) || {})])].map((t) => [t, topicTitle(exam, t, set)])),
     scale: exam.scale,
     target: exam.target,
   };
@@ -589,7 +602,8 @@ handle("set:open", async (id, what) => {
     say({ stage: "questions" });
     return engine.writeQuestions(exam, request, tracked(id, signal));
   });
-  store.change(id, (e) => (e.sets[set.key] = { ...set, variant: request.variant, stepId: request.stepId || null, createdOn: today(), draft: {}, result: null }));
+  const titles = Object.fromEntries(set.topicIds.map((t) => [t, topicTitle(exam, t)]));
+  store.change(id, (e) => (e.sets[set.key] = { ...set, titles, variant: request.variant, stepId: request.stepId || null, createdOn: today(), draft: {}, result: null }));
   return shown(store.exam(id), store.exam(id).sets[set.key]);
 });
 
@@ -605,7 +619,7 @@ handle("set:draft", (id, key, draft) => {
 /** What goes back on the list for a topic that went badly: its theory again, and exercises not yet done. */
 function againFor(exam, set, topicId, ratio) {
   const topic = exam.strategy.topics.find((t) => t.id === topicId);
-  const id = `${topicId}/a${exam.again.length + 1}`;
+  const id = `${topicId}/a${Date.now().toString(36)}`;
   const reads = topic.steps.filter((s) => s.kind === "read").map((s, i) => ({ ...s, id: `${id}/r${i}`, minutes: Math.max(3, Math.round(s.minutes / 2)) }));
   const spare = (set.spare && set.spare[topicId]) || [];
   const solves = spare.length
@@ -617,6 +631,42 @@ function againFor(exam, set, topicId, ratio) {
   return { id, topicId, from: set.key, score: ratio, steps };
 }
 
+/** What the marks of a set add up to: points, a grade, and the topics that went badly (under 60% of their points). */
+function resultOf(exam, set, typed, marks, at = Date.now()) {
+  const points = Object.values(marks).reduce((sum, m) => sum + m.points, 0);
+  const max = Object.values(marks).reduce((sum, m) => sum + m.max, 0) || 1;
+  const byTopic = {};
+  for (const q of set.questions) {
+    const t = byTopic[q.topicId] || { points: 0, max: 0 };
+    byTopic[q.topicId] = { points: t.points + marks[q.id].points, max: t.max + marks[q.id].max };
+  }
+  const weak = Object.entries(byTopic).filter(([, t]) => t.max && t.points / t.max < 0.6).map(([topicId]) => topicId);
+  return { date: today(), at, typed, marks, points, max, grade: planner.gradeFor(exam.scale, points / max), weak, topics: byTopic };
+}
+
+/** Writes a result into the exam: the record, the step it belongs to, and the list (weak topics come back, others leave it again). */
+function settle(e, key, result) {
+  const set = e.sets[key];
+  const first = !set.result;
+  set.result = result;
+  set.draft = {};
+  const entry = { date: result.date, at: result.at, final: Boolean(set.final), points: result.points, max: result.max, grade: result.grade };
+  const at = e.results.findIndex((r) => r.at === result.at);
+  if (at >= 0) e.results[at] = entry;
+  else e.results.push(entry);
+  if (first && set.stepId) e.done[set.stepId] = { date: today(), minutes: Math.max(5, set.questions.length * 2), at: Date.now() };
+  // A topic that is no longer weak (a mark was put right) leaves the list again, with its ticks.
+  for (const a of e.again.filter((x) => x.from === key && !result.weak.includes(x.topicId))) for (const step of a.steps) delete e.done[step.id];
+  e.again = e.again.filter((x) => x.from !== key || result.weak.includes(x.topicId));
+  for (const topicId of result.weak) {
+    if (!e.strategy.topics.some((t) => t.id === topicId) || e.again.some((a) => a.from === key && a.topicId === topicId)) continue;
+    // At most twice per topic: after that it is the person's call, not the list's.
+    if (e.again.filter((a) => a.topicId === topicId).length >= 2) continue;
+    const again = againFor(e, set, topicId, result.topics[topicId].points / result.topics[topicId].max);
+    if (again.steps.length) e.again.push(again);
+  }
+}
+
 handle("set:submit", async (id, key, typed) => {
   const before = store.exam(id);
   const set = before.sets[key];
@@ -624,29 +674,22 @@ handle("set:submit", async (id, key, typed) => {
   // Kept first: if marking fails, what was typed is still there.
   store.change(id, (e) => (e.sets[key].draft = typed));
   const marks = SAMPLE ? require("./src/sample").marks(set, typed) : await run(id, "marks", (signal) => engine.mark(set.questions, typed, tracked(id, signal)));
-  const points = Object.values(marks).reduce((sum, m) => sum + m.points, 0);
-  const max = Object.values(marks).reduce((sum, m) => sum + m.max, 0) || 1;
-  const byTopic = new Map();
-  for (const q of set.questions) {
-    const t = byTopic.get(q.topicId) || { points: 0, max: 0 };
-    byTopic.set(q.topicId, { points: t.points + marks[q.id].points, max: t.max + marks[q.id].max });
-  }
-  // Under 60% of a topic's points: that topic comes back.
-  const weak = [...byTopic].filter(([, t]) => t.max && t.points / t.max < 0.6).map(([topicId]) => topicId);
-  const result = { date: today(), at: Date.now(), typed, marks, points, max, grade: planner.gradeFor(before.scale, points / max), weak, topics: Object.fromEntries(byTopic) };
-  store.change(id, (e) => {
-    e.sets[key].result = result;
-    e.sets[key].draft = {};
-    e.results.push({ date: result.date, final: Boolean(set.final), points, max, grade: result.grade });
-    if (set.stepId) e.done[set.stepId] = { date: today(), minutes: Math.max(5, set.questions.length * 2), at: Date.now() };
-    for (const topicId of weak) {
-      // At most twice per topic: after that it is the person's call, not the list's.
-      if (e.again.filter((a) => a.topicId === topicId).length >= 2) continue;
-      const t = byTopic.get(topicId);
-      const again = againFor(e, set, topicId, t.points / t.max);
-      if (again.steps.length) e.again.push(again);
-    }
-  });
+  store.change(id, (e) => settle(e, key, resultOf(e, set, typed, marks)));
   const exam = store.exam(id);
   return { exam: store.view(exam), set: shown(exam, exam.sets[key]) };
+});
+
+/** "My result was right": the person overrules a mark. The points, the grade and the list follow. */
+handle("set:overrule", (id, key, questionId) => {
+  const exam = store.exam(id);
+  const set = exam.sets[key];
+  const q = set && set.result && set.questions.find((x) => x.id === questionId);
+  if (!q) throw coded("unknown");
+  store.change(id, (e) => {
+    const r = e.sets[key].result;
+    const marks = { ...r.marks, [questionId]: { points: q.points, max: q.points, note: "", by: "you" } };
+    settle(e, key, resultOf(e, e.sets[key], r.typed, marks, r.at));
+  });
+  const after = store.exam(id);
+  return { exam: store.view(after), set: shown(after, after.sets[key]) };
 });

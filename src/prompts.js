@@ -91,7 +91,7 @@ The exam is "${exam.name}". The material above holds the learning objectives (if
 Pick the page ranges that cover what the exam asks for: the theory, and the exercises that belong to it (exercise sections often follow right after a chapter section). At most ${pageBudget} pages in total; fewer is better. Order the ranges by importance.`;
 }
 
-function strategyTask({ exam, daysLeft, minutesTotal, minutesPerDay }) {
+function strategyTask({ exam, daysLeft, minutesTotal, minutesPerDay, solved = "" }) {
   return `Task: the study strategy.
 Exam: "${exam.name}", in ${daysLeft} day(s). The student has about ${minutesWords(minutesTotal)} in total (${minutesWords(minutesPerDay)} per day) and aims for ${SCALE_WORDS[exam.scale](exam.target)}.
 Pace: ${PACE_WORDS[exam.pace]}
@@ -107,7 +107,9 @@ From the material, work out what the exam will ask and what the student should d
   - "exercises": the few exercises from the book that train this topic best (2 to 5). One entry per exercise: the page it is printed on, its "label" exactly as printed next to it (the number or letter only, e.g. "4", "12 a", "3.2"), and minutes to solve it. Only exercises you can see in the material. If a book shows no exercises, leave the list empty.
   - "quiz_questions": how many questions (3 to 6) would check this topic. The app only asks them where a topic has no exercises in the book.
 - "approach": at most two sentences of advice on how to go about this exam with this much time.
-Include low-value topics too, with an honest small "share": the app decides what is dropped when time is short, and tells the student.`;
+Include low-value topics too, with an honest small "share": the app decides what is dropped when time is short, and tells the student.${
+    solved ? `\nThe student has already read parts of the book and solved these exercises: ${solved}. Where one of them still belongs in the plan, list it again with the same page and label: the app keeps it ticked off. Do not swap it for a similar exercise without a reason.` : ""
+  }`;
 }
 
 function questionsTask({ topics, count, final, hasOldExam, variant, planned }) {
@@ -144,6 +146,7 @@ Each numbered item below is one exam question with the expected result and what 
 ${items.map((x) => `<item n="${x.n}" points="${x.points}">\nQuestion: ${x.prompt}\nExpected result: ${x.answer}\n<typed>\n${x.typed}\n</typed>\n</item>`).join("\n\n")}
 
 Only the result counts. Never ask for the working and never take a point off because steps are missing: a right result with nothing else earns full points.
+- Some items are numbers that the app could not match by itself, because of how they are written ("4,646 / -0,646", "2 1/2", "√2", a value rounded to fewer decimals than expected, another order). If what was typed means the expected numbers, it is right.
 - A result in another correct form is right: an equation rearranged, a term factored or expanded, an interval written another way, a fraction or its decimal, another unit that means the same.
 - "points": whole points from 0 to the item's points. Fewer than all only when the result is wrong, or when a result with several parts has some of them wrong.
 - "note": empty for full points. Otherwise one short sentence on what is wrong in the result.

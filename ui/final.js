@@ -95,7 +95,13 @@ export function Questions({ exam, what, run, app, toSettings }) {
   }
 
   const title = set.final ? t("finalExam") : t("questionsOn", set.title);
-  if (set.result) return html`<${Result} exam=${exam} set=${set} head=${head(title)} toPlan=${toPlan} another=${set.final ? () => open({ another: true }) : null} />`;
+  // "My result was right": one click puts a mark right, and the points and the list follow.
+  const overrule = (questionId) =>
+    api.overrule(exam.id, set.key, questionId).then((out) => {
+      app.putExam(out.exam);
+      setSet(out.set);
+    }, app.fail);
+  if (set.result) return html`<${Result} exam=${exam} set=${set} head=${head(title)} toPlan=${toPlan} another=${set.final ? () => open({ another: true }) : null} overrule=${overrule} />`;
 
   const count = set.questions.length;
   const done = set.questions.filter(filled).length;
@@ -151,7 +157,7 @@ function typedText(q, value) {
   return String(value || "").trim();
 }
 
-function Result({ exam, set, head, toPlan, another }) {
+function Result({ exam, set, head, toPlan, another, overrule }) {
   const r = set.result;
   const reached = exam.scale === "de" ? r.grade <= exam.target : r.grade >= exam.target;
   const topics = Object.entries(r.topics || {});
@@ -196,6 +202,8 @@ function Result({ exam, set, head, toPlan, another }) {
             ${verdict !== "right" && html`<dt>${t("expected")}</dt><dd><${Rich} text=${q.answer} /></dd>`}
           </dl>
           ${m.note && html`<p class="q-note"><${Rich} text=${m.note} /></p>`}
+          ${m.by === "you" && html`<p class="q-note muted">${t("overruled")}</p>`}
+          ${verdict !== "right" && mine && html`<button class="link overrule" onClick=${() => overrule(q.id)}>${t("wasRight")}</button>`}
           ${q.solution &&
           html`<details class="solution" open=${verdict !== "right"}>
             <summary>${t("solution")}</summary>
