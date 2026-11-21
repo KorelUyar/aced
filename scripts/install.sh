@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Installs Spurt on a Mac. Once Spurt is published:
+# Installs the latest Spurt on a Mac:
 #
 #   curl --proto '=https' --tlsv1.2 -fsSL https://github.com/KorelUyar/spurt/releases/latest/download/install.sh | zsh
 #
