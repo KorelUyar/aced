@@ -1,4 +1,6 @@
-# Spurt
+# Aced
+
+**Aced: know exactly what to do before your exam.**
 
 A study app for the Mac. You tell it which exam, when, how much time you have and which grade
 you want. You give it your book and your learning objectives. It gives you one list: what to
@@ -54,7 +56,7 @@ follows the language of your material.
 
 ## Your data and the AI
 
-Spurt has no server, no account, no telemetry and no update check. Exams, plans and results are
+Aced has no server, no account, no telemetry and no update check. Exams, plans and results are
 in one file in the app's folder on your Mac; your PDFs are copied next to it. Deleting an exam
 also deletes its copies of the PDFs, the text read from them and the answers kept for it,
 unless another exam uses them.
@@ -74,9 +76,9 @@ What leaves your Mac, and where to:
   learning objectives, the exam's name, date, time and target grade, your questions to the
   helper, and the results you type in an exam when they are not numbers. For a large book that
   is first the table of contents, to find the pages, then those pages. Never the PDF itself.
-- **With "Claude Code on this Mac":** Spurt starts the `claude` command on your Mac with all its
+- **With "Claude Code on this Mac":** Aced starts the `claude` command on your Mac with all its
   tools switched off, so it can only read the text it is given and answer.
-- **With OpenRouter:** requests carry the app's name (`X-Title: Spurt`), and the price for the
+- **With OpenRouter:** requests carry the app's name (`X-Title: Aced`), and the price for the
   estimate comes from OpenRouter's public model list.
 - **With "another server":** the address must start with `https://`; plain `http://` is only
   accepted for a server on your own computer. Its key is forgotten when you change the address.
@@ -101,11 +103,11 @@ ran the whole path of 0.1 for real with each of its four models; the parts new i
 against a stand-in that speaks its format, not against the real service. "Another server" has
 run against a real Ollama with a small model in 0.1. OpenRouter is the least tested: against a
 stand-in for its format, and the real service only as far as refusing a wrong key. If one of
-them misbehaves for you, please [open an issue](https://github.com/KorelUyar/spurt/issues).
+them misbehaves for you, please [open an issue](https://github.com/KorelUyar/aced/issues).
 
 ## What to know
 
-- **Page and exercise numbers are checked.** After the model answers, Spurt looks for every
+- **Page and exercise numbers are checked.** After the model answers, Aced looks for every
   exercise number on the page it was cited on, moves it if it is on a neighbouring page, and
   says so under the step when it cannot find it.
 - **The grade after the final exam is an estimate.** The questions are written by the AI from
@@ -117,18 +119,18 @@ them misbehaves for you, please [open an issue](https://github.com/KorelUyar/spu
 - **Recognised text is not perfect.** Small print and formulas in a book without real text can
   come out wrong. The book panel always shows the real page.
 - **A small model gives a weak plan.** With a small local model, expect vague topics and page
-  references that do not hold. Spurt leaves out references to pages the model was not shown.
+  references that do not hold. Aced leaves out references to pages the model was not shown.
 - **The book is only a picture.** A PDF is untrusted: in the panel nothing in it can be clicked,
   no script in it runs, and it cannot open a window or leave the app. The page that shows it
   has a strict content policy. The part of pdf.js that decodes the file runs as a worker beside
   that page, and a worker loaded from the app's own files is not under that policy. pdf.js is
   told never to evaluate anything from a PDF, and keys never reach the window or the worker.
 - **The first book without text after an install or update takes a minute longer.** macOS
-  prepares its text recognition once; Spurt starts that in the background when it opens and
+  prepares its text recognition once; Aced starts that in the background when it opens and
   says so if you are faster.
 - **Your data file has a backup.** Every start that can read your exams keeps a copy. If the
-  file is ever damaged, Spurt says so, overwrites nothing, and offers the copy.
-- **After an update, macOS may ask once** whether Spurt may read its saved key from the
+  file is ever damaged, Aced says so, overwrites nothing, and offers the copy.
+- **After an update, macOS may ask once** whether Aced may read its saved key from the
   keychain, because the app is not notarised.
 
 ## Install
@@ -136,17 +138,25 @@ them misbehaves for you, please [open an issue](https://github.com/KorelUyar/spu
 macOS 13 or later, Apple Silicon or Intel:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://github.com/KorelUyar/spurt/releases/latest/download/install.sh | zsh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/KorelUyar/aced/releases/latest/download/install.sh | zsh
 ```
 
-This downloads the latest version, puts it in Applications and opens it. Spurt is not notarised
+This downloads the latest version, puts it in Applications and opens it. Aced is not notarised
 by Apple (that needs a paid developer account). Installing it this way skips the "cannot be
 opened" warning that macOS shows for apps downloaded with a browser. With a
-`Spurt-macOS.zip` you downloaded yourself:
+`Aced-macOS.zip` you downloaded yourself:
 
 ```sh
-SPURT_ZIP=/path/to/Spurt-macOS.zip zsh install.sh
+ACED_ZIP=/path/to/Aced-macOS.zip zsh install.sh
 ```
+
+### Coming from Spurt
+
+Aced was called Spurt up to version 0.2. The install line above replaces Spurt with Aced (the
+old line still works and does the same). When Aced first starts, it moves what you had in
+Spurt into its own place: exams, ticks, books and backups. One thing cannot come along: a saved
+API key. macOS keeps it locked under the old app's name, so Aced asks you to enter it once
+more. With Claude Code there is nothing to enter.
 
 ## Develop
 
@@ -169,7 +179,7 @@ npm run sample   # the app on invented exams, nothing is saved
 | `electron scripts/wrong-key.js` | asks the real Anthropic and OpenRouter services with a key that is not one |
 | `scripts/fixtures/claude-stub.sh` | a stand-in for the `claude` command with prepared answers, so the tests can play every state (not signed in, expired, usage limit, offline, a slow run) without touching a real login |
 | `npm run shots` | the pictures in `docs/shots` from the sample exams; with a data folder as third argument to `scripts/shots.js`, the ones with a real book |
-| `npm run dist` | `dist/Spurt-macOS.zip`: universal, signed ad hoc |
+| `npm run dist` | `dist/Aced-macOS.zip`: universal, signed ad hoc |
 
 Where things are:
 
@@ -186,7 +196,7 @@ Where things are:
   KaTeX, pdf.js and the Archivo typeface are vendored in `ui/vendor`. `ui/i18n.js` holds all
   text. `ui/path.js` is the exam screen, `ui/book.js` the book beside it, `ui/final.js` an exam
   being taken, `ui/setup.js` material and settings of an exam.
-- The name "Spurt" comes from `productName` in `package.json`.
+- The name "Aced" comes from `productName` in `package.json`.
 
 ## Licence
 

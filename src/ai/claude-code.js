@@ -18,7 +18,7 @@ const SETUP_PAGE = "https://code.claude.com/docs/en/setup";
 // background, right after launch. Nothing waits on a child process synchronously: that would
 // freeze the app.
 //
-// What this app's own process happens to carry is not passed on (Spurt may itself have been
+// What this app's own process happens to carry is not passed on (Aced may itself have been
 // started from inside a Claude Code session, whose variables would confuse the child). What the
 // person's shell profile sets is: that is how Claude Code finds their login in a terminal, and
 // it must find the same one here.
@@ -36,7 +36,7 @@ function readShellEnv() {
     base.LOGNAME = base.LOGNAME || user.username;
     if (process.platform === "win32") return resolve(base);
     const shell = base.SHELL && fs.existsSync(base.SHELL) ? base.SHELL : "/bin/zsh";
-    const marker = "__SPURT_ENV__";
+    const marker = "__ACED_ENV__";
     let out = "";
     let child;
     try {
@@ -71,7 +71,7 @@ async function environment() {
 
 async function locate() {
   // A stand-in for Claude Code in tests. Never in the app people install.
-  if (!app.isPackaged && process.env.SPURT_CLAUDE) return fs.existsSync(process.env.SPURT_CLAUDE) ? process.env.SPURT_CLAUDE : undefined;
+  if (!app.isPackaged && process.env.ACED_CLAUDE) return fs.existsSync(process.env.ACED_CLAUDE) ? process.env.ACED_CLAUDE : undefined;
   const env = await environment();
   const home = os.homedir();
   const candidates = [
@@ -98,7 +98,7 @@ function stopAll() {
 function run(exe, env, args, input, signal, limit = 15 * 60 * 1000) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(coded("cancelled"));
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-cc-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "aced-cc-"));
     const child = spawn(exe, args, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
     children.add(child);
     let out = "";
@@ -192,7 +192,7 @@ async function status() {
 
 /**
  * Starts Claude Code's own sign-in, in a Terminal window: it opens the browser, and takes a
- * code there if the browser cannot hand it over by itself. Spurt only starts it and then looks
+ * code there if the browser cannot hand it over by itself. Aced only starts it and then looks
  * at `status()` until the person is signed in.
  */
 async function signIn(lang) {
@@ -202,8 +202,8 @@ async function signIn(lang) {
   const quoted = "'" + exe.replace(/'/g, "'\\''") + "'";
   const say =
     lang === "de"
-      ? ["Spurt: Anmeldung bei Claude Code.", "Dein Browser öffnet sich. Melde dich dort an und geh dann zurück zu Spurt.", "Fertig. Du kannst dieses Fenster schliessen.", "Die Anmeldung wurde nicht abgeschlossen. Du kannst sie in den Einstellungen von Spurt nochmals starten."]
-      : ["Spurt: signing in to Claude Code.", "Your browser opens. Sign in there, then go back to Spurt.", "Done. You can close this window.", "The sign-in did not finish. You can start it again in Spurt's Settings."];
+      ? ["Aced: Anmeldung bei Claude Code.", "Dein Browser öffnet sich. Melde dich dort an und geh dann zurück zu Aced.", "Fertig. Du kannst dieses Fenster schliessen.", "Die Anmeldung wurde nicht abgeschlossen. Du kannst sie in den Einstellungen von Aced nochmals starten."]
+      : ["Aced: signing in to Claude Code.", "Your browser opens. Sign in there, then go back to Aced.", "Done. You can close this window.", "The sign-in did not finish. You can start it again in Aced's Settings."];
   const script = `#!/bin/zsh -l
 clear
 echo "${say[0]}"
@@ -212,11 +212,11 @@ echo
 ${quoted} auth login
 if [ $? -eq 0 ]; then echo; echo "${say[2]}"; else echo; echo "${say[3]}"; fi
 `;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-signin-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aced-signin-"));
   const file = path.join(dir, lang === "de" ? "Bei Claude Code anmelden.command" : "Sign in to Claude Code.command");
   fs.writeFileSync(file, script, { mode: 0o755 });
   // In tests the script runs without a window. Never in the app people install.
-  if (!app.isPackaged && process.env.SPURT_SIGNIN === "run") {
+  if (!app.isPackaged && process.env.ACED_SIGNIN === "run") {
     spawn("/bin/zsh", [file], { env: await environment(), stdio: "ignore" });
     return;
   }

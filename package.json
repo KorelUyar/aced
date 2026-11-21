@@ -1,18 +1,18 @@
 {
-  "name": "spurt",
-  "productName": "Spurt",
-  "version": "0.2.0",
-  "description": "A study app for the Mac: what to learn, in what order, for the grade you want in the time you have",
+  "name": "aced",
+  "productName": "Aced",
+  "version": "0.3.0",
+  "description": "Know exactly what to do before your exam: one list from your own book, with the book beside it",
   "main": "main.js",
   "author": "Korel Uyar",
   "license": "MIT",
-  "homepage": "https://github.com/KorelUyar/spurt",
+  "homepage": "https://github.com/KorelUyar/aced",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/KorelUyar/spurt.git"
+    "url": "git+https://github.com/KorelUyar/aced.git"
   },
   "bugs": {
-    "url": "https://github.com/KorelUyar/spurt/issues"
+    "url": "https://github.com/KorelUyar/aced/issues"
   },
   "scripts": {
     "start": "electron .",
@@ -38,7 +38,7 @@
     "katex": "^0.19.1"
   },
   "build": {
-    "appId": "com.koreluyar.spurt",
+    "appId": "com.koreluyar.aced",
     "files": [
       "main.js",
       "preload.js",
@@ -76,8 +76,8 @@
     },
     "extraResources": [
       {
-        "from": "build/bin/spurt-ocr",
-        "to": "spurt-ocr"
+        "from": "build/bin/aced-ocr",
+        "to": "aced-ocr"
       },
       {
         "from": "LICENSE",

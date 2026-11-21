@@ -1,4 +1,4 @@
-/* Spurt
+/* Aced
    Cool paper, black ink, one colour: the orange of a running track. The orange belongs to the
    lane, the thin track that shows how far along something is (an exam, a plan, a quiz) and
    ends in a finish post. Buttons are ink, so the lane stays the only orange thing on a page.
@@ -2666,6 +2666,22 @@ select.field {
 }
 
 /* ------------------------------------------------------------ the exams, as cards */
+
+.plan-note.moved {
+  margin: 0 0 26px;
+  max-width: none;
+  padding: 16px 18px;
+}
+
+.plan-note.moved .row-start {
+  margin-top: 12px;
+}
+
+.empty .what {
+  margin-bottom: 18px;
+  color: var(--track-ink);
+  font-weight: 600;
+}
 
 .exam-top {
   display: flex;

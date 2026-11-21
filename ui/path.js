@@ -7,7 +7,7 @@ import { Rich } from "./rich.js";
 import { Book } from "./book.js";
 import { Problem } from "./claude.js";
 
-const api = window.spurt;
+const api = window.aced;
 export const PANELS = ["book", "formulas"];
 
 /** "Read p. 392–396" or "Solve p. 405: 7, 9, 13": what a step asks for, with its place in the book. */

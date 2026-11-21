@@ -17,7 +17,7 @@ const os = require("os");
 const path = require("path");
 
 app.dock?.hide();
-app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "spurt-test-")));
+app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "aced-test-")));
 // A helper window is opened and closed along the way (to make a PDF); that must not end the run.
 app.on("window-all-closed", () => {});
 
@@ -197,6 +197,59 @@ function answerChecks() {
   for (const typed of ["2", "2; 2", "2;3;4", "2 oder 4", ""]) ok(!a.numbersRight(typed, [2, 3], 0), `"${typed}" does not name 2 and 3`);
 }
 
+/** The move from the folder of Spurt (the app's earlier name) into this app's folder. */
+function moveChecks() {
+  const { fromSpurt } = require("../src/move");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "aced-test-move-"));
+  const make = (name) => {
+    const dir = path.join(base, name);
+    for (const folder of ["library", "texts", "answers"]) fs.mkdirSync(path.join(dir, folder), { recursive: true });
+    fs.writeFileSync(path.join(dir, "spurt.json"), JSON.stringify({ settings: {}, exams: [{ id: "e1" }] }));
+    fs.writeFileSync(path.join(dir, "spurt.backup.json"), "{}");
+    fs.writeFileSync(path.join(dir, "spurt.backup.1.json"), "{}");
+    fs.writeFileSync(path.join(dir, "library", "a.pdf"), "book a");
+    fs.writeFileSync(path.join(dir, "library", "b.pdf"), "book b");
+    fs.writeFileSync(path.join(dir, "texts", "a.json"), "{}");
+    fs.writeFileSync(path.join(dir, "answers", "k.json"), "{}");
+    return dir;
+  };
+  const list = (dir) => fs.readdirSync(dir).sort().map((n) => (fs.statSync(path.join(dir, n)).isDirectory() ? `${n}/${fs.readdirSync(path.join(dir, n)).sort().join("+")}` : n)).join(" ");
+  // Nothing to move: a first start with no Spurt on the Mac.
+  same(fromSpurt(path.join(base, "fresh"), path.join(base, "no-such-folder")), null);
+  same(fromSpurt(path.join(base, "fresh"), null), null);
+  // Everything comes over; Spurt's own data file is renamed, never deleted.
+  let old = make("old1");
+  same(fromSpurt(path.join(base, "new1"), old), { exams: true, keys: false });
+  same(list(path.join(base, "new1")), "aced.backup.1.json aced.backup.json aced.json answers/k.json library/a.pdf+b.pdf texts/a.json");
+  same(list(old), "answers/ library/ spurt.backup.1.json spurt.backup.json spurt.moved-to-aced.json texts/");
+  same(JSON.parse(fs.readFileSync(path.join(base, "new1", "aced.json"), "utf8")).exams[0].id, "e1");
+  same(fromSpurt(path.join(base, "new1"), old), null, "a second start moves nothing");
+  // A saved key is noticed (it cannot be read under the new name) and left where it is.
+  old = make("old2");
+  fs.writeFileSync(path.join(old, "keys.bin"), "locked");
+  same(fromSpurt(path.join(base, "new2"), old), { exams: true, keys: true });
+  ok(fs.existsSync(path.join(old, "keys.bin")) && !fs.existsSync(path.join(base, "new2", "keys.bin")));
+  // Cut short (the app was quit after one book had moved): the next start carries on, and nothing is lost or doubled.
+  old = make("old3");
+  fs.mkdirSync(path.join(base, "new3", "library"), { recursive: true });
+  fs.renameSync(path.join(old, "library", "a.pdf"), path.join(base, "new3", "library", "a.pdf"));
+  ok(!fs.existsSync(path.join(base, "new3", "aced.json")), "without the data file the move does not count as done");
+  same(fromSpurt(path.join(base, "new3"), old), { exams: true, keys: false });
+  same(list(path.join(base, "new3")), "aced.backup.1.json aced.backup.json aced.json answers/k.json library/a.pdf+b.pdf texts/a.json");
+  same(fs.readFileSync(path.join(base, "new3", "library", "a.pdf"), "utf8"), "book a");
+  // A folder that holds the old file name itself (a profile folder renamed by hand) is read in place.
+  old = make("old4");
+  same(fromSpurt(old, null), { exams: true, keys: false });
+  ok(fs.existsSync(path.join(old, "aced.json")) && fs.existsSync(path.join(old, "library", "a.pdf")));
+  // Aced's own data is never replaced by Spurt's.
+  old = make("old5");
+  fs.mkdirSync(path.join(base, "new5"));
+  fs.writeFileSync(path.join(base, "new5", "aced.json"), "mine");
+  same(fromSpurt(path.join(base, "new5"), old), null);
+  same([fs.readFileSync(path.join(base, "new5", "aced.json"), "utf8"), fs.existsSync(path.join(old, "spurt.json"))], ["mine", true]);
+  fs.rmSync(base, { recursive: true, force: true });
+}
+
 function searchChecks() {
   const { rank, words } = require("../src/search");
   same(words("Die Aufgaben zum Zinseszins"), words("aufgabe ZINSESZINSEN"), "plural, case and stop words do not matter");
@@ -229,8 +282,8 @@ function errorChecks() {
 function storeChecks() {
   const store = require("../src/store");
   const files = require("../src/files");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-test-store-"));
-  const file = path.join(dir, "spurt.json");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aced-test-store-"));
+  const file = path.join(dir, "aced.json");
   // A first start follows the Mac's language; a choice is kept.
   store.init({ dir, sample: false, systemLang: "de" });
   same([store.settings().lang, store.problem()], ["de", null]);
@@ -295,18 +348,18 @@ function storeChecks() {
   same(fs.readFileSync(file, "utf8"), good.slice(0, good.length / 2), "nothing is written while the file is damaged");
   store.recover("backup");
   same([store.problem(), store.exams().length, store.exams()[0].name], [null, 1, "Test"]);
-  ok(fs.readdirSync(dir).some((name) => name.startsWith("spurt.damaged-")), "the damaged file is kept beside it");
+  ok(fs.readdirSync(dir).some((name) => name.startsWith("aced.damaged-")), "the damaged file is kept beside it");
   // Backups are also taken while the app stays open, and a few generations are kept.
   for (let i = 0; i < 60; i++) store.setSettings({ appearance: i % 2 ? "dark" : "light" });
-  ok(fs.existsSync(path.join(dir, "spurt.backup.1.json")) && fs.existsSync(path.join(dir, "spurt.backup.2.json")), "after many changes there are several backups");
-  fs.writeFileSync(path.join(dir, "spurt.backup.json"), "broken too");
+  ok(fs.existsSync(path.join(dir, "aced.backup.1.json")) && fs.existsSync(path.join(dir, "aced.backup.2.json")), "after many changes there are several backups");
+  fs.writeFileSync(path.join(dir, "aced.backup.json"), "broken too");
   fs.writeFileSync(file, "{");
   store.init({ dir, sample: false });
   ok(store.problem().backup, "when the newest backup is damaged as well, the one before it is offered");
   store.recover("backup");
   same(store.exams()[0].name, "Test");
   fs.writeFileSync(file, "{ not json");
-  for (const name of fs.readdirSync(dir)) if (name.startsWith("spurt.backup")) fs.rmSync(path.join(dir, name));
+  for (const name of fs.readdirSync(dir)) if (name.startsWith("aced.backup")) fs.rmSync(path.join(dir, name));
   store.init({ dir, sample: false });
   same(store.problem(), { backup: null });
   store.recover("empty");
@@ -316,15 +369,15 @@ function storeChecks() {
   // two ticked steps, one quiz) opens as it is: the plan is there, the ticks count, and nothing
   // 0.1 kept is thrown away, although 0.2 no longer uses all of it.
   const old = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "profile-0.1.0.json"), "utf8"));
-  const carried = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-test-carry-"));
-  fs.writeFileSync(path.join(carried, "spurt.json"), JSON.stringify(old));
+  const carried = fs.mkdtempSync(path.join(os.tmpdir(), "aced-test-carry-"));
+  fs.writeFileSync(path.join(carried, "aced.json"), JSON.stringify(old));
   store.init({ dir: carried, sample: false, systemLang: "de" });
   same([store.problem(), store.exams().length, store.settings().lang], [null, 1, "de"], "it is read, and follows the Mac's language (0.1 only knew its default)");
   const then = store.view(store.exam(old.exams[0].id), "2026-11-21");
   same([then.percent, then.plan.next, then.final.state, then.plan.stages.some((st) => st.tasks.some((t) => t.kind === "quiz"))], [14, "t1/r0", "none", false], "the two ticked steps count; the quizzes of 0.1 are not on the list");
   same(JSON.stringify(store.exam(old.exams[0].id).strategy), JSON.stringify(old.exams[0].strategy), "the strategy is not touched");
   store.setSettings({ appearance: "dark" });
-  const kept = JSON.parse(fs.readFileSync(path.join(carried, "spurt.json"), "utf8")).exams[0];
+  const kept = JSON.parse(fs.readFileSync(path.join(carried, "aced.json"), "utf8")).exams[0];
   for (const key of ["done", "mastery", "attempts", "cards", "quizzes", "history", "usage", "materials"]) same(kept[key], old.exams[0][key], `"${key}" from 0.1 is still in the file`);
 
   // Text files in the encodings people really have.
@@ -389,7 +442,7 @@ async function providerChecks() {
     if (mode === "bad-then-good" && !body.messages[0].content.at(-1).text.includes("previous answer")) return anthropicStream(res, "The answer is five.");
     anthropicStream(res, '{"answer": 5}');
   });
-  process.env.SPURT_ANTHROPIC_BASE_URL = anthropic.url;
+  process.env.ACED_ANTHROPIC_BASE_URL = anthropic.url;
   store.setSettings({ ai: { provider: "anthropic" } });
   same((await ai.status()).ready, false, "not ready without a key");
   await failsWith(ai.ask(request("no key yet")), "noKey");
@@ -485,7 +538,7 @@ async function providerChecks() {
       usage: { prompt_tokens: 90, completion_tokens: 7, prompt_tokens_details: { cached_tokens: 60 }, cost: 0.0004 },
     });
   });
-  process.env.SPURT_OPENROUTER_BASE_URL = openrouter.url;
+  process.env.ACED_OPENROUTER_BASE_URL = openrouter.url;
   store.setSettings({ ai: { provider: "openrouter" } });
   await secrets.set("openrouter", "sk-or-test");
   usage.length = 0;
@@ -606,7 +659,7 @@ async function providerChecks() {
   same([signInProblem("Credit balance is too low"), signInProblem("Claude usage limit reached")], [null, null], "other failures are not taken for a sign-in problem");
 
   // ---- keys never reach the settings file or the window
-  const settingsFile = fs.readFileSync(path.join(dir, "spurt.json"), "utf8");
+  const settingsFile = fs.readFileSync(path.join(dir, "aced.json"), "utf8");
   ok(!/sk-ant|sk-or/.test(settingsFile), "no key in the settings file");
   ok(!JSON.stringify(await ai.status()).includes("sk-"), "the status sent to the window holds no key");
 }
@@ -645,7 +698,7 @@ async function engineChecks() {
     const task = Object.keys(answers).find((k) => last(body).includes(k));
     anthropicStream(res, JSON.stringify(answers[task] || {}));
   });
-  process.env.SPURT_ANTHROPIC_BASE_URL = server.url;
+  process.env.ACED_ANTHROPIC_BASE_URL = server.url;
   store.setSettings({ ai: { provider: "anthropic", model: "claude-opus-5-5" } });
   await secrets.set("anthropic", "sk-ant-test");
 
@@ -701,8 +754,8 @@ async function engineChecks() {
 
 app.whenReady().then(async () => {
   try {
-    for (const part of [plannerChecks, answerChecks, searchChecks, errorChecks, storeChecks, referenceChecks, providerChecks, engineChecks]) {
-      if (process.env.SPURT_TEST_TRACE) console.log("…", part.name);
+    for (const part of [plannerChecks, answerChecks, moveChecks, searchChecks, errorChecks, storeChecks, referenceChecks, providerChecks, engineChecks]) {
+      if (process.env.ACED_TEST_TRACE) console.log("…", part.name);
       await part();
     }
     console.log(`ok: ${checks} checks`);

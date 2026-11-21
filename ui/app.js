@@ -8,7 +8,7 @@ import { Setup } from "./setup.js";
 import { Questions } from "./final.js";
 import { Settings } from "./settings.js";
 
-const api = window.spurt;
+const api = window.aced;
 document.title = api.name;
 
 function App() {
@@ -157,7 +157,8 @@ function App() {
       app=${app}
     />`;
   } else {
-    view = html`<${Home} exams=${state.exams} runs=${runs} nav=${nav} />`;
+    const read = () => api.setSettings({ moved: null }).then((next) => setState((s) => ({ ...s, ...next })), app.fail);
+    view = html`<${Home} exams=${state.exams} runs=${runs} nav=${nav} moved=${state.settings.moved} onRead=${read} toSettings=${() => read().then(() => nav({ name: "settings", from: home }))} />`;
   }
 
   const focus = ["new", "edit", "set"].includes(route.name) || state.damaged;
@@ -231,10 +232,23 @@ function Damaged({ info, reload, app }) {
   </main>`;
 }
 
-function Home({ exams, runs, nav }) {
+/** Said once after the first start under the new name: where the exams came from, and what could not come along. */
+function Moved({ moved, onRead, toSettings }) {
+  return html`<div class="plan-note moved" role="status">
+    <p>${t(moved.failed ? "movedFailed" : "movedText")}${moved.keys ? " " + t("movedKeys") : ""}</p>
+    <div class="row-start">
+      ${moved.keys && html`<button class="btn second" id="movedSettings" onClick=${toSettings}>${t("openSettings")}</button>`}
+      <button class="btn plain" id="movedOk" onClick=${onRead}>${t("movedOk")}</button>
+    </div>
+  </div>`;
+}
+
+function Home({ exams, runs, nav, moved, onRead, toSettings }) {
   if (!exams.length) {
     return html`<main class="page view">
+      ${moved && html`<${Moved} moved=${moved} onRead=${onRead} toSettings=${toSettings} />`}
       <div class="empty">
+        <p class="what">${t("whatItIs")}</p>
         <h1>${t("emptyTitle")}</h1>
         <p>${t("emptyText")}</p>
         <button class="btn primary big" onClick=${() => nav({ name: "new" })}><${Icon} name="plus" />${t("newExam")}</button>
@@ -243,6 +257,7 @@ function Home({ exams, runs, nav }) {
   }
   const sorted = [...exams].sort((a, b) => a.date.localeCompare(b.date));
   return html`<main class="page view">
+    ${moved && html`<${Moved} moved=${moved} onRead=${onRead} toSettings=${toSettings} />`}
     <div class="page-head">
       <h1>${t("homeTitle")}</h1>
       <button class="btn primary" onClick=${() => nav({ name: "new" })}><${Icon} name="plus" />${t("newExam")}</button>

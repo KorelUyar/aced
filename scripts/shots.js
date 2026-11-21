@@ -18,16 +18,16 @@ const [outArg, theme = "light", profile] = process.argv.slice(2).filter((a) => !
 const out = path.resolve(outArg || "docs/shots");
 fs.mkdirSync(out, { recursive: true });
 if (profile) {
-  const copy = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-shots-"));
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), "aced-shots-"));
   fs.cpSync(path.resolve(profile), copy, { recursive: true });
   app.setPath("userData", copy);
 } else {
-  process.env.SPURT_SAMPLE = "1";
-  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-shots-"));
+  process.env.ACED_SAMPLE = "1";
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "aced-shots-"));
   app.setPath("userData", scratch);
   // "Claude Code" in the Settings picture is the stand-in from the tests, signed in: no real login is looked at.
   fs.writeFileSync(path.join(scratch, "claude-state"), "ok");
-  Object.assign(process.env, { SPURT_CLAUDE: path.join(__dirname, "fixtures", "claude-stub.sh"), SPURT_STUB_STATE: path.join(scratch, "claude-state") });
+  Object.assign(process.env, { ACED_CLAUDE: path.join(__dirname, "fixtures", "claude-stub.sh"), ACED_STUB_STATE: path.join(scratch, "claude-state") });
 }
 quiet();
 const mainFile = path.join(__dirname, "..", "main.js");
@@ -68,13 +68,13 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(out, `${name}-${theme}.png`), await capture(win));
     console.log("shot", `${name}-${theme}`);
   };
-  const lang = (code) => js(`window.spurt.setSettings({ lang: ${JSON.stringify(code)} }).then(() => window.dispatchEvent(new Event('focus')))`).then(() => sleep(500));
+  const lang = (code) => js(`window.aced.setSettings({ lang: ${JSON.stringify(code)} }).then(() => window.dispatchEvent(new Event('focus')))`).then(() => sleep(500));
 
   try {
     await until(`!!window.__nav && document.fonts.status === 'loaded'`);
     win.webContents.setZoomFactor(SCALE);
     nativeTheme.themeSource = theme;
-    await js(`window.spurt.setSettings({ appearance: ${JSON.stringify(theme)}, lang: 'en' }).then(() => window.dispatchEvent(new Event('focus')))`);
+    await js(`window.aced.setSettings({ appearance: ${JSON.stringify(theme)}, lang: 'en' }).then(() => window.dispatchEvent(new Event('focus')))`);
     await sleep(500);
     if (profile) {
       await click(".exam-card");

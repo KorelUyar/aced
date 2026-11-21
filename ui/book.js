@@ -11,7 +11,7 @@ const VENDOR = new URL("./vendor/pdfjs/", import.meta.url).href;
 // What pdf.js loads while it reads a book (decoders, character maps, fonts, a colour profile)
 // comes through the same address as the book itself, which hands out those files and nothing
 // else. So this page may connect to that address only, and to no file on the disk.
-const PARTS = "spurt-book://parts/";
+const PARTS = "aced-book://parts/";
 pdfjs.GlobalWorkerOptions.workerSrc = VENDOR + "pdf.worker.min.mjs";
 
 const PAD = 14; // field around the pages
@@ -92,7 +92,7 @@ function bookOf(hash) {
     tellLost();
     entry.close();
   };
-  entry.promise = sourceOf(`spurt-book://book/${hash}`, onLost)
+  entry.promise = sourceOf(`aced-book://book/${hash}`, onLost)
     .then((source) => {
       if (closed) throw new Error("closed");
       task = pdfjs.getDocument({

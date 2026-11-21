@@ -53,7 +53,7 @@ const html = `<!doctype html><meta charset="utf-8"><style>
   figure img { display: block; width: ${TILE}px; border-radius: 16px; box-shadow: 0 0 0 1px rgb(20 22 27 / .12), 0 18px 40px -22px rgb(20 22 27 / .45); }
   figcaption { margin-top: 14px; color: #5c6370; }
 </style>
-<header><img src="${url(root, "build/icon.png")}"><div><b>${brand.name}</b><span>The real app, version 0.2: a real exam with a real book, and the sample exams</span></div></header>
+<header><img src="${url(root, "build/icon.png")}"><div><b>${brand.name}</b><span>The real app, version 0.3: a real exam with a real book, and the sample exams</span></div></header>
 ${ROWS.map(
   ([title, shots]) => `${title ? `<h2>${title}</h2>` : ""}<div class="row">${shots
     .map(([file, caption]) => `<figure><img src="${url(out, file + ".png")}"><figcaption>${caption}</figcaption></figure>`)
@@ -61,7 +61,7 @@ ${ROWS.map(
 ).join("")}`;
 
 app.whenReady().then(async () => {
-  const page = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "spurt-sheet-")), "sheet.html");
+  const page = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aced-sheet-")), "sheet.html");
   fs.writeFileSync(page, html);
   const win = hiddenWindow(800, 600);
   await win.loadFile(page);

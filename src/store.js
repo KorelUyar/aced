@@ -77,7 +77,7 @@ function init({ dir, sample, systemLang = "en" }) {
     data = { settings: { ...structuredClone(DEFAULT_SETTINGS), langFrom: "system", lang: systemLang }, exams: require("./sample").exams().map(upgrade) };
     return;
   }
-  file = path.join(dir, "spurt.json");
+  file = path.join(dir, "aced.json");
   data = { settings: { ...structuredClone(DEFAULT_SETTINGS), langFrom: "system", lang: systemLang }, exams: [] };
   let text = null;
   try {
@@ -137,6 +137,17 @@ function save() {
 
 const settings = () => data.settings;
 
+/**
+ * The data came over from Spurt at this start: the window says so once. `keys`: Spurt had a
+ * saved key, which could not come along, and the provider in use needs one.
+ */
+function noteMove({ keys, failed }) {
+  const provider = data.settings.ai.provider;
+  const needsKey = Boolean(keys) && ["anthropic", "openrouter", "openai"].includes(provider);
+  data.settings = { ...data.settings, moved: failed ? { failed } : { keys: needsKey } };
+  if (!failed) save();
+}
+
 function setSettings(patch) {
   const next = { ...data.settings, ai: { ...data.settings.ai, models: { ...data.settings.ai.models } } };
   if (patch.lang === "en" || patch.lang === "de") {
@@ -144,6 +155,7 @@ function setSettings(patch) {
     next.langFrom = "choice";
   }
   if (["system", "light", "dark"].includes(patch.appearance)) next.appearance = patch.appearance;
+  if (patch.moved === null) delete next.moved; // the note about the move from Spurt has been read
   if (patch.ai) {
     const { provider, model, baseURL } = patch.ai;
     if (provider === null || ["claudeCode", "anthropic", "openrouter", "openai"].includes(provider)) next.ai.provider = provider;
@@ -489,6 +501,7 @@ module.exports = {
   problem,
   recover,
   latestSet,
+  noteMove,
   undoStrategy,
   solved,
   settings,

@@ -55,14 +55,14 @@ async function status() {
 function call(c, request) {
   if (c.provider === "claudeCode") return claudeCode.complete(request);
   if (c.provider === "anthropic") {
-    return anthropic.complete({ ...request, key: secrets.get("anthropic"), baseURL: override("SPURT_ANTHROPIC_BASE_URL") });
+    return anthropic.complete({ ...request, key: secrets.get("anthropic"), baseURL: override("ACED_ANTHROPIC_BASE_URL") });
   }
   if (c.provider === "openrouter") {
     return openai.complete({
       ...request,
       flavour: "openrouter",
       key: secrets.get("openrouter"),
-      baseURL: override("SPURT_OPENROUTER_BASE_URL") || "https://openrouter.ai/api/v1",
+      baseURL: override("ACED_OPENROUTER_BASE_URL") || "https://openrouter.ai/api/v1",
     });
   }
   if (!allowedAddress(c.baseURL)) throw coded(c.baseURL ? "insecureAddress" : "noServer");

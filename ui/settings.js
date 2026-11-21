@@ -3,7 +3,7 @@ import { html, useState, useEffect, useRef, Segmented } from "./bits.js";
 import { t, errorText, errorCode } from "./i18n.js";
 import { ClaudeState } from "./claude.js";
 
-const api = window.spurt;
+const api = window.aced;
 const PROVIDERS = ["claudeCode", "anthropic", "openrouter", "openai"];
 const CLAUDE_MODELS = [
   ["claude-opus-5-5", "Claude Opus 5.5"],

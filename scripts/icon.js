@@ -22,7 +22,7 @@ app.whenReady().then(async () => {
   fs.writeFileSync(png, image.resize({ width: 1024, height: 1024 }).toPNG());
 
   if (process.platform === "darwin") {
-    const set = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-icon-")) + "/icon.iconset";
+    const set = fs.mkdtempSync(path.join(os.tmpdir(), "aced-icon-")) + "/icon.iconset";
     fs.mkdirSync(set);
     for (const size of [16, 32, 128, 256, 512]) {
       execFileSync("sips", ["-z", size, size, png, "--out", `${set}/icon_${size}x${size}.png`], { stdio: "ignore" });

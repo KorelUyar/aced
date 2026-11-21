@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- An S made of three running lanes, leaning forward, on track orange. -->
+  <!-- A bold A on track orange whose crossbar is a tick: the exam, aced. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ff7d42"/>
@@ -9,7 +9,7 @@
       <stop offset="0" stop-color="#fff" stop-opacity=".22"/>
       <stop offset="0.65" stop-color="#fff" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="lane" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff"/>
       <stop offset="1" stop-color="#ffe7dc"/>
     </linearGradient>
@@ -21,7 +21,6 @@
       <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#7c1f00" flood-opacity=".38"/>
     </filter>
     <clipPath id="tile"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
-    <path id="s" d="M 622.9 353.6 A 118 118 0 1 0 512 512 A 118 118 0 1 1 401.1 670.4"/>
   </defs>
 
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
@@ -30,14 +29,11 @@
   </g>
   <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="url(#rim)" stroke-width="6"/>
 
-  <g transform="translate(512 512) scale(1.07) skewX(-9) translate(-512 -512)" fill="none">
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
     <g filter="url(#lift)">
-      <use href="#s" stroke="url(#lane)" stroke-width="156"/>
+      <path d="M 318 742 L 512 286 L 706 742" stroke="url(#ink)" stroke-width="124"/>
     </g>
-    <!-- two lane lines -->
-    <use href="#s" stroke="#e9470f" stroke-width="62"/>
-    <use href="#s" stroke="url(#lane)" stroke-width="46"/>
-    <!-- the finish post across the top end, as at the end of every lane in the app -->
-    <path d="M 536.0 374.6 L 703.1 313.8" stroke="#14161b" stroke-width="24" stroke-linecap="round"/>
+    <!-- the tick, where the crossbar of the A would be -->
+    <path d="M 404 580 L 486 662 L 668 452" stroke="#14161b" stroke-width="76"/>
   </g>
 </svg>

@@ -32,7 +32,7 @@ const provider = process.env.E2E_PROVIDER || "claudeCode";
 const out = path.resolve(outArg);
 fs.mkdirSync(out, { recursive: true });
 const userData = path.join(out, "data");
-const dataFile = path.join(userData, "spurt.json");
+const dataFile = path.join(userData, "aced.json");
 const resume = process.env.E2E_RESUME === "1" && fs.existsSync(dataFile);
 if (!resume) fs.rmSync(userData, { recursive: true, force: true });
 fs.mkdirSync(userData, { recursive: true });
@@ -40,7 +40,7 @@ const saved = () => JSON.parse(fs.readFileSync(dataFile, "utf8"));
 const exam = () => saved().exams[0];
 
 app.setPath("userData", userData);
-process.env.SPURT_LANG = language;
+process.env.ACED_LANG = language;
 quiet();
 const mainFile = path.join(__dirname, "..", "main.js");
 const window = hideWindowsOf(mainFile);
@@ -83,9 +83,9 @@ app.whenReady().then(async () => {
       // ---- the provider, chosen and tested in Settings
       await js(`window.__nav({ name: 'settings', from: { name: 'home' } })`);
       await click(`.ai .provider:nth-child(${["claudeCode", "anthropic", "openrouter", "openai"].indexOf(provider) + 1}) .pace`);
-      if (provider === "openai") await js(`window.spurt.setSettings({ ai: { provider: 'openai', baseURL: ${JSON.stringify(process.env.E2E_BASE || "")}, model: ${JSON.stringify(process.env.E2E_MODEL || "")} } })`);
-      else if (process.env.E2E_MODEL) await js(`window.spurt.setSettings({ ai: { provider: ${JSON.stringify(provider)}, model: ${JSON.stringify(process.env.E2E_MODEL)} } })`);
-      if (process.env.E2E_KEY_FILE) await js(`window.spurt.setKey(${JSON.stringify(provider)}, ${JSON.stringify(fs.readFileSync(process.env.E2E_KEY_FILE, "utf8").trim())}).then(() => 0)`);
+      if (provider === "openai") await js(`window.aced.setSettings({ ai: { provider: 'openai', baseURL: ${JSON.stringify(process.env.E2E_BASE || "")}, model: ${JSON.stringify(process.env.E2E_MODEL || "")} } })`);
+      else if (process.env.E2E_MODEL) await js(`window.aced.setSettings({ ai: { provider: ${JSON.stringify(provider)}, model: ${JSON.stringify(process.env.E2E_MODEL)} } })`);
+      if (process.env.E2E_KEY_FILE) await js(`window.aced.setKey(${JSON.stringify(provider)}, ${JSON.stringify(fs.readFileSync(process.env.E2E_KEY_FILE, "utf8").trim())}).then(() => 0)`);
       await js(`window.dispatchEvent(new Event('focus'))`);
       await sleep(600);
       await click("#test");
@@ -94,7 +94,7 @@ app.whenReady().then(async () => {
 
       // ---- the exam and its material
       const date = new Date(Date.now() + 6 * 864e5).toLocaleDateString("sv");
-      const created = await js(`window.spurt.createExam({ name: ${JSON.stringify(examName)}, date: ${JSON.stringify(date)}, time: { mode: 'perDay', minutes: 45 }, scale: 'ch', target: 5, pace: 'sprint' })`);
+      const created = await js(`window.aced.createExam({ name: ${JSON.stringify(examName)}, date: ${JSON.stringify(date)}, time: { mode: 'perDay', minutes: 45 }, scale: 'ch', target: 5, pace: 'sprint' })`);
       await js(`window.dispatchEvent(new Event('focus'))`);
       await sleep(400);
       await js(`window.__nav({ name: 'exam', id: ${JSON.stringify(created.id)} })`);

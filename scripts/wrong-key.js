@@ -10,7 +10,7 @@ const os = require("os");
 const path = require("path");
 const { quiet, hideWindowsOf, sleep } = require("./hidden");
 
-app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "spurt-wrong-key-")));
+app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "aced-wrong-key-")));
 quiet();
 
 // Note every request the main process sends: where to, and the names (not the values) of its headers.

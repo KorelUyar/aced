@@ -9,7 +9,7 @@ const path = require("path");
 
 function helper() {
   if (process.platform !== "darwin") return null;
-  const file = app.isPackaged ? path.join(process.resourcesPath, "spurt-ocr") : path.join(__dirname, "..", "build", "bin", "spurt-ocr");
+  const file = app.isPackaged ? path.join(process.resourcesPath, "aced-ocr") : path.join(__dirname, "..", "build", "bin", "aced-ocr");
   return fs.existsSync(file) ? file : null;
 }
 

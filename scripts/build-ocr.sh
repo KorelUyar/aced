@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Builds the text recognition helper (native/ocr.swift) for Apple Silicon and Intel Macs,
-# as one file: build/bin/spurt-ocr. Needs Xcode's command line tools.
+# as one file: build/bin/aced-ocr. Needs Xcode's command line tools.
 # (A developer build that can also save the page pictures, or use only the fast recogniser:
 # add -D DEBUG to the swiftc line.)
 # The same source gives the same file, byte for byte. That matters: macOS builds the models of
@@ -16,6 +16,6 @@ for arch in arm64 x86_64; do
   xcrun swiftc -O -gnone -file-prefix-map "$PWD=." -target "$arch-apple-macos12.0" native/ocr.swift -o "$tmp/ocr-$arch"
   strip -x "$tmp/ocr-$arch"
 done
-lipo -create "$tmp/ocr-arm64" "$tmp/ocr-x86_64" -output build/bin/spurt-ocr
-codesign --force --sign - build/bin/spurt-ocr
-lipo -info build/bin/spurt-ocr
+lipo -create "$tmp/ocr-arm64" "$tmp/ocr-x86_64" -output build/bin/aced-ocr
+codesign --force --sign - build/bin/aced-ocr
+lipo -info build/bin/aced-ocr

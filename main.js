@@ -5,6 +5,7 @@ const path = require("path");
 const { pathToFileURL } = require("url");
 const brand = require("./src/brand");
 const store = require("./src/store");
+const move = require("./src/move");
 const files = require("./src/files");
 const ocr = require("./src/ocr");
 const secrets = require("./src/secrets");
@@ -21,7 +22,7 @@ require("./src/ai/anthropic").ignoreEnvironment();
 
 // The book is drawn inside the app's own page (ui/book.js). Its bytes come through this
 // address, which serves nothing but the copies of PDFs in the app's library.
-protocol.registerSchemesAsPrivileged([{ scheme: "spurt-book", privileges: { supportFetchAPI: true, stream: true, corsEnabled: true } }]);
+protocol.registerSchemesAsPrivileged([{ scheme: "aced-book", privileges: { supportFetchAPI: true, stream: true, corsEnabled: true } }]);
 
 // Only one copy of the app at a time: two would overwrite each other's file.
 const single = app.requestSingleInstanceLock();
@@ -33,9 +34,9 @@ app.on("second-instance", () => {
   win.focus();
 });
 
-// `--sample` (or SPURT_SAMPLE=1) starts with invented exams kept in memory only. It is how the
+// `--sample` (or ACED_SAMPLE=1) starts with invented exams kept in memory only. It is how the
 // screenshots are made; nothing is read from or written to the person's real data.
-const SAMPLE = process.argv.includes("--sample") || process.env.SPURT_SAMPLE === "1";
+const SAMPLE = process.argv.includes("--sample") || process.env.ACED_SAMPLE === "1";
 
 let win;
 const jobs = new Map(); // AbortController -> exam id: everything under way that "Cancel" must reach
@@ -53,9 +54,9 @@ function applyAppearance(value) {
   nativeTheme.themeSource = value === "light" || value === "dark" ? value : "system";
 }
 
-/** German on a German Mac, English everywhere else. (SPURT_LANG stands in for the Mac's language in tests.) */
+/** German on a German Mac, English everywhere else. (ACED_LANG stands in for the Mac's language in tests.) */
 function systemLang() {
-  const forced = !app.isPackaged && process.env.SPURT_LANG;
+  const forced = !app.isPackaged && process.env.ACED_LANG;
   const first = forced || (app.getPreferredSystemLanguages ? app.getPreferredSystemLanguages()[0] : "") || app.getLocale() || "en";
   return first.toLowerCase().startsWith("de") ? "de" : "en";
 }
@@ -78,7 +79,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      additionalArguments: [`--spurt-name=${brand.name}`, `--spurt-sample=${SAMPLE ? 1 : 0}`],
+      additionalArguments: [`--aced-name=${brand.name}`, `--aced-sample=${SAMPLE ? 1 : 0}`],
     },
   });
   win.once("ready-to-show", () => win.show());
@@ -165,7 +166,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler(() => false);
   // The book panel asks for a large file in parts (a 300 MB scan need not sit in memory whole):
   // a request with a Range gets exactly that part, said the way a web server says it.
-  protocol.handle("spurt-book", async (request) => {
+  protocol.handle("aced-book", async (request) => {
     const url = new URL(request.url);
     const name = url.pathname.replace(/^\/+/, "");
     // "parts": what pdf.js needs to draw a page, from the app's own files, by exact name.
@@ -189,11 +190,21 @@ app.whenReady().then(() => {
   const devIcon = path.join(__dirname, "build", "icon.png");
   if (isMac && !app.isPackaged && fs.existsSync(devIcon)) app.dock?.setIcon(devIcon);
   const userData = app.getPath("userData");
-  files.init(SAMPLE ? fs.mkdtempSync(path.join(os.tmpdir(), "spurt-sample-")) : userData);
-  // Test runs from the source folder can keep keys in memory only (SPURT_KEYS=memory), so they
+  files.init(SAMPLE ? fs.mkdtempSync(path.join(os.tmpdir(), "aced-sample-")) : userData);
+  // Test runs from the source folder can keep keys in memory only (ACED_KEYS=memory), so they
   // leave nothing in the keychain. The app people install always stores them.
-  secrets.init(userData, { persist: !SAMPLE && !(process.env.SPURT_KEYS === "memory" && !app.isPackaged) });
+  secrets.init(userData, { persist: !SAMPLE && !(process.env.ACED_KEYS === "memory" && !app.isPackaged) });
+  // What a person had in Spurt (the app's earlier name) comes along on the first start.
+  // (ACED_OLD_DATA names that folder in tests; the installed app looks where Spurt kept it.)
+  const oldData = app.isPackaged ? path.join(app.getPath("appData"), "Spurt") : process.env.ACED_OLD_DATA || null;
+  let moved = null;
+  try {
+    moved = SAMPLE ? null : move.fromSpurt(userData, oldData);
+  } catch (err) {
+    moved = { failed: String(err && err.message) };
+  }
   store.init({ dir: userData, sample: SAMPLE, systemLang: systemLang() });
+  if (moved) store.noteMove(moved);
   ai.init(() => store.settings());
   // Whatever an earlier run left without an owner goes. Not while the data file is unreadable:
   // then nothing is known to be without an owner.
@@ -277,7 +288,7 @@ handle("data:recover", (how) => {
   if (!SAMPLE) files.prune(store.references());
   buildMenu();
 });
-handle("data:reveal", () => shell.showItemInFolder(path.join(app.getPath("userData"), "spurt.json")));
+handle("data:reveal", () => shell.showItemInFolder(path.join(app.getPath("userData"), "aced.json")));
 
 handle("settings:set", async (patch) => {
   const before = origin(store.settings().ai.baseURL);

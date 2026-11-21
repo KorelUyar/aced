@@ -4,7 +4,7 @@
 import { html, useState, useEffect } from "./bits.js";
 import { t, errorText, errorCode, longDate } from "./i18n.js";
 
-const api = window.spurt;
+const api = window.aced;
 const NEEDS_SETTINGS = ["noProvider", "noKey", "badKey", "noCredit", "noModel", "noServer", "badAddress", "insecureAddress", "badAddressText", "usageLimit"];
 
 /**

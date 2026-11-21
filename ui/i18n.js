@@ -217,7 +217,7 @@ const STRINGS = {
     err_empty: "There is no text in it. Paste the text first.",
     err_keychain: "The Mac's keychain is not available, so the key cannot be stored safely. Unlock the keychain (or log in to the Mac again) and save the key once more.",
     err_provider: (d) => `The provider answered with an error: ${d || "no details"}. Try again; if it stays, check your account with the provider or choose another AI in Settings.`,
-    err_unknown: (d) => `Something went wrong${d ? ` (${d})` : ""}. Try again. If it keeps happening, quit Spurt and open it again.`,
+    err_unknown: (d) => `Something went wrong${d ? ` (${d})` : ""}. Try again. If it keeps happening, quit Aced and open it again.`,
     // ---- 0.2: the exam on one screen
     panels: "Beside the plan",
     undo: "Undo",
@@ -334,6 +334,11 @@ const STRINGS = {
     bookDamaged: "This PDF could not be opened. The file seems to be damaged.",
 
     // ---- the data file
+    whatItIs: "{app}: know exactly what to do before your exam.",
+    movedText: "This app used to be called Spurt. It is now called {app}, and everything you had in Spurt is here: your exams, your ticks and your books.",
+    movedKeys: "One thing could not come along: your saved API key. macOS keeps it locked under the old name, so please enter it once more in Settings.",
+    movedFailed: "This app used to be called Spurt. Your data from Spurt could not be brought over just now; it is still in Spurt's folder, untouched. Quit {app} and open it again to try once more.",
+    movedOk: "OK",
     damagedTitle: "Your exams could not be read",
     damagedText: "The file {app} keeps your exams in is damaged. Nothing has been overwritten, and the damaged file is kept whatever you choose.",
     damagedBackup: (date) => `There is a backup from ${date}: it holds your exams as they were when {app} last started without trouble.`,
@@ -566,7 +571,7 @@ const STRINGS = {
     err_empty: "Es ist kein Text darin. Füge zuerst den Text ein.",
     err_keychain: "Der Schlüsselbund des Macs ist nicht verfügbar, darum kann der Schlüssel nicht sicher gespeichert werden. Entsperr den Schlüsselbund (oder melde dich am Mac neu an) und speichere den Schlüssel nochmals.",
     err_provider: (d) => `Der Anbieter hat mit einem Fehler geantwortet: ${d || "ohne Details"}. Versuch es nochmals. Bleibt es dabei, prüf dein Konto beim Anbieter oder wähle in den Einstellungen eine andere KI.`,
-    err_unknown: (d) => `Etwas ist schiefgelaufen${d ? ` (${d})` : ""}. Versuch es nochmals. Wenn es wieder passiert, beende Spurt und öffne es neu.`,
+    err_unknown: (d) => `Etwas ist schiefgelaufen${d ? ` (${d})` : ""}. Versuch es nochmals. Wenn es wieder passiert, beende Aced und öffne es neu.`,
     // ---- 0.2: die Prüfung auf einem Bildschirm
     panels: "Neben dem Plan",
     undo: "Widerrufen",
@@ -683,6 +688,11 @@ const STRINGS = {
     bookDamaged: "Dieses PDF liess sich nicht öffnen. Die Datei scheint beschädigt zu sein.",
 
     // ---- die Datei mit den Daten
+    whatItIs: "{app}: Wisse genau, was vor deiner Prüfung zu tun ist.",
+    movedText: "Diese App hiess früher Spurt. Sie heisst jetzt {app}, und alles, was du in Spurt hattest, ist hier: deine Prüfungen, deine Haken und deine Bücher.",
+    movedKeys: "Eines konnte nicht mitkommen: dein gespeicherter API-Schlüssel. macOS hält ihn unter dem alten Namen verschlossen. Trag ihn bitte einmal neu in den Einstellungen ein.",
+    movedFailed: "Diese App hiess früher Spurt. Deine Daten aus Spurt liessen sich gerade nicht übernehmen; sie liegen unverändert im Ordner von Spurt. Beende {app} und öffne es nochmals, um es erneut zu versuchen.",
+    movedOk: "OK",
     damagedTitle: "Deine Prüfungen liessen sich nicht lesen",
     damagedText: "Die Datei, in der {app} deine Prüfungen speichert, ist beschädigt. Es wurde nichts überschrieben, und die beschädigte Datei bleibt erhalten, egal was du wählst.",
     damagedBackup: (date) => `Es gibt eine Sicherung vom ${date}: Sie enthält deine Prüfungen so, wie sie waren, als {app} das letzte Mal ohne Problem gestartet ist.`,
@@ -706,7 +716,7 @@ const STRINGS = {
   },
 };
 
-const APP = window.spurt?.name || "";
+const APP = window.aced?.name || "";
 let LANG = "en";
 
 export function setLang(lang) {

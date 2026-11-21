@@ -7,7 +7,7 @@ import { t, errorCode } from "./i18n.js";
 import { Rich } from "./rich.js";
 import { Problem } from "./claude.js";
 
-const api = window.spurt;
+const api = window.aced;
 
 export function Questions({ exam, what, run, app, toSettings }) {
   const [set, setSet] = useState(null);

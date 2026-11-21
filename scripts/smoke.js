@@ -9,7 +9,7 @@
 // "Claude Code" in these runs is a stand-in (scripts/fixtures/claude-stub.sh): nothing is sent anywhere.
 //
 // Add the path of a built app.asar to run the packaged files instead of the source folder:
-//   node_modules/.bin/electron scripts/smoke.js dist/mac-universal/Spurt.app/Contents/Resources/app.asar
+//   node_modules/.bin/electron scripts/smoke.js dist/mac-universal/Aced.app/Contents/Resources/app.asar
 const { app, dialog, BrowserWindow, Menu } = require("electron");
 const { execSync } = require("child_process");
 const assert = require("assert");
@@ -21,20 +21,20 @@ const { quiet, hideWindowsOf, sleep } = require("./hidden");
 const sample = process.argv.includes("sample");
 const damaged = process.argv.includes("damaged");
 const appDir = process.argv.find((a) => a.endsWith(".asar")) || path.join(__dirname, "..");
-if (sample) process.env.SPURT_SAMPLE = "1";
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-smoke-"));
+if (sample) process.env.ACED_SAMPLE = "1";
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), "aced-smoke-"));
 app.setPath("userData", userData);
 if (damaged) {
   // What a crash in the middle of a write could leave behind, next to the backup of the last good start.
   const good = { settings: { lang: "en", langFrom: "choice", appearance: "system", ai: { provider: null, models: {}, baseURL: "" } }, exams: [{ id: "e1", name: "Kept exam", date: "2099-01-01", time: { mode: "perDay", minutes: 30 }, scale: "ch", target: 5, pace: "sprint", materials: [], strategy: null, done: {} }] };
-  fs.writeFileSync(path.join(userData, "spurt.backup.json"), JSON.stringify(good));
-  fs.writeFileSync(path.join(userData, "spurt.json"), JSON.stringify(good).slice(0, 80));
+  fs.writeFileSync(path.join(userData, "aced.backup.json"), JSON.stringify(good));
+  fs.writeFileSync(path.join(userData, "aced.json"), JSON.stringify(good).slice(0, 80));
 }
 // "Claude Code" in this run is a stand-in whose sign-in state the test sets (see scripts/fixtures):
 // no real login is touched, and its sign-in runs without opening a Terminal window.
 const stateFile = path.join(userData, "claude-state");
 const stub = path.join(__dirname, "fixtures", "claude-stub.sh");
-Object.assign(process.env, { SPURT_CLAUDE: stub, SPURT_STUB_STATE: stateFile, SPURT_SIGNIN: "run" });
+Object.assign(process.env, { ACED_CLAUDE: stub, ACED_STUB_STATE: stateFile, ACED_SIGNIN: "run" });
 const signInState = (word) => fs.writeFileSync(stateFile, word);
 signInState("signedOut");
 quiet();
@@ -65,7 +65,7 @@ app.whenReady().then(async () => {
       Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set.call(el, ${JSON.stringify(text)});
       el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
   const text = (selector) => js(`document.querySelector(${JSON.stringify(selector)})?.textContent`);
-  const saved = () => JSON.parse(fs.readFileSync(path.join(userData, "spurt.json"), "utf8"));
+  const saved = () => JSON.parse(fs.readFileSync(path.join(userData, "aced.json"), "utf8"));
   const go = ".wizard-foot .btn.primary";
 
   const count = (selector) => js(`document.querySelectorAll(${JSON.stringify(selector)}).length`);
@@ -79,13 +79,13 @@ app.whenReady().then(async () => {
       // ---- a data file that cannot be read
       await until(`!!document.querySelector('#useBackup')`);
       assert.match(await text(".question h1"), /could not be read/);
-      const broken = fs.readFileSync(path.join(userData, "spurt.json"), "utf8");
-      await js(`window.spurt.setSettings({ appearance: 'dark' })`);
-      assert.equal(fs.readFileSync(path.join(userData, "spurt.json"), "utf8"), broken, "nothing is written over the damaged file before the person has chosen");
+      const broken = fs.readFileSync(path.join(userData, "aced.json"), "utf8");
+      await js(`window.aced.setSettings({ appearance: 'dark' })`);
+      assert.equal(fs.readFileSync(path.join(userData, "aced.json"), "utf8"), broken, "nothing is written over the damaged file before the person has chosen");
       await click("#useBackup");
       await until(`document.querySelectorAll('.exam-card').length === 1`);
       assert.equal(await text(".exam-name"), "Kept exam");
-      assert.ok(fs.readdirSync(userData).some((n) => n.startsWith("spurt.damaged-")), "the damaged file is kept under another name");
+      assert.ok(fs.readdirSync(userData).some((n) => n.startsWith("aced.damaged-")), "the damaged file is kept under another name");
       assert.equal(saved().exams.length, 1, "and the data file is whole again");
       // ---- the menu: a Mac app's own, nothing that reloads the page or opens developer tools
       const labels = [];
@@ -185,13 +185,13 @@ app.whenReady().then(async () => {
       await click(".estimate .btn.plain");
 
       // ---- settings: another server
-      await js(`window.spurt.setSettings({ ai: { provider: 'openai', baseURL: 'https://one.example/v1' } })`);
-      await js(`window.spurt.setKey('openai', 'a-test-key')`);
-      assert.equal(await js(`window.spurt.state().then((s) => s.ai.keys.openai)`), true);
-      await js(`window.spurt.setSettings({ ai: { provider: 'openai', baseURL: 'https://two.example/v1' } })`);
-      assert.equal(await js(`window.spurt.state().then((s) => s.ai.keys.openai)`), false, "a new address forgets the old key");
-      assert.equal(await js(`window.spurt.setSettings({ ai: { provider: 'openai', baseURL: 'http://two.example/v1' } }).then(() => 'accepted', (e) => e.message)`), "insecureAddress");
-      await js(`window.spurt.setSettings({ ai: { provider: null, baseURL: '' } })`);
+      await js(`window.aced.setSettings({ ai: { provider: 'openai', baseURL: 'https://one.example/v1' } })`);
+      await js(`window.aced.setKey('openai', 'a-test-key')`);
+      assert.equal(await js(`window.aced.state().then((s) => s.ai.keys.openai)`), true);
+      await js(`window.aced.setSettings({ ai: { provider: 'openai', baseURL: 'https://two.example/v1' } })`);
+      assert.equal(await js(`window.aced.state().then((s) => s.ai.keys.openai)`), false, "a new address forgets the old key");
+      assert.equal(await js(`window.aced.setSettings({ ai: { provider: 'openai', baseURL: 'http://two.example/v1' } }).then(() => 'accepted', (e) => e.message)`), "insecureAddress");
+      await js(`window.aced.setSettings({ ai: { provider: null, baseURL: '' } })`);
       await click(".bar-btn.square");
       await click(".ai .provider:nth-child(4) .pace");
       await until(`!!document.querySelector('#baseURL')`);
@@ -215,7 +215,7 @@ app.whenReady().then(async () => {
       assert.match(await text(".cc-state"), /not signed in/);
       await click("#ccSignIn"); // starts Claude Code's own sign-in (here: the stand-in's)
       await cc("waiting");
-      const command = fs.readdirSync(os.tmpdir()).filter((d) => d.startsWith("spurt-signin-")).map((d) => path.join(os.tmpdir(), d, "Sign in to Claude Code.command")).filter((f) => fs.existsSync(f)).pop();
+      const command = fs.readdirSync(os.tmpdir()).filter((d) => d.startsWith("aced-signin-")).map((d) => path.join(os.tmpdir(), d, "Sign in to Claude Code.command")).filter((f) => fs.existsSync(f)).pop();
       assert.ok(command && /auth login/.test(fs.readFileSync(command, "utf8")) && fs.statSync(command).mode & 0o100, "the sign-in is a script Terminal can run");
       await cc("ok"); // noticed by itself, no click
       await click("#test");
@@ -237,7 +237,7 @@ app.whenReady().then(async () => {
       }
       signInState("ok");
       // Not installed at all: get it, or use another AI. No circle.
-      process.env.SPURT_CLAUDE = path.join(userData, "no-claude-here");
+      process.env.ACED_CLAUDE = path.join(userData, "no-claude-here");
       await click(".ai .provider:nth-child(2) .pace");
       await click(".ai .provider:nth-child(1) .pace");
       await cc("missing");
@@ -250,7 +250,7 @@ app.whenReady().then(async () => {
       assert.ok((await has(".estimate #ccGet")) && (await has(".estimate #ccOther")), "from the exam too: get Claude Code, or choose another AI");
       await click("#ccOther");
       await until(`!!document.querySelector('.settings')`);
-      process.env.SPURT_CLAUDE = stub;
+      process.env.ACED_CLAUDE = stub;
       await back();
       // In the middle of a run: the strategy is refused because the sign-in has gone stale.
       signInState("stale");
@@ -326,7 +326,7 @@ app.whenReady().then(async () => {
       await click("#startAnalysis"); // "work it out again anyway"
       await until(`!!document.querySelector('.analysis .running')`);
       assert.match(await text(".analysis .running"), /0:0\d · usually one to two minutes/, "a run says how long it has been going and how long it usually takes");
-      assert.equal(await js(`window.spurt.analyze(${JSON.stringify(e.id)}).then(() => 'started', (err) => err.message)`), "busy", "the same run cannot be started twice");
+      assert.equal(await js(`window.aced.analyze(${JSON.stringify(e.id)}).then(() => 'started', (err) => err.message)`), "busy", "the same run cannot be started twice");
       await click(".bar > .bar-btn"); // back to the plan: the run is still shown there
       await until(`!!document.querySelector('.plan .running')`);
       await click(".bar > .bar-btn"); // and on the card at home
@@ -343,7 +343,7 @@ app.whenReady().then(async () => {
       await click("#finalStart");
       await until(`document.querySelectorAll('.question-card').length === 4`, 30000);
       const set = Object.values(exam().sets).find((x) => x.final);
-      assert.ok(!JSON.stringify(await js(`window.spurt.openSet(${JSON.stringify(e.id)}, { kind: 'final' })`)).includes("solution"), "the answers are not handed to the page before the exam is handed in");
+      assert.ok(!JSON.stringify(await js(`window.aced.openSet(${JSON.stringify(e.id)}, { kind: 'final' })`)).includes("solution"), "the answers are not handed to the page before the exam is handed in");
       await type(`[data-question="${set.questions[0].id}"] input`, "pH = 3,0");
       await sleep(700);
       assert.equal(exam().sets[set.key].draft[set.questions[0].id], "pH = 3,0", "what is typed is kept at once");
@@ -406,7 +406,7 @@ app.whenReady().then(async () => {
 
       // ---- an exam whose date has passed can still be opened, read and given a new date
       const past = new Date(Date.now() - 3 * 864e5).toLocaleDateString("sv");
-      await js(`window.spurt.editExam(${JSON.stringify(e.id)}, { date: ${JSON.stringify(past)} }).then(() => window.dispatchEvent(new Event('focus')))`);
+      await js(`window.aced.editExam(${JSON.stringify(e.id)}, { date: ${JSON.stringify(past)} }).then(() => window.dispatchEvent(new Event('focus')))`);
       await until(`/This exam was on/.test(document.querySelector('.path-now')?.textContent || '')`);
       await click(".path-now .link");
       await until(`/This date has passed/.test(document.querySelector('.question .hint')?.textContent || '')`);
@@ -423,7 +423,7 @@ app.whenReady().then(async () => {
       await until(`/points into a book that was removed/.test(document.querySelector('.plan-note')?.textContent || '')`);
       await click(".plan-note .link");
       await click(".toast-btn").catch(() => {});
-      await js(`window.spurt.restoreMaterial(${JSON.stringify(e.id)}, ${JSON.stringify(pdf)}).catch(() => {})`);
+      await js(`window.aced.restoreMaterial(${JSON.stringify(e.id)}, ${JSON.stringify(pdf)}).catch(() => {})`);
 
       // ---- edit, then delete
       await until(`!!document.querySelector('#editExam')`);
@@ -433,7 +433,7 @@ app.whenReady().then(async () => {
       await until(`/Säuren, Basen, Puffer/.test(document.querySelector('.facts')?.textContent || '')`);
       // ---- quitting in the middle of a run leaves no Claude Code process behind
       signInState("slow");
-      await js(`window.__run = 'under way'; window.spurt.analyze(${JSON.stringify(e.id)}, { again: true }).then(() => (window.__run = 'done'), (err) => (window.__run = err.message)); 0`);
+      await js(`window.__run = 'under way'; window.aced.analyze(${JSON.stringify(e.id)}, { again: true }).then(() => (window.__run = 'done'), (err) => (window.__run = err.message)); 0`);
       await until(`!!document.querySelector('.analysis .running')`);
       await sleep(1500);
       execSync("pgrep -f claude-stub.sh", { stdio: "pipe" }); // it is running now (throws if not)
@@ -493,7 +493,7 @@ app.whenReady().then(async () => {
       await click(".bar-btn.square");
       await click(".ai .provider:nth-child(2) .pace");
       await until(`!!document.querySelector('#key')`);
-      assert.ok(!fs.existsSync(path.join(userData, "spurt.json")), "sample data is never written to disk");
+      assert.ok(!fs.existsSync(path.join(userData, "aced.json")), "sample data is never written to disk");
       console.log("ok: the sample exams: plan, formulas, a final exam, questions on a topic, settings");
     }
     // (The refused fetch of a file, tried on purpose above, is the one error that belongs there.)

@@ -13,7 +13,7 @@ const path = require("path");
 const { SCALE, quiet, hideWindowsOf, capture, sleep } = require("./hidden");
 
 const shots = process.argv.slice(2).find((a) => !a.startsWith("--") && !a.endsWith("checks.js"));
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-checks-"));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), "aced-checks-"));
 app.setPath("userData", userData);
 quiet();
 const mainFile = path.join(__dirname, "..", "main.js");
@@ -40,7 +40,7 @@ app.whenReady().then(async () => {
     await sleep(90);
   };
   const focused = () => js(`(() => { const el = document.activeElement; return el ? (el.id || el.className || el.tagName) + '|' + (el.textContent || '').trim().slice(0, 30) : '' })()`);
-  const saved = () => JSON.parse(fs.readFileSync(path.join(userData, "spurt.json"), "utf8"));
+  const saved = () => JSON.parse(fs.readFileSync(path.join(userData, "aced.json"), "utf8"));
   const shot = async (name) => {
     if (!shots) return;
     fs.mkdirSync(shots, { recursive: true });
@@ -174,14 +174,14 @@ app.whenReady().then(async () => {
     console.log("ok: the wizard: dates that are none or far away, arrow keys, Enter, Escape");
 
     // ---- German: nothing is cut off in the grade step
-    await js(`window.spurt.setSettings({ lang: 'de' }).then(() => window.dispatchEvent(new Event('focus')))`);
+    await js(`window.aced.setSettings({ lang: 'de' }).then(() => window.dispatchEvent(new Event('focus')))`);
     await sleep(400);
     await js(`window.__nav({ name: 'new', step: 4, draft: { name: 'Noten' } })`);
     await until(`!!document.querySelector('.grade-foot .seg')`);
     await shot("check-grade-de");
     assert.deepEqual(await js(`[...document.querySelectorAll('.grade-foot .seg button')].map((b) => b.scrollWidth <= b.clientWidth + 1 && b.scrollHeight <= b.clientHeight + 1)`), [true, true, true], "the scale names fit their buttons");
     assert.equal(await js(`(() => { const s = document.querySelector('.grade-foot'); return s.scrollWidth <= s.clientWidth + 1; })()`), true);
-    await js(`window.spurt.setSettings({ lang: 'en' }).then(() => window.dispatchEvent(new Event('focus')))`);
+    await js(`window.aced.setSettings({ lang: 'en' }).then(() => window.dispatchEvent(new Event('focus')))`);
     await sleep(300);
     await js(`window.__nav({ name: 'home' })`);
     console.log("ok: German labels fit");

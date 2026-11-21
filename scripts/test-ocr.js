@@ -21,7 +21,7 @@ const zlib = require("zlib");
 const { quiet, hiddenWindow, capture } = require("./hidden");
 
 quiet();
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-test-ocr-"));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aced-test-ocr-"));
 app.setPath("userData", dir);
 // A helper window is opened and closed along the way (to make the pictures); that must not end the run.
 app.on("window-all-closed", () => {});
@@ -210,7 +210,7 @@ async function helperChecks() {
   const ocr = require("../src/ocr");
   const files = require("../src/files");
   const { checkExercise } = require("../src/engine");
-  const helper = path.join(__dirname, "..", "build", "bin", "spurt-ocr");
+  const helper = path.join(__dirname, "..", "build", "bin", "aced-ocr");
   assert.ok(ocr.available(), "the helper is not built: run scripts/build-ocr.sh first");
 
   const pages = bookPages();
@@ -239,7 +239,7 @@ async function helperChecks() {
   ok(states.length >= pages.length && new Set(states).size === 1, "one recogniser from the first page to the last");
   ok(steps.every((step, i) => i === 0 || step[0] >= steps[i - 1][0]), "the page count only goes up");
   same(texts.length, pages.length);
-  if (process.env.SPURT_TEST_TRACE) console.log(texts.map((text, i) => `--- page ${i + 1}\n${text}`).join("\n"));
+  if (process.env.ACED_TEST_TRACE) console.log(texts.map((text, i) => `--- page ${i + 1}\n${text}`).join("\n"));
   ok(wordsIn(texts[0], ["Chemie", "Grundlagen", "Lehrmittel"]) === 3, "the title page is read");
   ok(wordsIn(texts[4], ["Brønsted", "Säure", "Teilchen", "Proton", "Protonendonator", "Protonenakzeptor", "Wasser", "reagieren"]) >= 7, "running text is read, umlauts and all: " + texts[4].slice(0, 200));
   ok(/(^|\n)1\. Gib für/.test(texts[5]) && /(^|\n)4\. Formuliere/.test(texts[5]), "the exercises keep their numbers: " + texts[5]);
@@ -281,7 +281,7 @@ app.whenReady().then(async () => {
   let failed = false;
   try {
     for (const part of [offsetChecks, labelChecks, helperChecks]) {
-      if (process.env.SPURT_TEST_TRACE) console.log("…", part.name);
+      if (process.env.ACED_TEST_TRACE) console.log("…", part.name);
       await part();
     }
     console.log(`ok: ${checks} checks`);

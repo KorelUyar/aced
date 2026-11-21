@@ -118,7 +118,7 @@ async function complete({ key, baseURL, flavour, model, system, material, prompt
   };
   // Other servers are asked to report token counts at the end of the stream, where they know how.
   const counted = openrouter ? {} : { stream_options: { include_usage: true } };
-  const headers = openrouter ? { "X-Title": "Spurt" } : {};
+  const headers = openrouter ? { "X-Title": "Aced" } : {};
   // Structured output where the server has it; servers that do not know it get the schema in words.
   const inWords = (b) => ({
     ...b,

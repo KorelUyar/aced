@@ -1,9 +1,9 @@
-// spurt-ocr: reads the text of a PDF whose pages are pictures or outlines (a scan, or a book
+// aced-ocr: reads the text of a PDF whose pages are pictures or outlines (a scan, or a book
 // saved from a web reader that draws its letters as shapes). Uses the text recognition built
 // into macOS (Vision), on this Mac: nothing is sent anywhere.
 //
-//   spurt-ocr <file.pdf> [first-page] [last-page]
-//   spurt-ocr --prepare          only gets the recogniser ready (see below), reads nothing
+//   aced-ocr <file.pdf> [first-page] [last-page]
+//   aced-ocr --prepare          only gets the recogniser ready (see below), reads nothing
 //
 // Prints one line of JSON per step, as it goes:
 //   {"page":0,"total":90}                           at once: the file is open, nothing is read yet
@@ -126,12 +126,12 @@ func lines(_ observations: [VNRecognizedTextObservation]) -> String {
     return lines.map { line in line.sorted { $0.box.minX < $1.box.minX }.map { $0.text }.joined(separator: "  ") }.joined(separator: "\n")
 }
 
-// Only in a developer build (swiftc -D DEBUG): SPURT_OCR_DEBUG=<folder> also saves each page's
-// picture there, and SPURT_OCR_LEVEL=fast skips the accurate recogniser. The helper that ships
+// Only in a developer build (swiftc -D DEBUG): ACED_OCR_DEBUG=<folder> also saves each page's
+// picture there, and ACED_OCR_LEVEL=fast skips the accurate recogniser. The helper that ships
 // takes no settings and cannot be told to write files anywhere.
 #if DEBUG
-let debugFolder = ProcessInfo.processInfo.environment["SPURT_OCR_DEBUG"]
-let onlyFast = ProcessInfo.processInfo.environment["SPURT_OCR_LEVEL"] == "fast"
+let debugFolder = ProcessInfo.processInfo.environment["ACED_OCR_DEBUG"]
+let onlyFast = ProcessInfo.processInfo.environment["ACED_OCR_LEVEL"] == "fast"
 #else
 let debugFolder: String? = nil
 let onlyFast = false

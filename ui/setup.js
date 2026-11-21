@@ -5,7 +5,7 @@ import { html, useState, useEffect, useRef, Icon, RunNote, thousands, money, mod
 import { t, errorCode, longDate } from "./i18n.js";
 import { ClaudeState, Problem } from "./claude.js";
 
-const api = window.spurt;
+const api = window.aced;
 const KINDS = ["book", "objectives", "slides", "notes", "oldExam"];
 
 export function Setup({ exam, run, app, toSettings }) {

@@ -3,7 +3,7 @@
 //   node_modules/.bin/electron scripts/test-book.js [folder with PDFs] [--shots=folder]
 //
 // The app is started with an empty scratch folder, test books are put into its library, and
-// the panel is mounted over the app's own page (so its CSP and its spurt-book:// address apply).
+// the panel is mounted over the app's own page (so its CSP and its aced-book:// address apply).
 // The books are made here, from our own text:
 // - "outlined": every letter a filled shape, printed to PDF by Chromium (how a book saved from
 //   a web reader looks: no text, thousands of paths, large pages)
@@ -26,7 +26,7 @@ const args = process.argv.slice(2).filter((a) => !a.startsWith("--") && a !== __
 const folder = args.length ? path.resolve(args[args.length - 1]) : null;
 const shotsArg = process.argv.find((a) => a.startsWith("--shots="));
 const shots = shotsArg ? path.resolve(shotsArg.slice(8)) : null;
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-book-"));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), "aced-book-"));
 app.setPath("userData", userData);
 quiet();
 const mainFile = path.join(__dirname, "..", "main.js");
@@ -140,7 +140,7 @@ function lockedPdf(password) {
   const padding = Buffer.from("28bf4e5e4e758a4164004e56fffa01082e2e00b6d0683e802f0ca9fe6453697a", "hex");
   const padded = (word) => Buffer.concat([Buffer.from(word, "latin1"), padding]).subarray(0, 32);
   const fifty = (hash) => Array.from({ length: 50 }).reduce((h) => md5(h), hash);
-  const id = md5(Buffer.from("spurt test book"));
+  const id = md5(Buffer.from("aced test book"));
   const permissions = Buffer.alloc(4);
   permissions.writeInt32LE(-3904);
   const owner = twenty(fifty(md5(padded(password + " (owner)"))), padded(password));

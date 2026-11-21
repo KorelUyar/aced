@@ -1,18 +1,18 @@
 #!/bin/zsh
 # A stand-in for the `claude` command in tests, so that every state a person can be in with
 # Claude Code can be played through without touching a real login or sending anything. It
-# answers the three things Spurt asks of Claude Code the way the real one does (texts and exit
+# answers the three things Aced asks of Claude Code the way the real one does (texts and exit
 # codes taken from it):
 #
 #   auth status --json     auth login     -p … (a request, read from standard input)
 #
-# The state is one word in the file named by SPURT_STUB_STATE:
+# The state is one word in the file named by ACED_STUB_STATE:
 #   signedOut   no login                      expired   a login whose end date has passed
 #   stale       a login that looks fine but is refused when used
 #   ok          signed in: a request is answered with the prepared answer for its task (stub/*.json)
 #   slow        like ok, after half a minute (to look at a run under way, cancel it, quit during it)
 #   usagelimit, offline, overloaded, badmodel, empty   signed in, and every request fails that way
-state_file="${SPURT_STUB_STATE:?SPURT_STUB_STATE is not set}"
+state_file="${ACED_STUB_STATE:?ACED_STUB_STATE is not set}"
 state="$(cat "$state_file" 2>/dev/null || echo signedOut)"
 here="${0:A:h}/stub"
 

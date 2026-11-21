@@ -13,7 +13,7 @@ const os = require("os");
 const path = require("path");
 const Module = require("module");
 
-app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "spurt-window-")));
+app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "aced-window-")));
 let found;
 const first = new Promise((resolve) => (found = resolve));
 const mainFile = path.join(__dirname, "..", "main.js");

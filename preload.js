@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
-const arg = (key) => (process.argv.find((a) => a.startsWith(`--spurt-${key}=`)) || "").split("=")[1];
+const arg = (key) => (process.argv.find((a) => a.startsWith(`--aced-${key}=`)) || "").split("=")[1];
 
 // Every call resolves to its value, or throws an Error the interface has a sentence for.
 // Only an Error's message survives the way from here into the page, so the code and the
@@ -16,7 +16,7 @@ const on = (channel) => (cb) => {
   return () => ipcRenderer.removeListener(channel, listener);
 };
 
-contextBridge.exposeInMainWorld("spurt", {
+contextBridge.exposeInMainWorld("aced", {
   platform: process.platform,
   name: arg("name"),
   sample: arg("sample") === "1",
