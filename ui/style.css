@@ -728,293 +728,12 @@ input[type="date"].field {
   margin-top: 44px;
 }
 
-/* ------------------------------------------------------------ one exam */
-
-.exam-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 24px;
-  margin: 6px 0 26px;
-}
-
-.exam-head h1 {
-  font-size: 24px;
-}
-
-.exam-head p {
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.next {
-  padding: 30px 32px 28px;
-  background: var(--sheet);
-  border-radius: 22px;
-  box-shadow: inset 0 0 0 1px var(--rule);
-}
-
-.next .kicker {
-  color: var(--muted);
-  font-weight: 540;
-}
-
-.next h2 {
-  font-size: 27px;
-  margin-top: 10px;
-}
-
-.next .where {
-  margin-top: 10px;
-  font-size: 18px;
-  color: var(--ink);
-}
-
-.next .why {
-  margin-top: 14px;
-  max-width: 58ch;
-  color: var(--muted);
-}
-
-.next .actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 26px;
-}
-
-.after {
-  margin-top: 26px;
-  padding: 0 32px;
-}
-
-.after h3 {
-  font-size: 14px;
-  font-weight: 540;
-  font-stretch: 100%;
-  letter-spacing: 0;
-  color: var(--muted);
-  margin-bottom: 4px;
-}
-
-.after li {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 9px 0;
-  list-style: none;
-}
-
-.after ul {
-  padding: 0;
-}
-
-.after li.done {
-  color: var(--muted);
-}
-
-.after li.done span:first-child {
-  text-decoration: line-through;
-}
-
-.standing {
-  margin-top: 34px;
-  padding: 26px 32px 0;
-  box-shadow: inset 0 1px 0 var(--rule);
-}
-
-.standing .row {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-
-.standing .row strong {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.standing small {
-  display: block;
-  margin-top: 12px;
-  font-size: 13.5px;
-  color: var(--muted);
-}
-
-/* strategy */
-
-.strategy-head h2 {
-  font-size: 24px;
-}
-
-.strategy-head p {
-  margin-top: 12px;
-}
-
-.strategy-head .budget {
-  color: var(--muted);
-}
-
-.topics {
-  list-style: none;
-  padding: 0;
-  margin-top: 26px;
-}
-
-.topic {
-  box-shadow: inset 0 1px 0 var(--rule);
-}
-
-.topic-head {
-  display: grid;
-  grid-template-columns: 22px 1fr auto 16px;
-  align-items: baseline;
-  gap: 14px;
-  width: 100%;
-  padding: 17px 0;
-}
-
-.topic-head .rank {
-  color: var(--muted);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.topic-head strong {
-  display: block;
-  font-size: 17px;
-  font-weight: 620;
-  font-stretch: 104%;
-  color: var(--ink);
-}
-
-.topic-head .tag {
-  display: inline-block;
-  margin-top: 4px;
-  font-size: 14px;
-  color: var(--muted);
-}
-
 mark {
   padding: 1px 6px;
   margin: 0 8px 0 -6px;
   border-radius: 3px 6px 4px 7px;
   background: var(--marker);
   color: #14161b;
-}
-
-.topic-head .time {
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-
-.topic-head .icon {
-  align-self: center;
-  color: var(--muted);
-  transition: transform 0.2s var(--ease);
-}
-
-.topic-head[aria-expanded="true"] .icon {
-  transform: rotate(180deg);
-}
-
-.topic-body {
-  padding: 2px 30px 24px 36px;
-}
-
-.topic-body .why {
-  max-width: 60ch;
-  color: var(--text);
-}
-
-.steps {
-  display: grid;
-  grid-template-columns: 64px 1fr auto;
-  gap: 9px 16px;
-  margin: 18px 0 0;
-}
-
-.steps dt {
-  color: var(--muted);
-}
-
-.steps dd {
-  color: var(--ink);
-}
-
-.steps .time {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.topic-body .covers {
-  margin-top: 18px;
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.dropped {
-  box-shadow: inset 0 1px 0 var(--rule);
-  padding-top: 6px;
-}
-
-.dropped > button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 0;
-  color: var(--muted);
-  font-weight: 540;
-}
-
-.dropped > button:hover {
-  color: var(--ink);
-}
-
-.dropped li {
-  list-style: none;
-  padding: 10px 0 10px 36px;
-  max-width: 68ch;
-}
-
-.dropped ul {
-  padding: 0;
-}
-
-.dropped li strong {
-  display: block;
-  color: var(--ink);
-  font-weight: 600;
-  text-decoration: line-through;
-  text-decoration-color: var(--muted);
-}
-
-.dropped li span {
-  color: var(--muted);
-}
-
-/* ------------------------------------------------------------ quiz */
-
-.quiz-top {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  margin-bottom: 44px;
-}
-
-.quiz-top .segs {
-  flex: 1;
-}
-
-.quiz-top .muted {
-  font-size: 13.5px;
-  white-space: nowrap;
-}
-
-.q-meta {
-  color: var(--muted);
-  margin-bottom: 10px;
 }
 
 .q-prompt {
@@ -1058,26 +777,8 @@ mark {
   cursor: default;
 }
 
-.choice.is-right {
-  box-shadow: inset 0 0 0 2px var(--right);
-  background: var(--right-soft);
-}
-
-.choice.is-wrong {
-  box-shadow: inset 0 0 0 2px var(--wrong);
-  background: var(--wrong-soft);
-}
-
 .choice .icon {
   margin-left: auto;
-}
-
-.choice.is-right .icon {
-  color: var(--right);
-}
-
-.choice.is-wrong .icon {
-  color: var(--wrong);
 }
 
 .answer {
@@ -1109,33 +810,6 @@ mark {
   outline: 0;
 }
 
-.quiz-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 24px;
-}
-
-.feedback {
-  margin-top: 16px;
-  padding: 20px 22px;
-  border-radius: 16px;
-  background: var(--partly-soft);
-  --tone: var(--partly);
-  user-select: text;
-}
-
-.feedback.right {
-  background: var(--right-soft);
-  --tone: var(--right);
-}
-
-.feedback.wrong {
-  background: var(--wrong-soft);
-  --tone: var(--wrong);
-}
-
 .verdict {
   display: flex;
   align-items: center;
@@ -1143,49 +817,6 @@ mark {
   color: var(--tone);
   font-weight: 640;
   font-size: 16px;
-}
-
-.verdict .score {
-  margin-left: auto;
-  font-weight: 560;
-  font-variant-numeric: tabular-nums;
-}
-
-.feedback p {
-  margin-top: 10px;
-  color: var(--ink);
-  max-width: 60ch;
-}
-
-.feedback .solution {
-  font-weight: 600;
-}
-
-/* only the label: the answer itself may hold a formula, which is made of spans too */
-.feedback .solution > span:first-child {
-  display: block;
-  font-weight: 420;
-  font-size: 13.5px;
-  color: var(--tone);
-}
-
-.later-note {
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.result {
-  text-align: center;
-  margin-top: 8vh;
-}
-
-.result .grade {
-  margin: 18px 0 10px;
-}
-
-.result p {
-  color: var(--muted);
-  margin-bottom: 30px;
 }
 
 /* ------------------------------------------------------------ settings */
@@ -1268,11 +899,6 @@ mark {
   font-size: 17px;
   max-width: 56ch;
   margin-bottom: 22px;
-}
-
-.lead.small {
-  font-size: 15px;
-  color: var(--muted);
 }
 
 .problem {
@@ -1504,156 +1130,6 @@ select.field {
   padding: 0;
 }
 
-.day {
-  display: grid;
-  grid-template-columns: 170px 1fr;
-  gap: 4px 20px;
-  padding: 16px 0;
-  box-shadow: inset 0 1px 0 var(--rule);
-}
-
-.day h3 {
-  font-size: 15px;
-  font-weight: 560;
-  font-stretch: 100%;
-  letter-spacing: 0;
-  line-height: 1.5;
-  color: var(--muted);
-}
-
-.day.now h3,
-.day.exam-day h3 {
-  color: var(--ink);
-  font-weight: 640;
-}
-
-.day ul {
-  list-style: none;
-  padding: 0;
-  display: grid;
-  gap: 10px;
-}
-
-.day ul li {
-  display: grid;
-  grid-template-columns: 18px 1fr auto;
-  gap: 8px;
-  align-items: baseline;
-  color: var(--ink);
-}
-
-.day small {
-  display: block;
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.day .tick {
-  color: var(--right);
-  align-self: center;
-}
-
-.day li.done {
-  color: var(--muted);
-}
-
-.day.exam-day p {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.practice {
-  margin-top: 30px;
-}
-
-.next + .practice {
-  margin-top: 34px;
-}
-
-.practice:first-child {
-  margin-top: 0;
-}
-
-.practice h3 {
-  font-size: 14px;
-  font-weight: 540;
-  font-stretch: 100%;
-  letter-spacing: 0;
-  color: var(--muted);
-  margin-bottom: 4px;
-}
-
-.practice ul {
-  list-style: none;
-  padding: 0;
-}
-
-.practice li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 14px 0;
-  box-shadow: inset 0 -1px 0 var(--rule);
-}
-
-.practice li div {
-  flex: 1;
-  min-width: 0;
-}
-
-.practice li strong {
-  display: block;
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.practice li div span {
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.practice .lane {
-  max-width: 240px;
-  margin: 9px 9px 7px 0;
-}
-
-.practice .lane::after {
-  display: none;
-}
-
-.practice.history li {
-  padding: 9px 0;
-}
-
-/* ------------------------------------------------------------ strategy details */
-
-.strategy-head .budget strong {
-  display: block;
-  margin-top: 8px;
-  color: var(--ink);
-  font-weight: 560;
-}
-
-.steps dd small {
-  display: block;
-  font-size: 13.5px;
-  color: var(--partly);
-}
-
-.steps .mini {
-  margin: -4px 0 -4px 4px;
-}
-
-.covers ul {
-  margin-top: 6px;
-  padding-left: 18px;
-}
-
-.covers li + li {
-  margin-top: 2px;
-}
-
 /* ------------------------------------------------------------ settings: AI */
 
 .ai {
@@ -1762,7 +1238,6 @@ select.field {
 }
 
 .analysis .problem-box,
-.quiz-foot + .problem-box,
 .page.focus > .problem-box {
   margin-top: 16px;
 }
@@ -2308,15 +1783,6 @@ select.field {
 
 .formula-tex .math.block {
   margin: 6px 0 4px;
-  text-align: left;
-}
-
-.formula-tex .katex-display {
-  margin: 0;
-  text-align: left;
-}
-
-.formula-tex .katex-display > .katex {
   text-align: left;
 }
 
