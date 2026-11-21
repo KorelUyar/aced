@@ -17,7 +17,7 @@
   "scripts": {
     "start": "electron .",
     "sample": "electron . --sample",
-    "test": "electron scripts/test.js && electron scripts/test-ocr.js",
+    "test": "electron scripts/test.js && electron scripts/test-ocr.js && electron scripts/test-book.js",
     "smoke": "electron scripts/smoke.js && electron scripts/smoke.js sample && electron scripts/smoke.js damaged",
     "checks": "electron scripts/checks.js",
     "shots": "electron scripts/shots.js docs/shots light && electron scripts/shots.js docs/shots dark && electron scripts/sheet.js docs/shots",

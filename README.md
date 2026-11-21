@@ -118,6 +118,14 @@ them misbehaves for you, please [open an issue](https://github.com/KorelUyar/spu
   come out wrong. The book panel always shows the real page.
 - **A small model gives a weak plan.** With a small local model, expect vague topics and page
   references that do not hold. Spurt leaves out references to pages the model was not shown.
+- **The book is only a picture.** A PDF is untrusted: in the panel nothing in it can be clicked,
+  no script in it runs, and it cannot open a window or leave the app. The page that shows it
+  has a strict content policy. The part of pdf.js that decodes the file runs as a worker beside
+  that page, and a worker loaded from the app's own files is not under that policy. pdf.js is
+  told never to evaluate anything from a PDF, and keys never reach the window or the worker.
+- **The first book without text after an install or update takes a minute longer.** macOS
+  prepares its text recognition once; Spurt starts that in the background when it opens and
+  says so if you are faster.
 - **Your data file has a backup.** Every start that can read your exams keeps a copy. If the
   file is ever damaged, Spurt says so, overwrites nothing, and offers the copy.
 - **After an update, macOS may ask once** whether Spurt may read its saved key from the

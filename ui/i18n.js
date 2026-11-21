@@ -323,6 +323,10 @@ const STRINGS = {
     expect_questions: "usually about a minute",
     expect_marks: "a few seconds",
     cc_other: "Use another AI",
+    bookZoomIn: "Zoom in",
+    bookZoomOut: "Zoom out",
+    bookLocked: "This PDF is protected with a password, so it cannot be shown here.",
+    bookDamaged: "This PDF could not be opened. The file seems to be damaged.",
 
     // ---- the data file
     damagedTitle: "Your exams could not be read",
@@ -663,6 +667,10 @@ const STRINGS = {
     expect_questions: "meist etwa eine Minute",
     expect_marks: "ein paar Sekunden",
     cc_other: "Andere KI verwenden",
+    bookZoomIn: "Vergrössern",
+    bookZoomOut: "Verkleinern",
+    bookLocked: "Dieses PDF ist mit einem Passwort geschützt und lässt sich hier nicht anzeigen.",
+    bookDamaged: "Dieses PDF liess sich nicht öffnen. Die Datei scheint beschädigt zu sein.",
 
     // ---- die Datei mit den Daten
     damagedTitle: "Deine Prüfungen liessen sich nicht lesen",

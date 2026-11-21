@@ -5,7 +5,7 @@
 // and nothing in it can open a window or leave the page.
 import * as pdfjs from "./vendor/pdfjs/pdf.min.mjs";
 import { html, useState, useEffect, useRef, Icon, printed } from "./bits.js";
-import { t, lang } from "./i18n.js";
+import { t } from "./i18n.js";
 
 const VENDOR = new URL("./vendor/pdfjs/", import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = VENDOR + "pdf.worker.min.mjs";
@@ -19,18 +19,6 @@ const MAX_PIXELS = 16e6; // of one page's picture; a larger page is drawn a litt
 const PAPER = Math.SQRT2; // height by width of a page, until the book tells
 const WHOLE = 1 << 27; // bytes: a larger book is read in parts where the app hands out parts
 const PART = 1 << 16; // bytes of such a part
-
-// Words this panel needs that the app's list may not have yet.
-const WORDS = {
-  bookZoomIn: { en: "Zoom in", de: "Vergrössern" },
-  bookZoomOut: { en: "Zoom out", de: "Verkleinern" },
-  bookLocked: { en: "This PDF is protected with a password, so it cannot be shown here.", de: "Dieses PDF ist mit einem Passwort geschützt und lässt sich hier nicht anzeigen." },
-  bookDamaged: { en: "This PDF could not be opened. The file seems to be damaged.", de: "Dieses PDF liess sich nicht öffnen. Die Datei scheint beschädigt zu sein." },
-};
-const say = (key) => {
-  const text = t(key);
-  return text !== key || !WORDS[key] ? text : WORDS[key][lang()] || WORDS[key].en;
-};
 
 let open = null; // the book opened last (see bookOf): it stays open, so coming back to it is instant
 const zooms = new Map(); // hash -> the zoom the person chose for that book
@@ -221,7 +209,9 @@ function showPages(box, run, hash, pageCount, tell) {
 
   /** What is at the top of the view now, to find it again after the pages change size. */
   function anchor() {
-    const x = box.scrollWidth > box.clientWidth ? (box.scrollLeft + box.clientWidth / 2) / box.scrollWidth : 0.5;
+    // The left edge of what is in view stays where it is: zooming in from the start of the
+    // lines keeps the start of the lines, instead of cutting them off on both sides.
+    const x = box.scrollWidth > box.clientWidth ? box.scrollLeft / box.scrollWidth : 0;
     if (pin || !view) return { pin: pin || current, x };
     const i = firstAt(box.scrollTop);
     const over = box.scrollTop - tops[i];
@@ -241,7 +231,7 @@ function showPages(box, run, hash, pageCount, tell) {
     run.style.height = `${y - GAP + PAD}px`;
     for (const sheet of sheets.values()) put(sheet);
     box.scrollTop = keep.pin ? topOf(keep.pin) : tops[keep.i] + keep.before + keep.part * heightOf(keep.i);
-    box.scrollLeft = keep.x * box.scrollWidth - box.clientWidth / 2;
+    box.scrollLeft = keep.x * box.scrollWidth;
     lastY = box.scrollTop;
     place();
   }
@@ -569,9 +559,9 @@ function Pages({ material, page, onPage, jump }) {
       <strong>${material.title}</strong>
       ${!problem &&
       html`<span class="zoom">
-          <button class="mini" aria-label=${say("bookZoomOut")} disabled=${zoom <= ZOOMS[0]} onClick=${() => step(-1)}><${Icon} name="minus" /></button>
+          <button class="mini" aria-label=${t("bookZoomOut")} disabled=${zoom <= ZOOMS[0]} onClick=${() => step(-1)}><${Icon} name="minus" /></button>
           <small class="num">${Math.round(zoom * 100)}%</small>
-          <button class="mini" aria-label=${say("bookZoomIn")} disabled=${zoom >= ZOOMS[ZOOMS.length - 1]} onClick=${() => step(1)}><${Icon} name="plus" /></button>
+          <button class="mini" aria-label=${t("bookZoomIn")} disabled=${zoom >= ZOOMS[ZOOMS.length - 1]} onClick=${() => step(1)}><${Icon} name="plus" /></button>
         </span>
         <span class="pager">
           <button class="mini" aria-label=${t("bookBack")} disabled=${at <= 1} onClick=${() => turn(at - 1)}><${Icon} name="back" /></button>
@@ -581,7 +571,7 @@ function Pages({ material, page, onPage, jump }) {
     </header>
     <div class="book-page" ref=${box} data-state="loading" role="region" tabindex="0" aria-label=${material.title}>
       <div class="book-run" ref=${run}></div>
-      ${problem && html`<p class="muted">${problem === "locked" ? say("bookLocked") : problem === "damaged" ? say("bookDamaged") : t("bookFailed")}</p>`}
+      ${problem && html`<p class="muted">${problem === "locked" ? t("bookLocked") : problem === "damaged" ? t("bookDamaged") : t("bookFailed")}</p>`}
     </div>
   </section>`;
 }

@@ -163,11 +163,21 @@ app.whenReady().then(() => {
   // Nothing in this app needs the camera, the location or any other permission a page can ask for.
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, answer) => answer(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
-  protocol.handle("spurt-book", (request) => {
+  // The book panel asks for a large file in parts (a 300 MB scan need not sit in memory whole):
+  // a request with a Range gets exactly that part, said the way a web server says it.
+  protocol.handle("spurt-book", async (request) => {
     const hash = new URL(request.url).pathname.replace(/^\/+/, "");
     const file = /^[a-f0-9]{64}$/.test(hash) ? files.pdfPath(hash) : null;
     if (!file || !fs.existsSync(file)) return new Response("not found", { status: 404 });
-    return net.fetch(pathToFileURL(file).href, { headers: request.headers });
+    const size = fs.statSync(file).size;
+    const headers = { "Content-Type": "application/pdf", "Accept-Ranges": "bytes" };
+    const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers.get("Range") || "");
+    if (!range) return new Response((await net.fetch(pathToFileURL(file).href)).body, { headers: { ...headers, "Content-Length": String(size) } });
+    const from = Number(range[1]);
+    const to = Math.min(range[2] ? Number(range[2]) : size - 1, size - 1);
+    if (from > to) return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+    const part = await net.fetch(pathToFileURL(file).href, { headers: { Range: `bytes=${from}-${to}` } });
+    return new Response(part.body, { status: 206, headers: { ...headers, "Content-Length": String(to - from + 1), "Content-Range": `bytes ${from}-${to}/${size}` } });
   });
   // Run from the source folder, the Dock would show Electron's icon.
   const devIcon = path.join(__dirname, "build", "icon.png");

@@ -1786,6 +1786,15 @@ select.field {
   text-align: left;
 }
 
+.formula-tex .katex-display {
+  margin: 0;
+  text-align: left;
+}
+
+.formula-tex .katex-display > .katex {
+  text-align: left;
+}
+
 .formula p {
   font-size: 14px;
   color: var(--muted);
