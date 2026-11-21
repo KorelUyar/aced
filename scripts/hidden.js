@@ -1,0 +1,67 @@
+// Shared by the scripts that take pictures: run Electron without a visible window and without
+// taking the keyboard focus (other things run on this Mac), then capture pages at 2x.
+const { app, BrowserWindow } = require("electron");
+const Module = require("module");
+
+const SCALE = 2;
+
+function quiet() {
+  app.dock?.hide();
+}
+
+/** Makes every window that `file` (e.g. main.js) opens stay hidden; resolves to the first one. */
+function hideWindowsOf(file) {
+  let found;
+  const first = new Promise((resolve) => (found = resolve));
+  class Hidden extends BrowserWindow {
+    constructor(options) {
+      super({
+        ...options,
+        show: false,
+        enableLargerThanScreen: true,
+        paintWhenInitiallyHidden: true,
+        // a hidden page must keep animating, or a capture shows a half-faded view
+        webPreferences: { ...options.webPreferences, backgroundThrottling: false },
+      });
+      found(this);
+    }
+    show() {}
+    focus() {}
+  }
+  const load = Module._load;
+  Module._load = function (request, parent, ...rest) {
+    const loaded = load.call(this, request, parent, ...rest);
+    if (request === "electron" && parent && parent.filename === file) {
+      return new Proxy(loaded, { get: (target, key) => (key === "BrowserWindow" ? Hidden : target[key]) });
+    }
+    return loaded;
+  };
+  return first;
+}
+
+function hiddenWindow(width, height, webPreferences = {}, options = {}) {
+  const win = new BrowserWindow({
+    ...options,
+    show: false,
+    enableLargerThanScreen: true,
+    paintWhenInitiallyHidden: true,
+    useContentSize: true,
+    width,
+    height,
+    webPreferences: { ...webPreferences, backgroundThrottling: false },
+  });
+  return win;
+}
+
+// A hidden page only draws while something is capturing it. The first capture wakes it up
+// (and may still show a view fading in); the second one is the picture.
+async function capture(win) {
+  await win.webContents.capturePage(undefined, { stayHidden: true });
+  await sleep(350);
+  const image = await win.webContents.capturePage(undefined, { stayHidden: true });
+  return image.toPNG();
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+module.exports = { SCALE, quiet, hideWindowsOf, hiddenWindow, capture, sleep };
