@@ -42,6 +42,9 @@ function setSettings(patch) {
   const next = { ...data.settings, ai: { ...data.settings.ai, models: { ...data.settings.ai.models } } };
   if (patch.lang === "en" || patch.lang === "de") next.lang = patch.lang;
   if (["system", "light", "dark"].includes(patch.appearance)) next.appearance = patch.appearance;
+  // The exam on one screen is being tried in two looks while one is chosen; "" is the 0.1 screens.
+  if (["a", "b"].includes(patch.look)) next.look = patch.look;
+  if (patch.look === "") delete next.look;
   if (patch.ai) {
     const { provider, model, baseURL } = patch.ai;
     if (provider === null || ["claudeCode", "anthropic", "openrouter", "openai"].includes(provider)) next.ai.provider = provider;
@@ -158,6 +161,7 @@ function setStrategy(id, strategy) {
     exam.attempts = {};
     exam.cards = {};
     exam.quizzes = {};
+    delete exam.formulas;
     delete exam.bonus;
   });
 }

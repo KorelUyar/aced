@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld("spurt", {
     return () => ipcRenderer.removeListener("progress", listener);
   },
 
+  formulas: (id) => call("formulas", id),
+  help: (id, question) => call("help", id, question),
   taskDone: (id, taskId) => call("task:done", id, taskId),
   doMore: (id) => call("task:more", id),
   openQuiz: (id, what) => call("quiz:open", id, what),

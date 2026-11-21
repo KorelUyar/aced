@@ -117,6 +117,15 @@ export function Settings({ settings, ai, onChange, app }) {
         onChange=${(v) => set({ appearance: v })}
       />
     </div>
+    <div class="setting">
+      <strong>${t("lookTitle")}</strong>
+      <${Segmented}
+        label=${t("lookTitle")}
+        value=${settings.look || ""}
+        options=${[["", t("look_off")], ["a", t("look_a")], ["b", t("look_b")]]}
+        onChange=${(v) => set({ look: v })}
+      />
+    </div>
 
     <section class="ai">
       <h2>${t("aiTitle")}</h2>

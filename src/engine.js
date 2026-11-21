@@ -358,4 +358,66 @@ async function grade(question, answer, { onUsage, onKey, signal } = {}) {
   return { points, feedback: raw.feedback.trim(), correct: points < question.points ? raw.correct_answer.trim() : "" };
 }
 
-module.exports = { estimate, analyze, writeQuiz, grade, findLabel, checkExercise, gather };
+// ------------------------------------------------------------ formula sheet and helper
+
+/** The pages the strategy was made from, as material: what the formula sheet and the helper work from. */
+function shownMaterial(exam, limit) {
+  const g = gather(exam);
+  const byId = new Map(g.sources.map((s) => [s.m.id, s]));
+  const selection = new Map();
+  let room = limit;
+  for (const shown of exam.strategy.shown || []) {
+    const s = byId.get(shown.material);
+    if (!s) continue;
+    const pages = shown.pages.filter((p) => {
+      const size = (s.data.pages[p - 1] || "").length;
+      if (p < 1 || p > s.m.pages || size > room) return false;
+      room -= size;
+      return true;
+    });
+    if (pages.length) selection.set(s.n, pages);
+  }
+  // An exam from before "shown" was kept: fall back on the pages its steps name.
+  if (!selection.size) for (const [n, pages] of topicPages(exam, exam.strategy.topics, g.sources)) selection.set(n, pages);
+  return { g, selection, text: material(g.objectives, pagesBlock(g.sources, selection)) };
+}
+
+/** The formulas this exam needs, per topic: [{ topicId, formulas: [{ name, latex, note }] }]. */
+async function writeFormulas(exam, { onUsage, onKey, signal } = {}) {
+  const topics = exam.strategy.topics;
+  const { text } = shownMaterial(exam, QUIZ_CHARS * 2);
+  const raw = await ai.ask(
+    { name: "formulas", system: P.SYSTEM, material: text, prompt: P.formulasTask({ exam, topics }), schema: P.FORMULAS, maxTokens: 32000, effort: "medium", cache: true },
+    { signal, onUsage, onKey },
+  );
+  return raw.groups
+    .filter((group) => topics[group.topic] && group.formulas.length)
+    .map((group) => ({
+      topicId: topics[group.topic].id,
+      formulas: group.formulas.slice(0, 8).map((f) => ({ name: f.name.trim(), latex: f.latex.trim().replace(/^\$+|\$+$/g, ""), note: f.note.trim() })),
+    }));
+}
+
+/** An answer to a question about this exam, with the pages it points to: { answer, pages: [{ material, page, what }] }. */
+async function help(exam, question, { onUsage, onKey, signal } = {}) {
+  const { g, selection, text } = shownMaterial(exam, QUIZ_CHARS * 2);
+  const bySource = new Map(g.sources.map((s) => [s.n, s]));
+  const number = new Map(g.sources.map((s) => [s.m.id, s.n]));
+  const plan = exam.strategy.topics
+    .map((t) => `- ${t.title}: ` + t.steps.filter((s) => s.kind !== "quiz").map((s) => (s.kind === "read" ? `read book ${number.get(s.material)} pages ${s.from}-${s.to}` : `solve book ${number.get(s.material)} page ${s.page}: ${s.labels.join(", ")}`)).join("; "))
+    .join("\n");
+  const raw = await ai.ask(
+    { name: "help", system: P.SYSTEM, material: text, prompt: P.helpTask({ exam, question: String(question).slice(0, 1000), plan }), schema: P.HELP, maxTokens: 16000, effort: "low", cache: true },
+    { signal, onUsage, onKey },
+  );
+  return {
+    answer: raw.answer.trim(),
+    // Only pages that were really in front of the model become links.
+    pages: raw.pages
+      .filter((p) => bySource.get(p.book) && (selection.get(p.book) || []).includes(p.page))
+      .slice(0, 6)
+      .map((p) => ({ material: bySource.get(p.book).m.id, page: p.page, what: p.what.trim().slice(0, 60) })),
+  };
+}
+
+module.exports = { estimate, analyze, writeQuiz, writeFormulas, help, grade, findLabel, checkExercise, gather };

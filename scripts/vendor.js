@@ -27,3 +27,13 @@ for (const font of fs.readdirSync(path.join(katex, "fonts"))) {
   if (font.endsWith(".woff2")) fs.copyFileSync(path.join(katex, "fonts", font), path.join(target, "fonts", font));
 }
 console.log("vendored", "ui/vendor/katex");
+
+// pdf.js draws the book inside the app: its module, its worker and the standard fonts.
+const pdfjs = path.join(root, "node_modules/pdfjs-dist");
+const pdfTarget = path.join(root, "ui/vendor/pdfjs");
+fs.mkdirSync(path.join(pdfTarget, "standard_fonts"), { recursive: true });
+fs.copyFileSync(path.join(pdfjs, "build/pdf.min.mjs"), path.join(pdfTarget, "pdf.min.mjs"));
+fs.copyFileSync(path.join(pdfjs, "build/pdf.worker.min.mjs"), path.join(pdfTarget, "pdf.worker.min.mjs"));
+fs.copyFileSync(path.join(pdfjs, "LICENSE"), path.join(pdfTarget, "LICENSE.txt"));
+for (const font of fs.readdirSync(path.join(pdfjs, "standard_fonts"))) fs.copyFileSync(path.join(pdfjs, "standard_fonts", font), path.join(pdfTarget, "standard_fonts", font));
+console.log("vendored", "ui/vendor/pdfjs");

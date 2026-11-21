@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog, session } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog, session, protocol, net } = require("electron");
 const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
@@ -18,6 +18,10 @@ const { origin } = require("./src/address");
 // Settings for the Anthropic SDK that may sit in the environment (another server, extra
 // headers) have no say in this app.
 require("./src/ai/anthropic").ignoreEnvironment();
+
+// The book is drawn inside the app's own page (ui/book.js). Its bytes come through this
+// address, which serves nothing but the copies of PDFs in the app's library.
+protocol.registerSchemesAsPrivileged([{ scheme: "spurt-book", privileges: { supportFetchAPI: true, stream: true, corsEnabled: true } }]);
 
 // Only one copy of the app at a time: two would overwrite each other's file.
 const single = app.requestSingleInstanceLock();
@@ -50,8 +54,8 @@ function applyAppearance(value) {
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1120,
-    height: 800,
+    width: 1360,
+    height: 860,
     minWidth: 820,
     minHeight: 600,
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
@@ -123,6 +127,12 @@ app.whenReady().then(() => {
   // Nothing in this app needs the camera, the location or any other permission a page can ask for.
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, answer) => answer(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
+  protocol.handle("spurt-book", (request) => {
+    const hash = new URL(request.url).pathname.replace(/^\/+/, "");
+    const file = /^[a-f0-9]{64}$/.test(hash) ? files.pdfPath(hash) : null;
+    if (!file || !fs.existsSync(file)) return new Response("not found", { status: 404 });
+    return net.fetch(pathToFileURL(file).href);
+  });
   // Run from the source folder, the Dock would show Electron's icon.
   const devIcon = path.join(__dirname, "build", "icon.png");
   if (isMac && !app.isPackaged && fs.existsSync(devIcon)) app.dock?.setIcon(devIcon);
@@ -334,6 +344,28 @@ handle("analysis:run", (id) =>
 handle("cancel", () => {
   for (const controller of jobs) controller.abort();
 });
+
+// ------------------------------------------------ formula sheet and helper
+
+handle("formulas", async (id) => {
+  const exam = store.exam(id);
+  if (!exam.strategy) throw coded("unknown");
+  if (!exam.formulas) {
+    const formulas = await job(async (signal) => {
+      await ensureTexts(id, signal);
+      return engine.writeFormulas(exam, tracked(id, signal));
+    });
+    store.change(id, (e) => (e.formulas = formulas));
+  }
+  return store.exam(id).formulas;
+});
+
+handle("help", (id, question) =>
+  job(async (signal) => {
+    await ensureTexts(id, signal);
+    return engine.help(store.exam(id), question, tracked(id, signal));
+  }),
+);
 
 // ------------------------------------------------ plan
 

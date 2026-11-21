@@ -3,6 +3,7 @@ import { html, render, useState, useEffect, Icon, Lane, daysUntil } from "./bits
 import { t, setLang, lang, errorText } from "./i18n.js";
 import { Wizard } from "./wizard.js";
 import { Exam, TABS } from "./exam.js";
+import { Path, PANELS } from "./path.js";
 import { Quiz } from "./quiz.js";
 import { Settings } from "./settings.js";
 
@@ -13,6 +14,7 @@ function App() {
   const [state, setState] = useState(null); // { settings, exams, ai }
   const [route, setRoute] = useState({ name: "home" });
   const [toast, setToast] = useState(null);
+  const [panel, setPanel] = useState("book"); // what stands beside the plan: book, formulas, helper, or nothing
 
   const reload = () =>
     api.state().then((s) => {
@@ -53,6 +55,9 @@ function App() {
   };
 
   const home = { name: "home" };
+  const look = state.settings.look || null;
+  document.documentElement.dataset.look = look || "";
+  let onPath = false;
   let view;
   let back = null; // [label, route]
   if (route.name === "new" || (route.name === "edit" && exam)) {
@@ -73,8 +78,13 @@ function App() {
         }
       }}
     />`;
-  } else if (route.name === "exam" && exam) {
+  } else if (route.name === "exam" && exam && look && exam.plan && route.tab !== "material") {
+    // The exam on one screen (two looks are being tried: Settings holds which one).
     back = [t("exams"), home];
+    onPath = true;
+    view = html`<${Path} key=${exam.id} exam=${exam} panel=${panel} setPanel=${setPanel} app=${app} />`;
+  } else if (route.name === "exam" && exam) {
+    back = look && exam.plan ? [exam.name, { name: "exam", id: exam.id }] : [t("exams"), home];
     view = html`<${Exam} key=${exam.id} exam=${exam} tab=${route.tab || "today"} app=${app} />`;
   } else if (route.name === "quiz" && exam) {
     view = html`<${Quiz} key=${exam.id} exam=${exam} what=${route.what} app=${app} />`;
@@ -100,16 +110,27 @@ function App() {
       ${back
         ? html`<button class="bar-btn" onClick=${() => nav(back[1])}><${Icon} name="back" /><span>${back[0]}</span></button>`
         : html`<span class="wordmark">${focus ? "" : api.name}</span>`}
+      ${onPath &&
+      html`<nav class="tabs panels" aria-label=${t("panel_book")}>
+        ${PANELS.map(
+          (id) => html`<button aria-pressed=${String(panel === id)} onClick=${() => setPanel(panel === id ? null : id)}>${t("panel_" + id)}</button>`,
+        )}
+      </nav>`}
       ${route.name === "exam" &&
       exam &&
+      !onPath &&
+      !look &&
       html`<nav class="tabs" role="tablist">
         ${TABS.map(
           (id) =>
             html`<button role="tab" aria-selected=${String(id === tab)} onClick=${() => nav({ ...route, tab: id })}>${t("tab_" + id)}</button>`,
         )}
       </nav>`}
+      ${onPath &&
+      html`<button class="bar-btn setup" onClick=${() => nav({ name: "exam", id: exam.id, tab: "material" })}>${t("setup")}</button>`}
       ${!focus &&
       route.name !== "settings" &&
+      !onPath &&
       html`<button
         class="bar-btn square"
         title=${t("settings")}
@@ -119,7 +140,7 @@ function App() {
         <${Icon} name="sliders" />
       </button>`}
     </header>
-    <div class="scroll" key=${route.name + (route.id || "") + lang()}>${view}</div>
+    <div class=${"scroll" + (onPath ? " fill" : "")} key=${route.name + (route.id || "") + lang() + (onPath ? "path" : "")}>${view}</div>
     ${toast && html`<div class="toast" role="status">${toast}</div>`}
   `;
 }

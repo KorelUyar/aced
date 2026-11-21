@@ -1766,6 +1766,723 @@ select.field {
   margin-top: 16px;
 }
 
+/* ------------------------------------------------------------ the exam on one screen (0.2)
+
+   The plan on the left, the book (or the formula sheet, or the helper) beside it.
+   Two looks are being tried, chosen with data-look on the root:
+     a  "Line":  type and a track. The percentage is a large numeral, the steps hang on a
+                 thin line like stations, the next one carries the only orange on the plan.
+     b  "Bib":   a block of track orange at the top with the percentage in black on it, like
+                 a number pinned to a runner's shirt; topics are cards, the next step is filled.
+   Both get a dark theme of their own: deep blue-black, raised surfaces, a brighter orange. */
+
+@media (prefers-color-scheme: dark) {
+  :root[data-look="a"],
+  :root[data-look="b"] {
+    --paper: #0e1116;
+    --sheet: #171b23;
+    --ink: #f4f6fa;
+    --text: #cdd3dd;
+    --muted: #8e98a8;
+    --rule: #262c38;
+    --field: #232936;
+    --edge: #5d6778;
+    --track: #ff6f3c;
+    --track-ink: #ff9a73;
+    --btn: #f4f6fa;
+    --btn-ink: #0e1116;
+  }
+}
+
+:root {
+  --glow: #fdebe3; /* the next step, lightly marked */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --glow: #2b1a13;
+  }
+}
+
+.scroll.fill {
+  overflow: hidden;
+}
+
+.tabs.panels button[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--field);
+  font-weight: 600;
+}
+
+.bar-btn.setup {
+  padding: 0 10px;
+}
+
+.path {
+  display: grid;
+  grid-template-columns: minmax(360px, calc(var(--split) * 100%)) 14px minmax(320px, 1fr);
+  height: 100%;
+}
+
+.path.alone {
+  grid-template-columns: minmax(0, 720px);
+  justify-content: center;
+}
+
+.plan {
+  overflow-y: auto;
+  padding: 8px 26px 56px 40px;
+}
+
+.divider {
+  cursor: col-resize;
+  position: relative;
+}
+
+.divider::after {
+  content: "";
+  position: absolute;
+  inset: 12px 6px 12px 6px;
+  border-radius: 1px;
+  background: var(--rule);
+}
+
+.divider:hover::after {
+  background: var(--edge);
+}
+
+.side {
+  min-width: 0;
+  margin: 0 14px 14px 0;
+  border-radius: 16px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  overflow: hidden;
+  display: grid;
+}
+
+.side > section {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 46px;
+  padding: 0 10px 0 18px;
+  box-shadow: inset 0 -1px 0 var(--rule);
+}
+
+.side-head strong {
+  color: var(--ink);
+  font-weight: 620;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.pager small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.mini.flip .icon {
+  transform: scaleX(-1);
+}
+
+.mini:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.book-page {
+  overflow: auto;
+  padding: 14px;
+  background: var(--field);
+}
+
+.book-page canvas {
+  display: block;
+  width: 100%;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+}
+
+.side-body {
+  overflow-y: auto;
+  padding: 22px 24px 28px;
+}
+
+/* the head of the plan */
+
+.path-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: end;
+  gap: 4px 22px;
+  padding: 10px 0 26px;
+}
+
+.percent {
+  display: flex;
+  align-items: flex-end;
+  color: var(--ink);
+  line-height: 0.82;
+}
+
+.percent b {
+  font-size: 104px;
+  font-weight: 660;
+  font-stretch: 112%;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+}
+
+.percent span {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 5px 7px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.percent i {
+  font-style: normal;
+  font-size: 32px;
+  font-weight: 620;
+}
+
+.percent small {
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.path-title h1 {
+  font-size: 22px;
+}
+
+.path-title p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.path-head .lane {
+  grid-column: 1 / -1;
+  margin-top: 20px;
+}
+
+.path-now {
+  grid-column: 1 / -1;
+  margin-top: 12px;
+  color: var(--ink);
+  font-weight: 540;
+}
+
+/* topics and their steps */
+
+.route,
+.route ul {
+  list-style: none;
+  padding: 0;
+}
+
+.stage > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.stage h2 {
+  font-size: 18px;
+  letter-spacing: -0.008em;
+}
+
+.stage h2 button {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.stage h2 button:hover {
+  color: var(--ink);
+}
+
+.stage .count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.stage.done h2 {
+  color: var(--muted);
+  font-weight: 560;
+}
+
+/* what the topic asks of you: a short line, and in full on the topic that is up */
+.stage .can {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+  max-width: 62ch;
+}
+
+.stage .can.short {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.stage .can-label {
+  display: block;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.stage .can ul {
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+  color: var(--text);
+  font-size: 14.5px;
+}
+
+.stage .can li {
+  position: relative;
+  padding-left: 17px;
+}
+
+.stage .can li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--edge);
+}
+
+.worklist {
+  margin-top: 12px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+
+.mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1.5px var(--edge);
+  color: var(--btn-ink);
+  transition:
+    transform 0.15s var(--ease),
+    background 0.2s var(--ease);
+}
+
+.mark:not(:disabled):hover {
+  box-shadow: inset 0 0 0 2px var(--ink);
+  transform: scale(1.08);
+}
+
+.step.done .mark {
+  background: var(--ink);
+  box-shadow: none;
+  cursor: default;
+}
+
+.jump {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
+  padding: 9px 0;
+  color: var(--ink);
+  font-size: 16px;
+  text-align: left;
+}
+
+.jump b {
+  font-weight: 620;
+}
+
+.jump small {
+  min-width: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jump:hover span {
+  text-decoration: underline;
+  text-decoration-color: var(--edge);
+  text-underline-offset: 3px;
+}
+
+.step.done .jump {
+  color: var(--muted);
+}
+
+.step.done .jump span {
+  text-decoration: line-through;
+  text-decoration-color: var(--edge);
+}
+
+/* what comes after today is there, a little quieter */
+.step.later .jump {
+  color: var(--text);
+}
+
+.step.later .jump b {
+  font-weight: 560;
+}
+
+.step .min {
+  min-width: 46px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.day-end {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 30px;
+  margin-left: 36px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--track-ink);
+}
+
+.day-end::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.left-out {
+  margin-top: 22px;
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+/* formula sheet */
+
+.formulas + .formulas {
+  margin-top: 30px;
+  padding-top: 24px;
+  box-shadow: inset 0 1px 0 var(--rule);
+}
+
+.formulas h3 {
+  font-size: 15px;
+  font-weight: 620;
+  color: var(--ink);
+  margin-bottom: 14px;
+}
+
+.formula + .formula {
+  margin-top: 20px;
+}
+
+.formula-name {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.formula-tex {
+  margin-top: 2px;
+  color: var(--ink);
+  font-size: 21px;
+  overflow-x: auto;
+}
+
+.formula-tex .math.block {
+  margin: 6px 0 4px;
+  text-align: left;
+}
+
+.formula-tex .katex-display {
+  margin: 0;
+  text-align: left;
+}
+
+.formula-tex .katex-display > .katex {
+  text-align: left;
+}
+
+.formula p {
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 54ch;
+}
+
+.sheet-note {
+  margin-top: 30px;
+  padding-top: 18px;
+  box-shadow: inset 0 1px 0 var(--rule);
+  font-size: 13.5px;
+  color: var(--muted);
+  max-width: 54ch;
+}
+
+/* helper */
+
+.talk {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.ideas {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.ideas p {
+  margin-bottom: 6px;
+}
+
+.idea,
+.page-link {
+  padding: 9px 13px;
+  border-radius: 11px;
+  box-shadow: inset 0 0 0 1px var(--rule);
+  color: var(--ink);
+  font-size: 14.5px;
+}
+
+.idea:hover,
+.page-link:hover {
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+.asked {
+  justify-self: end;
+  margin-left: auto;
+  width: fit-content;
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--field);
+  color: var(--ink);
+}
+
+.answered {
+  margin-top: 12px;
+  color: var(--ink);
+  max-width: 60ch;
+}
+
+.turn .running {
+  margin-top: 12px;
+  color: var(--muted);
+}
+
+.page-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.page-link b {
+  font-weight: 640;
+  color: var(--track-ink);
+}
+
+.ask {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  box-shadow: inset 0 1px 0 var(--rule);
+}
+
+.ask .field {
+  height: 42px;
+  font-size: 15px;
+  border-radius: 11px;
+}
+
+/* ---- look a: Line */
+
+[data-look="a"] .stage {
+  padding: 22px 0 10px;
+  box-shadow: inset 0 1px 0 var(--rule);
+}
+
+[data-look="a"] .stage.folded {
+  padding: 15px 0;
+}
+
+[data-look="a"] .stage.done .count {
+  color: var(--track-ink);
+}
+
+[data-look="a"] .worklist {
+  position: relative;
+}
+
+[data-look="a"] .worklist::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 22px;
+  bottom: 22px;
+  width: 2px;
+  background: var(--rule);
+}
+
+[data-look="a"] .step {
+  position: relative;
+}
+
+[data-look="a"] .step.now {
+  margin: 4px -14px;
+  padding: 5px 14px;
+  border-radius: 14px;
+  background: var(--glow);
+}
+
+[data-look="a"] .step.now .mark {
+  box-shadow: inset 0 0 0 2.5px var(--track);
+}
+
+[data-look="a"] .step.now .jump {
+  font-size: 17px;
+}
+
+[data-look="a"] .step.now .jump span,
+[data-look="a"] .step.now .jump b {
+  font-weight: 650;
+}
+
+[data-look="a"] .step.done .mark {
+  background: var(--track);
+  color: #fff;
+}
+
+/* ---- look b: Bib */
+
+[data-look="b"] .path-head {
+  margin: 4px 0 18px;
+  padding: 22px 24px 20px;
+  border-radius: 20px;
+  background: var(--track);
+  color: #14161b;
+}
+
+[data-look="b"] .percent,
+[data-look="b"] .percent span,
+[data-look="b"] .path-title h1,
+[data-look="b"] .path-title p,
+[data-look="b"] .path-now {
+  color: #14161b;
+}
+
+[data-look="b"] .percent b {
+  font-size: 120px;
+  font-weight: 720;
+}
+
+[data-look="b"] .path-head .lane {
+  background: rgb(20 22 27 / 0.22);
+}
+
+[data-look="b"] .path-head .lane-fill {
+  background: #14161b;
+}
+
+[data-look="b"] .path-head .lane::after {
+  background: #14161b;
+}
+
+[data-look="b"] .stage {
+  margin-top: 12px;
+  padding: 18px 20px 10px;
+  border-radius: 18px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+[data-look="b"] .stage.folded,
+[data-look="b"] .stage.final {
+  padding-bottom: 18px;
+}
+
+[data-look="b"] .stage.done {
+  opacity: 0.72;
+}
+
+[data-look="b"] .mark {
+  border-radius: 7px;
+  background: transparent;
+}
+
+[data-look="b"] .step {
+  margin: 0 -10px;
+  padding: 0 10px;
+  border-radius: 11px;
+}
+
+[data-look="b"] .step.now {
+  margin-block: 4px;
+  min-height: 52px;
+  background: var(--track);
+}
+
+[data-look="b"] .step.now .jump,
+[data-look="b"] .step.now .min,
+[data-look="b"] .step.now .jump small {
+  color: #14161b;
+}
+
+[data-look="b"] .step.now .jump span,
+[data-look="b"] .step.now .jump b {
+  font-weight: 650;
+}
+
+[data-look="b"] .step.now .mark {
+  box-shadow: inset 0 0 0 2px #14161b;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

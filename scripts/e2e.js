@@ -207,8 +207,8 @@ app.whenReady().then(async () => {
         await sleep(300);
       }
       await click("#test");
-      await until(`/works|funktioniert/.test(document.querySelector('.ai-fields [role=status]')?.textContent || '') || !!document.querySelector('.ai-fields .problem')`, 240000);
-      log("provider test:", await text(".ai-fields [role=status]"));
+      await until(`/works|funktioniert/.test(document.querySelector('.ai-fields .with-button [role=status]')?.textContent || '') || !!document.querySelector('.ai-fields .problem')`, 240000);
+      log("provider test:", await text(".ai-fields .with-button [role=status]"));
       await shot("settings");
       await click(".bar-btn");
 
