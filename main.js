@@ -12,6 +12,7 @@ const planner = require("./src/planner");
 const engine = require("./src/engine");
 const ai = require("./src/ai");
 const models = require("./src/ai/models");
+const claudeCode = require("./src/ai/claude-code");
 const { origin } = require("./src/address");
 
 // Settings for the Anthropic SDK that may sit in the environment (another server, extra
@@ -194,6 +195,10 @@ handle("ai:key", async (provider, key) => {
   return ai.status();
 });
 handle("ai:test", () => ai.test());
+// Claude Code on this Mac: installed? signed in? And its own sign-in, started for the person.
+handle("claude:status", () => claudeCode.status());
+handle("claude:signIn", () => claudeCode.signIn(store.settings().lang));
+handle("claude:setup", () => shell.openExternal(claudeCode.SETUP_PAGE));
 
 handle("exam:create", (draft) => store.view(store.createExam(draft)));
 handle("exam:edit", (id, draft) => store.view(store.editExam(id, draft)));
@@ -297,6 +302,8 @@ handle("analysis:estimate", async (id) => {
     provider: status.provider,
     model: status.model,
     ready: status.ready,
+    // With Claude Code the person may have to sign in first: the panel says so before anything starts.
+    claude: status.provider === "claudeCode" ? await claudeCode.status() : null,
     cost: price ? (est.input * price[0] + est.output * price[1]) / 1e6 : null,
     costMax: price ? (est.inputMax * price[0] + est.output * 2 * price[1]) / 1e6 : null,
   };

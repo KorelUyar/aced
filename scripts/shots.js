@@ -15,6 +15,11 @@ const W = 1120;
 const H = 800;
 
 process.env.SPURT_SAMPLE = "1";
+// "Claude Code" in the pictures is the stand-in from scripts/fixtures, so each sign-in state can be shown.
+const claudeState = path.join(os.tmpdir(), `spurt-shots-claude-${process.pid}`);
+const stub = path.join(__dirname, "fixtures", "claude-stub.sh");
+Object.assign(process.env, { SPURT_CLAUDE: stub, SPURT_STUB_STATE: claudeState, SPURT_SIGNIN: "run" });
+fs.writeFileSync(claudeState, "ok");
 app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "spurt-shots-")));
 quiet();
 const mainFile = path.join(__dirname, "..", "main.js");
@@ -99,10 +104,34 @@ app.whenReady().then(async () => {
     await shot("material-empty");
     for (const name of ["material", "today", "strategy", "plan", "practice"]) await tab(name);
     await nav({ name: "settings" });
-    await until(`!!document.querySelector('.ai .pace')`);
-    await click(".ai .pace:nth-child(2)");
+    await until(`!!document.querySelector('.ai .provider .pace')`);
+    await click(".ai .provider:nth-child(2) .pace");
     await until(`!!document.querySelector('#key')`);
     await shot("settings");
+    if (theme === "light") {
+      // Claude Code on this Mac, in each state the person can meet.
+      const state = async (word, name, wanted = word) => {
+        fs.writeFileSync(claudeState, word);
+        await click(".ai .provider:nth-child(2) .pace");
+        await click(".ai .provider:nth-child(1) .pace");
+        await until(`document.querySelector('.cc-state')?.dataset.state === '${wanted}'`);
+        await js(`document.querySelector('.ai h2').scrollIntoView({ block: 'start' })`);
+        await shot(name);
+      };
+      await state("ok", "claude-signed-in");
+      await state("expired", "claude-expired");
+      await state("signedOut", "claude-signed-out");
+      await click("#ccSignIn");
+      await until(`document.querySelector('.cc-state')?.dataset.state === 'waiting'`);
+      await js(`document.querySelector('.ai h2').scrollIntoView({ block: 'start' })`);
+      await shot("claude-waiting");
+      await until(`document.querySelector('.cc-state')?.dataset.state === 'ok'`, 20000);
+      process.env.SPURT_CLAUDE = path.join(os.tmpdir(), "no-claude-here");
+      await state("ok", "claude-missing", "missing");
+      process.env.SPURT_CLAUDE = stub;
+      fs.writeFileSync(claudeState, "ok");
+      await click(".ai .provider:nth-child(2) .pace");
+    }
     await nav({ name: "home" });
     await quizFeedback();
     await shot("quiz");

@@ -2,6 +2,7 @@
 // here, and the strategy is worked out from here. A new exam lands on this view.
 import { html, useState, useEffect, Icon, thousands, money, modelName } from "./bits.js";
 import { t, errorText, errorCode } from "./i18n.js";
+import { ClaudeState, Problem } from "./claude.js";
 
 const api = window.spurt;
 const KINDS = ["book", "objectives", "slides", "notes", "oldExam"];
@@ -50,7 +51,7 @@ export function Material({ exam, app }) {
         app.nav({ name: "exam", id: exam.id, tab: "today" });
       })
       .catch((err) => {
-        if (errorCode(err) !== "cancelled") setError(errorText(err));
+        if (errorCode(err) !== "cancelled") setError(err);
       })
       .finally(() => {
         setRunning(false);
@@ -130,12 +131,21 @@ export function Material({ exam, app }) {
             <button class="btn plain" onClick=${() => api.cancel()}>${t("cancel")}</button>
           </div>`
         : estimate
-          ? html`<${Estimate} est=${estimate} onStart=${start} onCancel=${() => setEstimate(null)} app=${app} exam=${exam} />`
+          ? html`<${Estimate} est=${estimate} onStart=${start} onCancel=${() => setEstimate(null)} onAgain=${ask} app=${app} exam=${exam} />`
           : html`<div class="go">
               <button class="btn primary big" id="workOut" disabled=${reading} onClick=${ask}>${t(exam.strategy ? "workOutAgain" : "workOut")}</button>
               <p>${t("privacy")}</p>
             </div>`}
-      ${error && html`<p class="problem" role="alert">${error}</p>`}
+      ${error &&
+      !running &&
+      html`<${Problem}
+        error=${error}
+        onRetry=${() => {
+          setError(null);
+          ask();
+        }}
+        toSettings=${() => app.nav({ name: "settings", id: exam.id, from: { name: "exam", id: exam.id, tab: "material" } })}
+      />`}
     </section>`}
 
     <footer class="fineprint">
@@ -164,7 +174,7 @@ export function Material({ exam, app }) {
   `;
 }
 
-function Estimate({ est, exam, onStart, onCancel, app }) {
+function Estimate({ est, exam, onStart, onCancel, onAgain, app }) {
   if (est.blocked) {
     return html`<div class="estimate view">
       <p>${t("err_" + est.blocked)}</p>
@@ -180,6 +190,13 @@ function Estimate({ est, exam, onStart, onCancel, app }) {
           ${t("openSettings")}
         </button>
       </div>
+    </div>`;
+  }
+  // Claude Code is chosen but not installed or not signed in: that comes first, with its button.
+  if (est.claude && !(est.claude.installed && est.claude.signedIn !== false && !est.claude.expired)) {
+    return html`<div class="estimate view">
+      <${ClaudeState} onSignedIn=${onAgain} />
+      <div class="row-end"><button class="btn plain" onClick=${onCancel}>${t("cancel")}</button></div>
     </div>`;
   }
   return html`<div class="estimate view">

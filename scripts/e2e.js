@@ -198,7 +198,7 @@ app.whenReady().then(async () => {
       // 1. Settings: the provider, and a real test request.
       await click(".bar-btn.square");
       if (language === "de") await js(`document.querySelector('.setting').querySelectorAll('button')[1].click()`);
-      await click(`.ai .pace:nth-child(${["claudeCode", "anthropic", "openrouter", "openai"].indexOf(provider) + 1})`);
+      await click(`.ai .provider:nth-child(${["claudeCode", "anthropic", "openrouter", "openai"].indexOf(provider) + 1}) .pace`);
       if (provider === "openai") {
         await until(`!!document.querySelector('#baseURL')`);
         await type("#baseURL", process.env.E2E_BASE, "change");

@@ -17,6 +17,13 @@ const appDir = process.argv.find((a) => a.endsWith(".asar")) || path.join(__dirn
 if (sample) process.env.SPURT_SAMPLE = "1";
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-smoke-"));
 app.setPath("userData", userData);
+// "Claude Code" in this run is a stand-in whose sign-in state the test sets (see scripts/fixtures):
+// no real login is touched, and its sign-in runs without opening a Terminal window.
+const stateFile = path.join(userData, "claude-state");
+const stub = path.join(__dirname, "fixtures", "claude-stub.sh");
+Object.assign(process.env, { SPURT_CLAUDE: stub, SPURT_STUB_STATE: stateFile, SPURT_SIGNIN: "run" });
+const signInState = (word) => fs.writeFileSync(stateFile, word);
+signInState("signedOut");
 quiet();
 const mainFile = path.join(path.resolve(appDir), "main.js");
 const window = hideWindowsOf(mainFile);
@@ -115,7 +122,7 @@ app.whenReady().then(async () => {
       await js(`window.spurt.setSettings({ ai: { provider: null } })`);
       // An error from the main process arrives as a sentence, not as a code: a server that is not there.
       await click(".bar-btn.square");
-      await click(".ai .pace:nth-child(4)");
+      await click(".ai .provider:nth-child(4) .pace");
       await until(`!!document.querySelector('#baseURL')`);
       for (const [field, value] of [["#baseURL", "http://127.0.0.1:9/v1"], ["#model", "none"]]) {
         await js(`(() => { const el = document.querySelector(${JSON.stringify(field)});
@@ -127,6 +134,56 @@ app.whenReady().then(async () => {
       await until(`/No connection to the provider/.test(document.querySelector('.ai-fields [role=status]')?.textContent || '')`, 15000);
       await click(".bar-btn");
       await until(`!!document.querySelector('.exam-head')`);
+      // ---- Claude Code on this Mac: every state has a sentence and a way forward.
+      const cc = (state, timeout = 20000) => until(`document.querySelector('.cc-state')?.dataset.state === '${state}'`, timeout);
+      await click(".bar-btn.square");
+      await click(".ai .provider:nth-child(1) .pace");
+      await cc("signedOut");
+      assert.match(await text(".cc-state"), /not signed in/);
+      await click("#ccSignIn"); // starts Claude Code's own sign-in (here: the stand-in's)
+      await cc("waiting");
+      const command = fs.readdirSync(os.tmpdir()).filter((d) => d.startsWith("spurt-signin-")).map((d) => path.join(os.tmpdir(), d, "Sign in to Claude Code.command")).filter((f) => fs.existsSync(f)).pop();
+      assert.ok(command && /auth login/.test(fs.readFileSync(command, "utf8")) && fs.statSync(command).mode & 0o100, "the sign-in is a script Terminal can run");
+      await cc("ok"); // noticed by itself, no click
+      await click("#test");
+      await until(`/It works/.test(document.querySelector('.ai-fields .with-button [role=status]')?.textContent || '')`, 15000);
+      // A stored login that the service no longer accepts (what "OAuth session expired" was).
+      signInState("stale");
+      await click("#test");
+      await cc("expired");
+      assert.match(await text(".cc-state"), /sign-in has expired/);
+      assert.ok(!/OAuth|Failed to authenticate|answered with an error/.test(await text(".ai-fields")), "no raw sentence from the command line");
+      await click("#ccSignIn");
+      await cc("ok");
+      // Not installed at all.
+      process.env.SPURT_CLAUDE = path.join(userData, "no-claude-here");
+      await click(".ai .provider:nth-child(2) .pace");
+      await click(".ai .provider:nth-child(1) .pace");
+      await cc("missing");
+      assert.ok(await js(`!!document.querySelector('#ccGet')`), "a button leads to where Claude Code can be got");
+      process.env.SPURT_CLAUDE = stub;
+      await click(".cc-state .btn.plain"); // "Check again"
+      await cc("ok");
+      // In the middle of a run: the strategy is refused because the sign-in has gone stale.
+      signInState("stale");
+      await click(".bar-btn");
+      await until(`!!document.querySelector('.exam-head')`);
+      await click("#workOut");
+      await click("#startAnalysis");
+      await until(`!!document.querySelector('.analysis .cc-state')`, 30000);
+      await cc("expired");
+      assert.ok(!/OAuth|Failed to authenticate/.test(await text(".analysis")), "the run stops with the same sentence and button, not with the raw error");
+      await click("#ccSignIn");
+      await until(`!!document.querySelector('#startAnalysis')`, 30000); // signed in again: back at the estimate, by itself
+      await click(".estimate .btn.plain");
+      // Before a run, when the person is not signed in at all: the estimate says so first.
+      signInState("signedOut");
+      await click("#workOut");
+      await until(`!!document.querySelector('.estimate .cc-state')`);
+      await cc("signedOut");
+      assert.ok(!(await js(`!!document.querySelector('#startAnalysis')`)), "nothing can be started before signing in");
+      await click(".estimate .btn.plain");
+      await js(`window.spurt.setSettings({ ai: { provider: null } })`);
       // Edit, then delete.
       await click(".exam-actions .link");
       await type(".field", "Chemie: Säuren, Basen, Puffer");
@@ -180,7 +237,7 @@ app.whenReady().then(async () => {
       await until(`/60%/.test(document.querySelector('.practice li')?.textContent || '')`);
       // Settings: the AI section is there and choosing a provider sticks.
       await click(".bar-btn.square");
-      await click(".ai .pace:nth-child(2)");
+      await click(".ai .provider:nth-child(2) .pace");
       await until(`!!document.querySelector('#key')`);
       assert.ok(!fs.existsSync(path.join(userData, "spurt.json")), "sample data is never written to disk");
       console.log("ok: strategy, plan, practice, a quiz and settings on the sample exams");

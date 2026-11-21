@@ -47,7 +47,7 @@ The AI is one you bring:
 
 | | |
 |---|---|
-| **Claude Code on this Mac** | uses your own Claude Code login, no key |
+| **Claude Code on this Mac** | uses your own Claude Code login, no key. Settings shows whether you are signed in, and starts Claude Code's own sign-in when you are not |
 | **Anthropic API key** | you pay Anthropic per use |
 | **OpenRouter key** | one key for models from many providers |
 | **Another server** | anything that speaks the OpenAI chat format, such as [Ollama](https://ollama.com) on your own computer |
@@ -138,6 +138,7 @@ npm run sample   # the app on invented exams, nothing is saved
 | `electron scripts/window-check.js` | opens a real window for a few seconds: traffic lights, minimum size, date field |
 | `electron scripts/e2e.js <book.pdf> <objectives.txt> <outDir>` | the whole path for real through Claude Code (costs tokens) |
 | `electron scripts/wrong-key.js` | asks the real Anthropic and OpenRouter services with a key that is not one |
+| `scripts/fixtures/claude-stub.sh` | a stand-in for the `claude` command, so the tests can play "not signed in" and "expired" without touching a real login |
 | `npm run shots` | the pictures in `docs/shots` |
 | `npm run dist` | `dist/Spurt-macOS.zip`: universal, signed ad hoc |
 

@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld("spurt", {
   setSettings: (patch) => call("settings:set", patch),
   setKey: (provider, key) => call("ai:key", provider, key),
   testAi: () => call("ai:test"),
+  claudeStatus: () => call("claude:status"),
+  claudeSignIn: () => call("claude:signIn"),
+  claudeSetup: () => call("claude:setup"),
 
   createExam: (draft) => call("exam:create", draft),
   editExam: (id, draft) => call("exam:edit", id, draft),

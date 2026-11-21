@@ -400,6 +400,13 @@ async function providerChecks() {
   files.prune({ hashes: new Set(["aaa"]), answers: new Set(["k1"]) });
   same(["library", "texts", "answers"].map((f) => fs.readdirSync(path.join(dir, f)).filter((n) => /^(aaa|bbb|k1|k2)\./.test(n)).join()), ["aaa.pdf", "aaa.json", "k1.json"], "files no exam uses are deleted");
 
+  // ---- how Claude Code says "sign in (again)"
+  const { signInProblem } = require("../src/ai/claude-code");
+  same(signInProblem("Not logged in · Please run /login"), "signedOut");
+  same(signInProblem("Failed to authenticate: OAuth session expired and could not be refreshed"), "expired", "the sentence from the bug report");
+  same(signInProblem('API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired"}}'), "expired");
+  same([signInProblem("Credit balance is too low"), signInProblem("Claude usage limit reached")], [null, null], "other failures are not taken for a sign-in problem");
+
   // ---- keys never reach the settings file or the window
   const settingsFile = fs.readFileSync(path.join(dir, "spurt.json"), "utf8");
   ok(!/sk-ant|sk-or/.test(settingsFile), "no key in the settings file");

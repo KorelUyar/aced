@@ -64,8 +64,8 @@ app.whenReady().then(async () => {
       [2, "Anthropic", "sk-ant-api03-not-a-real-key-000000000000"],
       [3, "OpenRouter", "sk-or-v1-not-a-real-key-000000000000"],
     ]) {
-      await until(`!!document.querySelector('.ai .pace')`);
-      await js(`document.querySelector('.ai .pace:nth-child(${n})').click()`);
+      await until(`!!document.querySelector('.ai .provider .pace')`);
+      await js(`document.querySelector('.ai .provider:nth-child(${n}) .pace').click()`);
       await until(`!!document.querySelector('#key')`);
       await type("#key", key);
       await until(`!!document.querySelector('#saveKey')`);

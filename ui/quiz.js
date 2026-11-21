@@ -3,6 +3,7 @@
 import { html, useState, useEffect, Icon, Segs, materialOf, printed } from "./bits.js";
 import { t, errorText, errorCode } from "./i18n.js";
 import { Rich } from "./rich.js";
+import { Problem } from "./claude.js";
 
 const api = window.spurt;
 const VERDICT_ICON = { right: "check", partly: "partly", wrong: "x" };
@@ -19,7 +20,7 @@ export function Quiz({ exam, what, app }) {
   const toToday = () => app.nav({ name: "exam", id: exam.id, tab: "today" });
   const open = () => {
     setError(null);
-    api.openQuiz(exam.id, what).then(setSession, (err) => (errorCode(err) === "cancelled" ? toToday() : setError(errorText(err))));
+    api.openQuiz(exam.id, what).then(setSession, (err) => (errorCode(err) === "cancelled" ? toToday() : setError(err)));
   };
   useEffect(open, []);
 
@@ -40,11 +41,11 @@ export function Quiz({ exam, what, app }) {
     ${bar}
   </div>`;
 
-  if (error) {
+  const toSettings = () => app.nav({ name: "settings", id: exam.id, from: { name: "exam", id: exam.id, tab: "practice" } });
+  if (error && !session) {
     return html`<main class="page focus view">
       ${top(html`<span></span>`)}
-      <p class="problem" role="alert">${error}</p>
-      <div class="quiz-foot"><span></span><button class="btn primary" onClick=${open}>${t("retry")}</button></div>
+      <${Problem} error=${error} onRetry=${open} toSettings=${toSettings} />
     </main>`;
   }
   if (!session) {
@@ -74,7 +75,7 @@ export function Quiz({ exam, what, app }) {
     setError(null);
     api
       .answer(session.sessionId, q.id, answer)
-      .then(setResult, (err) => app.fail(err))
+      .then(setResult, setError)
       .finally(() => setBusy(false));
   };
   const next = () => {
@@ -130,6 +131,7 @@ export function Quiz({ exam, what, app }) {
         <p><${Rich} text=${result.feedback} /></p>
         ${result.correct && html`<p class="solution"><span>${t("correctAnswer")}</span><${Rich} text=${result.correct} /></p>`}
       </div>`}
+      ${error && !result && html`<${Problem} error=${error} onRetry=${check} toSettings=${toSettings} />`}
       <div class="quiz-foot">
         ${result
           ? html`${material && material.type === "pdf" && q.page
