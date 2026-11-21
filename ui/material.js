@@ -1,6 +1,6 @@
 // Material: the book, the learning objectives and anything else that is exam material go in
 // here, and the strategy is worked out from here. A new exam lands on this view.
-import { html, useState, useEffect, Icon, thousands, money } from "./bits.js";
+import { html, useState, useEffect, Icon, thousands, money, modelName } from "./bits.js";
 import { t, errorText } from "./i18n.js";
 
 const api = window.spurt;
@@ -76,7 +76,7 @@ export function Material({ exam, app }) {
     >
       <${Icon} name="drop" size=${22} />
       <div>
-        <strong>${reading ? t("reading", progress.title, progress.done, progress.total) : t("dropHere")}</strong>
+        <strong>${reading ? t(progress.phase === "recognise" ? "recognising" : "reading", progress.title, progress.done, progress.total) : t("dropHere")}</strong>
         ${!reading && html`<p>${t("dropHint")}</p>`}
       </div>
       <button class="btn second" disabled=${reading} onClick=${() => api.chooseMaterial(exam.id).then(added, app.fail)}>${t("chooseFiles")}</button>
@@ -90,7 +90,7 @@ export function Material({ exam, app }) {
           html`<li key=${m.id} class=${m.scanned ? "scanned" : ""}>
             <div>
               <strong>${m.title}</strong>
-              <span>${m.scanned ? t("scannedNote") : m.type === "pdf" ? t("pagesCount", m.pages) : t("pastedText")}</span>
+              <span>${m.scanned ? t("scannedNote") : m.type === "pdf" ? t("pagesCount", m.pages) + (m.recognised ? ", " + t("recognisedNote") : "") : t("pastedText")}</span>
             </div>
             <select aria-label=${m.title} value=${m.kind} onChange=${(e) => change(api.setMaterialKind(exam.id, m.id, e.target.value))}>
               ${KINDS.map((k) => html`<option value=${k}>${t("kind_" + k)}</option>`)}
@@ -184,7 +184,11 @@ function Estimate({ est, exam, onStart, onCancel, app }) {
     <h3>${t("estTitle")}</h3>
     <p>
       ${t("estTokens", thousands(est.input), thousands(est.output))}${" "}
-      ${est.provider === "claudeCode" ? t("estSubscription", est.model) : est.cost != null ? t("estCost", money(est.cost), est.model) : t("estUnknown", est.model)}
+      ${est.provider === "claudeCode"
+        ? t("estSubscription", modelName(est.model))
+        : est.cost != null
+          ? t("estCost", money(est.cost), modelName(est.model))
+          : t("estUnknown", modelName(est.model))}
     </p>
     ${est.finds && html`<p>${t("estFinds")}</p>`}
     ${est.noObjectives && html`<p>${t("estNoObjectives")}</p>`}

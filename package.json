@@ -9,10 +9,14 @@
   "scripts": {
     "start": "electron .",
     "sample": "electron . --sample",
+    "test": "electron scripts/test.js",
     "smoke": "electron scripts/smoke.js && electron scripts/smoke.js sample",
+    "checks": "electron scripts/checks.js",
     "shots": "electron scripts/shots.js docs/shots light && electron scripts/shots.js docs/shots dark && electron scripts/sheet.js docs/shots",
     "icon": "electron scripts/icon.js",
-    "vendor": "node scripts/vendor.js"
+    "vendor": "node scripts/vendor.js",
+    "dist": "scripts/build-ocr.sh && electron-builder --mac && node scripts/sign-and-zip.js",
+    "ocr": "scripts/build-ocr.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",
@@ -32,7 +36,14 @@
       "preload.js",
       "src/**/*",
       "ui/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/@napi-rs/**",
+      "!node_modules/pdfjs-dist/{build,web,image_decoders,types,cmaps,standard_fonts,iccs,wasm}/**",
+      "!node_modules/pdfjs-dist/legacy/{web,image_decoders}/**",
+      "!node_modules/pdfjs-dist/legacy/build/*.min.mjs",
+      "!node_modules/pdfjs-dist/legacy/build/pdf.{sandbox,renderer}.mjs",
+      "!node_modules/@anthropic-ai/sdk/src/**",
+      "!node_modules/**/*.{map,d.ts,d.mts,d.cts}"
     ],
     "mac": {
       "target": [
@@ -45,13 +56,20 @@
       ],
       "category": "public.app-category.education",
       "icon": "build/icon.icns",
-      "identity": null
+      "identity": null,
+      "artifactName": "${productName}-macOS.${ext}"
     },
     "electronFuses": {
       "runAsNode": false,
       "enableNodeOptionsEnvironmentVariable": false,
       "enableNodeCliInspectArguments": false,
       "onlyLoadAppFromAsar": true
-    }
+    },
+    "extraResources": [
+      {
+        "from": "build/bin/spurt-ocr",
+        "to": "spurt-ocr"
+      }
+    ]
   }
 }

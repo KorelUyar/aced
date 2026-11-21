@@ -1160,7 +1160,8 @@ mark {
   font-weight: 600;
 }
 
-.feedback .solution span {
+/* only the label: the answer itself may hold a formula, which is made of spans too */
+.feedback .solution > span:first-child {
   display: block;
   font-weight: 420;
   font-size: 13.5px;

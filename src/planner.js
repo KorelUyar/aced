@@ -272,7 +272,8 @@ function buildPlan(exam, today) {
     // The honest part: the best grade this plan can reach if everything in it goes well, and
     // how much more time the dropped topics would take.
     reach: gradeFor(exam.scale, coverage),
-    reachable: coverage + 0.001 >= need,
+    // Compared as grades, the way they are shown: 78% and 80% of the points are both a 5.0.
+    reachable: exam.scale === "de" ? gradeFor(exam.scale, coverage) <= exam.target : gradeFor(exam.scale, coverage) >= exam.target,
     short: dropped.filter((d) => d.reason === "time").reduce((sum, d) => sum + d.minutes, 0),
     days,
     dropped,

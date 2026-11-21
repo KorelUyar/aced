@@ -103,7 +103,8 @@ app.setName(brand.name);
 app.whenReady().then(() => {
   if (!isMac) Menu.setApplicationMenu(null);
   // Run from the source folder, the Dock would show Electron's icon.
-  if (isMac && !app.isPackaged) app.dock?.setIcon(path.join(__dirname, "build", "icon.png"));
+  const devIcon = path.join(__dirname, "build", "icon.png");
+  if (isMac && !app.isPackaged && fs.existsSync(devIcon)) app.dock?.setIcon(devIcon);
   const userData = app.getPath("userData");
   files.init(SAMPLE ? fs.mkdtempSync(path.join(os.tmpdir(), "spurt-sample-")) : userData);
   secrets.init(userData, { persist: !SAMPLE });
@@ -166,7 +167,7 @@ async function addFiles(id, paths) {
     const title = path.basename(file);
     try {
       send({ examId: id, stage: "read", title, done: 0, total: 0 });
-      const item = await files.add(file, (done, total) => send({ examId: id, stage: "read", title, done, total }));
+      const item = await files.add(file, (done, total, phase) => send({ examId: id, stage: "read", phase, title, done, total }));
       const guess = item.pages > 40 ? "book" : (GUESS.find(([, re]) => re.test(title)) || ["book"])[0];
       store.addMaterial(id, item, guess);
     } catch (err) {

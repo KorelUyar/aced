@@ -1,0 +1,312 @@
+// Checks of the parts that need no window:
+//
+//   node_modules/.bin/electron scripts/test.js
+//
+// - the planner (grades, what fits, what is left out, repetition)
+// - the check of exercise numbers against page text
+// - every key-based provider against a small server on this machine that speaks its format:
+//   what is sent (key, schema, caching marks), what comes back, and what happens on errors
+// No real provider is contacted and no key is needed.
+const { app } = require("electron");
+const assert = require("assert");
+const fs = require("fs");
+const http = require("http");
+const os = require("os");
+const path = require("path");
+
+app.dock?.hide();
+app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "spurt-test-")));
+
+let checks = 0;
+const ok = (value, message) => {
+  assert.ok(value, message);
+  checks++;
+};
+const same = (a, b, message) => {
+  assert.deepStrictEqual(a, b, message);
+  checks++;
+};
+
+function serve(handler) {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (d) => (body += d));
+      req.on("end", () => handler(req, body ? JSON.parse(body) : null, res));
+    });
+    server.listen(0, "127.0.0.1", () => resolve({ url: `http://127.0.0.1:${server.address().port}`, close: () => server.close() }));
+  });
+}
+
+const json = (res, status, value) => {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(value));
+};
+
+/** An Anthropic Messages answer as a stream of events, the way the API sends it. */
+function anthropicStream(res, text, stopReason = "end_turn") {
+  res.writeHead(200, { "Content-Type": "text/event-stream" });
+  const send = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
+  send("message_start", {
+    message: { id: "msg_test", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 100, output_tokens: 1, cache_creation_input_tokens: 40, cache_read_input_tokens: 0 } },
+  });
+  send("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
+  send("content_block_delta", { index: 0, delta: { type: "text_delta", text } });
+  send("content_block_stop", { index: 0 });
+  send("message_delta", { delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 12 } });
+  send("message_stop", {});
+  res.end();
+}
+
+const SCHEMA = { type: "object", properties: { answer: { type: "integer" } }, required: ["answer"], additionalProperties: false };
+const request = (prompt, extra = {}) => ({ name: "sum", system: "You add numbers.", material: "<material>two and three</material>", prompt, schema: SCHEMA, ...extra });
+const failsWith = async (promise, code) => {
+  try {
+    await promise;
+  } catch (err) {
+    return same(err.code, code, `expected ${code}, got ${err.code}: ${err.detail || err.message}`);
+  }
+  assert.fail(`expected ${code}, but it worked`);
+};
+
+function plannerChecks() {
+  const p = require("../src/planner");
+  same(p.targetScore("ch", 5), 0.8);
+  same(p.gradeFor("ch", 0.8), 5);
+  same(p.gradeFor("ch", 0.72), 4.5);
+  same(p.gradeFor("de", 1), 1);
+  same(p.gradeFor("de", p.targetScore("de", 2)), 2);
+  same(p.gradeFor("pct", 0.834), 83);
+  same(p.addDays("2026-12-30", 3), "2027-01-02");
+  same(p.diffDays("2026-11-21", "2026-11-27"), 6);
+
+  const step = (id, kind, minutes) => ({ id, kind, minutes });
+  const topic = (id, share, minutes) => ({
+    id,
+    title: id,
+    share,
+    order: Number(id.slice(1)),
+    skipCost: "",
+    steps: [step(`${id}/r0`, "read", minutes * 0.3), step(`${id}/s0`, "solve", minutes * 0.5), step(`${id}/q`, "quiz", minutes * 0.2)],
+  });
+  const exam = (over = {}) => ({
+    date: "2026-11-27",
+    time: { mode: "perDay", minutes: 40 },
+    scale: "ch",
+    target: 5,
+    pace: "sprint",
+    strategy: { topics: [topic("t1", 0.4, 60), topic("t2", 0.3, 60), topic("t3", 0.2, 60), topic("t4", 0.1, 100)] },
+    done: {},
+    mastery: {},
+    attempts: {},
+    cards: {},
+    quizzes: {},
+    ...over,
+  });
+  const today = "2026-11-21";
+  let plan = p.buildPlan(exam(), today);
+  same(plan.days.length, 6, "study days run up to the day before the exam");
+  same(plan.dropped.map((d) => d.topicId), ["t4"], "the topic with the fewest points per minute is left out");
+  same(plan.coverage, 0.9);
+  ok(plan.reachable && plan.reach === 5.5, "a 5 is in reach with 90% covered");
+  ok(plan.days.every((d) => d.tasks.reduce((sum, t) => sum + t.minutes, 0) <= 40 * 1.5), "no day is overloaded");
+  const flat = (pl) => pl.days.flatMap((d, i) => d.tasks.map((t) => [t.id, i]));
+  const dayOf = (pl, id) => (flat(pl).find(([x]) => x === id) || [])[1];
+  ok(dayOf(plan, "t1/q") > dayOf(plan, "t1/s0"), "the quiz comes a day after the exercises");
+  ok(flat(plan).some(([id]) => id === "mock"), "time that is left over but too short for the dropped topic goes to a mock exam");
+  const tight = p.buildPlan(exam({ time: { mode: "perDay", minutes: 33 } }), today);
+  ok(tight.dropped.length === 1 && !flat(tight).some(([id]) => id === "mock"), "no topic is dropped to make room for a mock exam");
+
+  // Too little time for the target: the plan says so.
+  plan = p.buildPlan(exam({ time: { mode: "perDay", minutes: 15 } }), today);
+  ok(!plan.reachable && plan.short > 0 && plan.reach < 5, "says honestly that the target is out of reach");
+
+  // Plenty of time: everything fits, repetition and a mock exam are added.
+  plan = p.buildPlan(exam({ time: { mode: "perDay", minutes: 90 }, pace: "thorough" }), today);
+  same(plan.dropped.length, 0);
+  ok(flat(plan).some(([id]) => id === "mock") && flat(plan).some(([id]) => id === "t1/q~3"), "mock exam and spaced repetition are planned");
+
+  // Efficient: stops once the target is covered.
+  plan = p.buildPlan(exam({ time: { mode: "perDay", minutes: 90 }, pace: "efficient", target: 4 }), today);
+  ok(plan.dropped.some((d) => d.reason === "notNeeded"), "efficient leaves out what the target does not need");
+
+  // Falling behind: nothing done, two days later. The plan re-forms and drops more.
+  plan = p.buildPlan(exam(), "2026-11-24");
+  same(plan.days.length, 3);
+  ok(plan.dropped.length >= 2, "with less time left, more is left out");
+
+  // Done work is not planned again, and counts against today's time.
+  const done = { "t1/r0": { date: today, minutes: 18, at: 1 } };
+  plan = p.buildPlan(exam({ done }), today);
+  ok(plan.days[0].tasks[0].done && plan.days[0].tasks[0].id === "t1/r0", "what was done today stays visible");
+  same(plan.days.flatMap((d) => d.tasks).filter((t) => t.id === "t1/r0").length, 1);
+  // Doing more today pulls work forward.
+  const more = p.buildPlan(exam({ done, bonus: { date: today, minutes: 40 } }), today);
+  ok(more.days[0].tasks.length > plan.days[0].tasks.length, "extra time today pulls the next task in");
+
+  // A weak quiz brings the topic back; the missed questions come back too.
+  const weak = exam({
+    done: { "t1/r0": { date: today, minutes: 18 }, "t1/s0": { date: today, minutes: 30 }, "t1/q": { date: today, minutes: 12 } },
+    mastery: { t1: 0.4 },
+    attempts: { t1: 1 },
+    quizzes: { t1: { questions: [{ id: "t1/k0", topicId: "t1" }, { id: "t1/k1", topicId: "t1" }] } },
+    cards: { "t1/k0": p.nextCard(null, 0, today), "t1/k1": p.nextCard(null, 1, today) },
+  });
+  plan = p.buildPlan(weak, "2026-11-22");
+  ok(plan.days[0].tasks.some((t) => t.kind === "review"), "a missed question is due the next day");
+  same(dayOf(plan, "t1/q#1"), 1, "the weak topic's quiz comes back two days after the first");
+  same(p.dueQuestions(weak, "2026-11-22").map((q) => q.id), ["t1/k0"]);
+  same(p.nextCard(null, 1, today).due, "2026-11-23");
+  same(p.nextCard({ box: 1 }, 1, today).due, "2026-11-25");
+  same(p.nextCard({ box: 2 }, 0.5, today), { box: 0, due: "2026-11-23" });
+
+  // The projection follows quiz results and stays honest about what is left out.
+  const fresh = p.standing(exam(), p.buildPlan(exam(), today));
+  const good = exam({ mastery: { t1: 1, t2: 1, t3: 1 } });
+  const bad = exam({ mastery: { t1: 0.2, t2: 0.2, t3: 0.2 } });
+  ok(p.standing(good, p.buildPlan(good, today)).projected > fresh.projected, "good quizzes raise the projection");
+  ok(p.standing(bad, p.buildPlan(bad, today)).projected < fresh.projected, "weak quizzes lower it");
+  ok(fresh.readiness < 0.3 && fresh.projected <= 5, "nobody is ready before starting");
+}
+
+function referenceChecks() {
+  const { findLabel, checkExercise } = require("../src/engine");
+  same(findLabel("5. 6 . 7 . 8.", "7"), 2);
+  same(findLabel("costs 17 apples", "7"), 0);
+  same(findLabel("Aufgabe 12 a) Berechne", "12 a"), 2);
+  same(findLabel("3.2 Lösen Sie die Gleichung", "Aufgabe 3.2"), 2);
+  same(findLabel("see figure 4 above", "4"), 1);
+  const source = { data: { pages: ["Theory, no exercises here.", "1. First\n2. Second\n3. Third", "4. Fourth\n5. Fifth"] } };
+  same(checkExercise(source, 2, "2"), { page: 2, state: "confirmed" });
+  same(checkExercise(source, 2, "5"), { page: 3, state: "moved" }, "an exercise cited one page off is put on the right page");
+  same(checkExercise(source, 1, "9"), { page: 1, state: "unconfirmed" });
+}
+
+async function providerChecks() {
+  const store = require("../src/store");
+  const files = require("../src/files");
+  const secrets = require("../src/secrets");
+  const ai = require("../src/ai");
+  const dir = app.getPath("userData");
+  files.init(dir);
+  secrets.init(dir, { persist: false });
+  store.init({ dir, sample: false });
+  ai.init(() => store.settings());
+
+  // ---- Anthropic
+  const seen = [];
+  let mode = "good";
+  const anthropic = await serve((req, body, res) => {
+    seen.push({ url: req.url, headers: req.headers, body });
+    // The SDK sends the key as a bearer token with the current API version; older ones used x-api-key.
+    const key = req.headers["x-api-key"] || String(req.headers.authorization || "").replace(/^Bearer /, "");
+    if (key !== "sk-ant-test") return json(res, 401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
+    if (mode === "refuse") return anthropicStream(res, "", "refusal");
+    if (mode === "cut") return anthropicStream(res, '{"answer":', "max_tokens");
+    if (mode === "bad-then-good" && !body.messages[0].content.at(-1).text.includes("previous answer")) return anthropicStream(res, "The answer is five.");
+    anthropicStream(res, '{"answer": 5}');
+  });
+  process.env.SPURT_ANTHROPIC_BASE_URL = anthropic.url;
+  store.setSettings({ ai: { provider: "anthropic" } });
+  same((await ai.status()).ready, false, "not ready without a key");
+  await failsWith(ai.ask(request("no key yet")), "noKey");
+  secrets.set("anthropic", "sk-ant-test");
+  const usage = [];
+  same(await ai.ask(request("What is two plus three?"), { onUsage: (u) => usage.push(u) }), { answer: 5 });
+  const sent = seen.at(-1);
+  same(sent.body.model, "claude-opus-5-5", "the default model");
+  ok(sent.url.startsWith("/v1/messages"), "the Messages endpoint");
+  same(sent.body.output_config.format, { type: "json_schema", schema: SCHEMA }, "structured output is requested");
+  same(sent.body.fallbacks, "default", "refusal fallback is on");
+  ok(String(sent.headers["anthropic-beta"]).includes("server-side-fallback-2026-07-01"));
+  same(sent.body.messages[0].content[0].cache_control, { type: "ephemeral" }, "the material is marked for caching");
+  ok(sent.body.messages[0].content[0].text.includes("two and three") && sent.body.stream === true);
+  ok(!("thinking" in sent.body) && !("temperature" in sent.body), "no parameters the current models reject");
+  same(usage, [{ input: 140, cached: 0, output: 12 }]);
+  const before = seen.length;
+  same(await ai.ask(request("What is two plus three?")), { answer: 5 });
+  same(seen.length, before, "the same question is answered from disk, not asked again");
+  mode = "bad-then-good";
+  same(await ai.ask(request("Retry case")), { answer: 5 }, "an unusable answer is asked for once more");
+  same(seen.length, before + 2);
+  mode = "refuse";
+  await failsWith(ai.ask(request("Refusal case")), "refusal");
+  mode = "cut";
+  await failsWith(ai.ask(request("Cut off case")), "tooLong");
+  mode = "good";
+  secrets.set("anthropic", "sk-ant-wrong");
+  await failsWith(ai.ask(request("Bad key case")), "badKey");
+  store.setSettings({ ai: { provider: "anthropic", model: "claude-haiku-5-5" } });
+  secrets.set("anthropic", "sk-ant-test");
+  await ai.ask(request("Haiku case"));
+  ok(!("fallbacks" in seen.at(-1).body) && !seen.at(-1).headers["anthropic-beta"], "no refusal fallback where the model has none");
+  anthropic.close();
+
+  // ---- OpenRouter
+  const calls = [];
+  let style = "strict";
+  const openrouter = await serve((req, body, res) => {
+    calls.push({ url: req.url, headers: req.headers, body });
+    if (req.headers.authorization !== "Bearer sk-or-test") return json(res, 401, { error: { message: "No auth credentials found", code: 401 } });
+    if (style === "broke") return json(res, 402, { error: { message: "Insufficient credits", code: 402 } });
+    if (style === "long") return json(res, 200, { choices: [{ finish_reason: "length", message: { content: '{"answer":' } }] });
+    json(res, 200, {
+      choices: [{ finish_reason: "stop", message: { role: "assistant", content: '{"answer": 5}' } }],
+      usage: { prompt_tokens: 90, completion_tokens: 7, prompt_tokens_details: { cached_tokens: 60 }, cost: 0.0004 },
+    });
+  });
+  process.env.SPURT_OPENROUTER_BASE_URL = openrouter.url;
+  store.setSettings({ ai: { provider: "openrouter" } });
+  secrets.set("openrouter", "sk-or-test");
+  usage.length = 0;
+  same(await ai.ask(request("OpenRouter case"), { onUsage: (u) => usage.push(u) }), { answer: 5 });
+  const or = calls.at(-1);
+  same(or.url, "/chat/completions");
+  same(or.body.response_format, { type: "json_schema", json_schema: { name: "sum", strict: true, schema: SCHEMA } });
+  same(or.body.provider, { require_parameters: true }, "only providers that can do structured output");
+  same(or.body.messages[1].content[0].cache_control, { type: "ephemeral" });
+  same(usage, [{ input: 90, cached: 60, output: 7, cost: 0.0004 }]);
+  style = "broke";
+  await failsWith(ai.ask(request("No credit case")), "noCredit");
+  style = "long";
+  await failsWith(ai.ask(request("Too long case")), "tooLong");
+  secrets.set("openrouter", "nope");
+  await failsWith(ai.ask(request("Bad key case, OpenRouter")), "badKey");
+  openrouter.close();
+
+  // ---- Another server in the OpenAI format: one that knows structured output, one that does not
+  const plain = [];
+  const local = await serve((req, body, res) => {
+    plain.push(body);
+    if (body.response_format) return json(res, 400, { error: { message: "response_format is not supported" } });
+    json(res, 200, { choices: [{ finish_reason: "stop", message: { content: 'Sure!\n```json\n{"answer": 5}\n```' } }], usage: { prompt_tokens: 50, completion_tokens: 9 } });
+  });
+  store.setSettings({ ai: { provider: "openai", model: "", baseURL: local.url + "/v1/" } });
+  same((await ai.status()).ready, false, "not ready without a model name");
+  store.setSettings({ ai: { provider: "openai", model: "local-model" } });
+  same(await ai.ask(request("Local server case")), { answer: 5 }, "falls back to a plain request and still gets JSON out");
+  same(plain.length, 3, "structured output, then JSON mode, then plain");
+  ok(typeof plain[2].messages[1].content === "string" && plain[2].messages[1].content.includes('"additionalProperties":false'), "the schema is given in words");
+  ok(!("provider" in plain[0]) && !("usage" in plain[0]), "nothing OpenRouter-specific goes to another server");
+  local.close();
+  store.setSettings({ ai: { provider: "openai", model: "local-model", baseURL: "http://127.0.0.1:9/v1" } });
+  await failsWith(ai.ask(request("Nobody home")), "offline");
+
+  // ---- keys never reach the settings file or the window
+  const settingsFile = fs.readFileSync(path.join(dir, "spurt.json"), "utf8");
+  ok(!/sk-ant|sk-or/.test(settingsFile), "no key in the settings file");
+  ok(!JSON.stringify(await ai.status()).includes("sk-"), "the status sent to the window holds no key");
+}
+
+app.whenReady().then(async () => {
+  try {
+    plannerChecks();
+    referenceChecks();
+    await providerChecks();
+    console.log(`ok: ${checks} checks`);
+  } catch (err) {
+    console.log("FAIL", err.message, "\n", String(err.stack).split("\n").slice(1, 4).join("\n"));
+    process.exitCode = 1;
+  }
+  app.quit();
+});

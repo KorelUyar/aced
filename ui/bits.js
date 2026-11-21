@@ -93,5 +93,13 @@ export const firstPage = (step) => (step.kind === "read" ? step.from : step.kind
 
 export const canOpen = (exam, step) => firstPage(step) !== null && materialOf(exam, step.material)?.type === "pdf";
 
+const MODEL_NAMES = {
+  "claude-opus-5-5": "Claude Opus 5.5",
+  "claude-sonnet-5-5": "Claude Sonnet 5.5",
+  "claude-haiku-5-5": "Claude Haiku 5.5",
+  "claude-fable-5-2": "Claude Fable 5.2",
+};
+export const modelName = (id) => MODEL_NAMES[id] || id;
+
 export const thousands = (n) => (n >= 10000 ? `${Math.round(n / 1000)},000` : String(Math.round(n / 100) * 100));
 export const money = (usd) => (usd < 0.01 ? "under $0.01" : usd < 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(1)}0`);

@@ -63,15 +63,16 @@ app.whenReady().then(async () => {
   const exam = { name: "exam", id: "sample-math" };
   const draft = { name: "Mathematik: Quadratische Funktionen", dateMode: "days", days: 6 };
   const quizFeedback = async () => {
-    await nav({ name: "quiz", id: "sample-math" });
+    await nav({ name: "quiz", id: "sample-math", what: { kind: "topic", topicId: "t1" } });
     await until(`!!document.querySelector('.choice')`);
     await click(".choice");
     await click("#check");
+    await until(`!!document.querySelector('.feedback')`);
     await click("#next");
     await until(`!!document.querySelector('textarea.answer')`);
     await type("textarea.answer", "f(x) = (x − 3)² + 4, also S(3 | 4)");
     await click("#check");
-    await until(`!!document.querySelector('.feedback')`);
+    await until(`!!document.querySelector('.feedback.partly')`);
   };
   const wizard = async (step, name) => {
     await nav({ name: "home" });
@@ -79,19 +80,30 @@ app.whenReady().then(async () => {
     await until(`!!document.querySelector('.question')`);
     await shot(name);
   };
+  const tab = async (name, suffix = "") => {
+    await nav({ ...exam, tab: name });
+    await shot(name + suffix);
+  };
 
   try {
     await ready();
+    // The theme is also set in the app's own settings, or the next change there would put it back to the Mac's.
+    await js(`window.spurt.setSettings({ appearance: ${JSON.stringify(theme === "dark" ? "dark" : "light")} })`);
     await shot("home");
     await wizard(1, "new-name");
     await wizard(2, "new-when");
     await wizard(3, "new-time");
     await wizard(4, "new-grade");
     await wizard(5, "new-pace");
-    await nav({ ...exam, tab: "today" });
-    await shot("today");
-    await nav({ ...exam, tab: "strategy" });
-    await shot("strategy");
+    await nav({ name: "exam", id: "sample-m323", tab: "material" });
+    await shot("material-empty");
+    for (const name of ["material", "today", "strategy", "plan", "practice"]) await tab(name);
+    await nav({ name: "settings" });
+    await until(`!!document.querySelector('.ai .pace')`);
+    await click(".ai .pace:nth-child(2)");
+    await until(`!!document.querySelector('#key')`);
+    await shot("settings");
+    await nav({ name: "home" });
     await quizFeedback();
     await shot("quiz");
 
@@ -103,10 +115,7 @@ app.whenReady().then(async () => {
       await until(`document.documentElement.lang === 'de'`);
       await nav({ name: "home" });
       await shot("home-de");
-      await nav({ ...exam, tab: "today" });
-      await shot("today-de");
-      await nav({ ...exam, tab: "strategy" });
-      await shot("strategy-de");
+      for (const name of ["material", "today", "strategy", "plan"]) await tab(name, "-de");
       await quizFeedback();
       await shot("quiz-de");
     }

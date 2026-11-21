@@ -4,6 +4,7 @@ const { utilityProcess } = require("electron");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const ocr = require("./ocr");
 
 let root = null;
 const dir = (name) => {
@@ -89,6 +90,14 @@ function printedOffset(pages) {
   return count >= 8 && count >= withNumber * 0.3 && count >= second * 4 ? best : 0;
 }
 
+/** Pictures of pages: next to no text to read. */
+function isScan(pages) {
+  if (!pages.length) return true;
+  const chars = pages.reduce((sum, p) => sum + p.length, 0);
+  const empty = pages.filter((p) => p.length < 40).length;
+  return empty / pages.length > 0.7 || chars / pages.length < 80;
+}
+
 /** Adds a file to the library and reads its text. Returns what the store keeps about it. */
 async function add(file, onProgress) {
   const ext = path.extname(file).toLowerCase();
@@ -97,12 +106,20 @@ async function add(file, onProgress) {
     const hash = await hashFile(file);
     let data = readText(hash);
     if (!data) {
-      data = await readPdf(file, onProgress);
+      data = await readPdf(file, (done, total) => onProgress?.(done, total, "read"));
+      // No text in it: a scan, or letters drawn as shapes. Read the pages with text recognition.
+      if (isScan(data.pages) && ocr.available()) {
+        try {
+          const pages = await ocr.read(file, (done, total) => onProgress?.(done, total, "recognise"));
+          if (!isScan(pages)) data = { pages, outline: data.outline, recognised: true };
+        } catch {
+          // recognition failed: the file stays what it is, a PDF without text
+        }
+      }
       writeJson(textPath(hash), data);
     }
     if (!fs.existsSync(pdfPath(hash))) fs.copyFileSync(file, pdfPath(hash));
     const chars = data.pages.reduce((sum, p) => sum + p.length, 0);
-    const empty = data.pages.filter((p) => p.length < 40).length;
     return {
       hash,
       type: "pdf",
@@ -110,8 +127,9 @@ async function add(file, onProgress) {
       pages: data.pages.length,
       chars,
       offset: printedOffset(data.pages),
-      // A scan is pictures of pages: there is next to no text to read.
-      scanned: data.pages.length > 0 && (empty / data.pages.length > 0.7 || chars / data.pages.length < 80),
+      // Still no text after everything: it is left out, and the person is told.
+      scanned: isScan(data.pages),
+      recognised: Boolean(data.recognised),
     };
   }
   if ([".txt", ".md", ".markdown", ".text"].includes(ext)) return addText(fs.readFileSync(file, "utf8"), title);

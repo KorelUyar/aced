@@ -1,20 +1,24 @@
 // Clicks through the real app in a hidden window and checks what happens:
 //
-//   node_modules/.bin/electron scripts/smoke.js           empty start: create an exam, add objectives, edit, delete
+//   node_modules/.bin/electron scripts/smoke.js           empty start: create an exam, add a PDF and objectives, edit, delete
 //   node_modules/.bin/electron scripts/smoke.js sample    sample exams: strategy, plan, today's tasks, a quiz, settings
-const { app } = require("electron");
+//
+// Add the path of a built app.asar to run the packaged files instead of the source folder:
+//   node_modules/.bin/electron scripts/smoke.js dist/mac-universal/Spurt.app/Contents/Resources/app.asar
+const { app, dialog, BrowserWindow } = require("electron");
 const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { quiet, hideWindowsOf, sleep } = require("./hidden");
 
-const sample = process.argv[process.argv.length - 1] === "sample";
+const sample = process.argv.includes("sample");
+const appDir = process.argv.find((a) => a.endsWith(".asar")) || path.join(__dirname, "..");
 if (sample) process.env.SPURT_SAMPLE = "1";
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-smoke-"));
 app.setPath("userData", userData);
 quiet();
-const mainFile = path.join(__dirname, "..", "main.js");
+const mainFile = path.join(path.resolve(appDir), "main.js");
 const window = hideWindowsOf(mainFile);
 require(mainFile);
 
@@ -72,23 +76,41 @@ app.whenReady().then(async () => {
       e = saved().exams[0];
       assert.equal(e.materials[0].kind, "objectives");
       assert.ok(fs.readdirSync(path.join(userData, "cache")).some((f) => f.startsWith("text-")), "the pasted text is kept");
-      // Without a book and without an AI provider, the app says what is missing instead of starting.
+      // Objectives alone are not enough: the app says what is missing instead of starting.
       await click("#workOut");
       await until(`!!document.querySelector('.estimate')`);
       assert.match(await text(".estimate"), /book or other material/i);
       await click(".estimate .btn");
+      // A real PDF with text in it, made here, added through "Choose files".
+      const pdfFile = path.join(userData, "Chemie-Buch.pdf");
+      const printer = new BrowserWindow({ show: false });
+      const chapter = (n, title) => `<h1>Kapitel ${n} ${title}</h1>` + `<p>${"Eine Säure gibt Protonen ab, eine Base nimmt sie auf. ".repeat(12)}</p><p>Aufgabe ${n}. Berechne den pH-Wert.</p>`;
+      await printer.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(`${chapter(1, "Säuren")}<div style="page-break-before: always">${chapter(2, "Basen")}</div>`));
+      fs.writeFileSync(pdfFile, await printer.webContents.printToPDF({}));
+      printer.destroy();
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [pdfFile] });
+      await click(".drop .btn");
+      await until(`document.querySelectorAll('.materials li').length === 2`, 20000);
+      const pdf = saved().exams[0].materials.find((m) => m.type === "pdf");
+      assert.deepEqual([pdf.kind, pdf.pages, pdf.scanned], ["book", 2, false], "the PDF's text was read, page by page");
+      assert.ok(pdf.chars > 800 && fs.existsSync(path.join(userData, "library", pdf.hash + ".pdf")), "the book is kept in the app's folder");
+      // Now only the AI is missing, and the app says so.
+      await click("#workOut");
+      await until(`!!document.querySelector('.estimate')`);
+      assert.match(await text(".estimate"), /where the AI comes from/i);
+      await click(".estimate .btn.plain");
       // Edit, then delete.
       await click(".exam-actions .link");
       await type(".field", "Chemie: Säuren, Basen, Puffer");
       for (let i = 0; i < 5; i++) await click(go);
       await until(`document.querySelector('.exam-head h1')?.textContent === 'Chemie: Säuren, Basen, Puffer'`);
-      assert.equal(saved().exams[0].materials.length, 1, "editing keeps the material");
+      assert.equal(saved().exams[0].materials.length, 2, "editing keeps the material");
       await click(".tabs button:nth-child(5)");
       await click("#delete");
       await click("#deleteYes");
       await until(`!!document.querySelector('.empty')`);
       assert.equal(saved().exams.length, 0);
-      console.log("ok: created, filled, edited and deleted an exam from an empty start");
+      console.log("ok: created, filled (pasted objectives and a PDF), edited and deleted an exam from an empty start");
     } else {
       await until(`document.querySelectorAll('.exam-card').length === 3`);
       await click(".exam-card");

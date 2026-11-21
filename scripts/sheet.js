@@ -1,4 +1,4 @@
-// Puts the key screenshots side by side in one picture, <outDir>/checkpoint-1.png:
+// Puts the key screenshots side by side in one picture, <outDir>/overview.png:
 //
 //   node_modules/.bin/electron scripts/sheet.js docs/shots
 const { app } = require("electron");
@@ -18,17 +18,22 @@ const ROWS = [
   ["Light, English (the default). The sample exams are German, so everything the AI writes is German.", [
     ["home-light", "Home"],
     ["new-grade-light", "New exam, question 4 of 5: target grade"],
-    ["new-pace-light", "New exam, question 5 of 5: pace"],
+    ["material-light", "Material: the book, the objectives, then the strategy"],
   ]],
   ["", [
-    ["today-light", "One exam, Today: the one next thing to do"],
-    ["strategy-light", "One exam, Strategy: what matters most, with pages and exercises"],
+    ["today-light", "Today: the one next thing to do"],
+    ["strategy-light", "Strategy: what matters most, with pages and exercises"],
     ["quiz-light", "Quiz: a written answer, corrected"],
+  ]],
+  ["", [
+    ["plan-light", "Plan: day by day"],
+    ["practice-light", "Practice: quiz a topic, review, mock exam"],
+    ["settings-light", "Settings: where the AI comes from"],
   ]],
   ["Dark, switched to German", [
     ["home-de-dark", "Home"],
     ["today-de-dark", "Heute"],
-    ["quiz-de-dark", "Quiz"],
+    ["strategy-de-dark", "Strategie"],
   ]],
 ];
 
@@ -48,7 +53,7 @@ const html = `<!doctype html><meta charset="utf-8"><style>
   figure img { display: block; width: ${TILE}px; border-radius: 16px; box-shadow: 0 0 0 1px rgb(20 22 27 / .12), 0 18px 40px -22px rgb(20 22 27 / .45); }
   figcaption { margin-top: 14px; color: #5c6370; }
 </style>
-<header><img src="${url(root, "build/icon.png")}"><div><b>${brand.name}</b><span>Checkpoint 1: the design and the key screens, in the real app on sample data</span></div></header>
+<header><img src="${url(root, "build/icon.png")}"><div><b>${brand.name}</b><span>All screens, in the real app on its sample exams</span></div></header>
 ${ROWS.map(
   ([title, shots]) => `${title ? `<h2>${title}</h2>` : ""}<div class="row">${shots
     .map(([file, caption]) => `<figure><img src="${url(out, file + ".png")}"><figcaption>${caption}</figcaption></figure>`)
@@ -65,7 +70,7 @@ app.whenReady().then(async () => {
   );
   win.setContentSize(size[0], size[1]);
   await sleep(700);
-  fs.writeFileSync(path.join(out, "checkpoint-1.png"), await capture(win));
-  console.log("wrote checkpoint-1.png", size.join("x"));
+  fs.writeFileSync(path.join(out, "overview.png"), await capture(win));
+  console.log("wrote overview.png", size.join("x"));
   app.quit();
 });

@@ -7,6 +7,15 @@ const SCALE = 2;
 
 function quiet() {
   app.dock?.hide();
+  // An error in the main process would otherwise put a dialog on the screen and wait for a click.
+  process.on("uncaughtException", (err) => {
+    console.log("FAIL uncaught:", err && err.stack ? err.stack.split("\n").slice(0, 6).join("\n") : err);
+    app.exit(1);
+  });
+  process.on("unhandledRejection", (err) => {
+    console.log("FAIL unhandled:", err && err.stack ? err.stack.split("\n").slice(0, 6).join("\n") : err);
+    app.exit(1);
+  });
 }
 
 /** Makes every window that `file` (e.g. main.js) opens stay hidden; resolves to the first one. */
