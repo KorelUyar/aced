@@ -99,6 +99,20 @@ app.whenReady().then(async () => {
       await until(`!!document.querySelector('.estimate')`);
       assert.match(await text(".estimate"), /where the AI comes from/i);
       await click(".estimate .btn.plain");
+      // An error from the main process arrives as a sentence, not as a code: a server that is not there.
+      await click(".bar-btn.square");
+      await click(".ai .pace:nth-child(4)");
+      await until(`!!document.querySelector('#baseURL')`);
+      for (const [field, value] of [["#baseURL", "http://127.0.0.1:9/v1"], ["#model", "none"]]) {
+        await js(`(() => { const el = document.querySelector(${JSON.stringify(field)});
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(value)});
+          el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await sleep(250);
+      }
+      await click("#test");
+      await until(`/No connection to the provider/.test(document.querySelector('.ai-fields [role=status]')?.textContent || '')`, 15000);
+      await click(".bar-btn");
+      await until(`!!document.querySelector('.exam-head')`);
       // Edit, then delete.
       await click(".exam-actions .link");
       await type(".field", "Chemie: Säuren, Basen, Puffer");

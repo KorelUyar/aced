@@ -7,7 +7,9 @@ mkdir -p build/bin
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 for arch in arm64 x86_64; do
-  xcrun swiftc -O -target "$arch-apple-macos12.0" native/ocr.swift -o "$tmp/ocr-$arch"
+  # No debug information and no source paths in the file that is shipped.
+  xcrun swiftc -O -gnone -file-prefix-map "$PWD=." -target "$arch-apple-macos12.0" native/ocr.swift -o "$tmp/ocr-$arch"
+  strip -x "$tmp/ocr-$arch"
 done
 lipo -create "$tmp/ocr-arm64" "$tmp/ocr-x86_64" -output build/bin/spurt-ocr
 codesign --force --sign - build/bin/spurt-ocr

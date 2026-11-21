@@ -228,6 +228,7 @@ function Strategy({ exam, days, app, go }) {
     <footer class="fineprint">
       ${s.objectivesGuessed && html`<p>${t("objectivesGuessed")}</p>`}
       ${s.checks.exercises > 0 && html`<p>${t("checked", s.checks.confirmed + s.checks.moved, s.checks.exercises)}</p>`}
+      ${s.checks.rangesDropped > 0 && html`<p>${t("refsDropped", s.checks.rangesDropped)}</p>`}
     </footer>
   `;
 }

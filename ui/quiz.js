@@ -1,7 +1,7 @@
 // A quiz, a review or a mock exam: one question at a time, corrected with a short reason and
 // the page in the book. The questions are written and the written answers corrected by the AI.
 import { html, useState, useEffect, Icon, Segs, materialOf, printed } from "./bits.js";
-import { t, errorText } from "./i18n.js";
+import { t, errorText, errorCode } from "./i18n.js";
 import { Rich } from "./rich.js";
 
 const api = window.spurt;
@@ -19,7 +19,7 @@ export function Quiz({ exam, what, app }) {
   const toToday = () => app.nav({ name: "exam", id: exam.id, tab: "today" });
   const open = () => {
     setError(null);
-    api.openQuiz(exam.id, what).then(setSession, (err) => (err.code === "cancelled" ? toToday() : setError(errorText(err))));
+    api.openQuiz(exam.id, what).then(setSession, (err) => (errorCode(err) === "cancelled" ? toToday() : setError(errorText(err))));
   };
   useEffect(open, []);
 
@@ -93,7 +93,7 @@ export function Quiz({ exam, what, app }) {
   return html`<main class="page focus view">
     ${top(html`<${Segs} total=${total} done=${result ? i + 1 : i} now=${i} label=${t("questionOf", i + 1, total)} />
       <span class="muted">${t("questionOf", i + 1, total)}</span>`)}
-    <section class="view" key=${q.id}>
+    <section class="view" key=${q.id} data-question=${q.id}>
       <p class="q-meta">${title}, ${t("points", q.points)}</p>
       <p class="q-prompt"><${Rich} text=${q.prompt} /></p>
       ${q.type === "choice"

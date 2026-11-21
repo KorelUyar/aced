@@ -143,7 +143,7 @@ handle("settings:set", async (patch) => {
 });
 handle("ai:key", async (provider, key) => {
   if (!["anthropic", "openrouter", "openai"].includes(provider)) throw coded("unknown");
-  secrets.set(provider, key);
+  await secrets.set(provider, key);
   return ai.status();
 });
 handle("ai:test", () => ai.test());

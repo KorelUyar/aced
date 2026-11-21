@@ -2,10 +2,12 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const arg = (key) => (process.argv.find((a) => a.startsWith(`--spurt-${key}=`)) || "").split("=")[1];
 
-// Every call resolves to its value or throws an Error whose `code` the interface has a sentence for.
+// Every call resolves to its value, or throws an Error the interface has a sentence for.
+// Only an Error's message survives the way from here into the page, so the code and the
+// detail travel in the message: "code" or "code\ndetail" (ui/i18n.js takes it apart again).
 const call = async (channel, ...args) => {
   const r = await ipcRenderer.invoke(channel, ...args);
-  if (!r.ok) throw Object.assign(new Error(r.error), { code: r.error, detail: r.detail });
+  if (!r.ok) throw new Error(r.detail ? `${r.error}\n${r.detail}` : r.error);
   return r.value;
 };
 

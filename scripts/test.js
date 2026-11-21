@@ -176,6 +176,11 @@ function referenceChecks() {
   same(findLabel("Aufgabe 12 a) Berechne", "12 a"), 2);
   same(findLabel("3.2 Lösen Sie die Gleichung", "Aufgabe 3.2"), 2);
   same(findLabel("see figure 4 above", "4"), 1);
+  same(findLabel("A solution like this has a pH of 2. Pure water is neutral.", "2"), 1, "a number that ends a sentence is not an exercise number");
+  same(findLabel("Vertex opens up. 57 . Vertex opens down.", "57"), 2);
+  same(findLabel("Lies den Text.  12  Berechne den pH-Wert.", "12"), 1);
+  same(findLabel("Lies den Text.  12.  Berechne den pH-Wert.", "12"), 2, "a number at the start of a column");
+  same(findLabel("See Example 1.", "1"), 1);
   const source = { data: { pages: ["Theory, no exercises here.", "1. First\n2. Second\n3. Third", "4. Fourth\n5. Fifth"] } };
   same(checkExercise(source, 2, "2"), { page: 2, state: "confirmed" });
   same(checkExercise(source, 2, "5"), { page: 3, state: "moved" }, "an exercise cited one page off is put on the right page");
@@ -210,7 +215,7 @@ async function providerChecks() {
   store.setSettings({ ai: { provider: "anthropic" } });
   same((await ai.status()).ready, false, "not ready without a key");
   await failsWith(ai.ask(request("no key yet")), "noKey");
-  secrets.set("anthropic", "sk-ant-test");
+  await secrets.set("anthropic", "sk-ant-test");
   const usage = [];
   same(await ai.ask(request("What is two plus three?"), { onUsage: (u) => usage.push(u) }), { answer: 5 });
   const sent = seen.at(-1);
@@ -234,10 +239,10 @@ async function providerChecks() {
   mode = "cut";
   await failsWith(ai.ask(request("Cut off case")), "tooLong");
   mode = "good";
-  secrets.set("anthropic", "sk-ant-wrong");
+  await secrets.set("anthropic", "sk-ant-wrong");
   await failsWith(ai.ask(request("Bad key case")), "badKey");
   store.setSettings({ ai: { provider: "anthropic", model: "claude-haiku-5-5" } });
-  secrets.set("anthropic", "sk-ant-test");
+  await secrets.set("anthropic", "sk-ant-test");
   await ai.ask(request("Haiku case"));
   ok(!("fallbacks" in seen.at(-1).body) && !seen.at(-1).headers["anthropic-beta"], "no refusal fallback where the model has none");
   anthropic.close();
@@ -250,6 +255,22 @@ async function providerChecks() {
     if (req.headers.authorization !== "Bearer sk-or-test") return json(res, 401, { error: { message: "No auth credentials found", code: 401 } });
     if (style === "broke") return json(res, 402, { error: { message: "Insufficient credits", code: 402 } });
     if (style === "long") return json(res, 200, { choices: [{ finish_reason: "length", message: { content: '{"answer":' } }] });
+    if (style === "stream") {
+      // The answer in pieces, the way a real server streams it, with a keep-alive comment in between.
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      const piece = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+      piece({ choices: [{ delta: { role: "assistant", content: '{"ans' } }] });
+      res.write(": OPENROUTER PROCESSING\n\n");
+      piece({ choices: [{ delta: { content: 'wer": 5}' } }] });
+      piece({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 80, completion_tokens: 6, cost: 0.0003 } });
+      res.write("data: [DONE]\n\n");
+      return res.end();
+    }
+    if (style === "stream-error") {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ error: { code: 429, message: "Rate limit exceeded" } })}\n\n`);
+      return res.end();
+    }
     json(res, 200, {
       choices: [{ finish_reason: "stop", message: { role: "assistant", content: '{"answer": 5}' } }],
       usage: { prompt_tokens: 90, completion_tokens: 7, prompt_tokens_details: { cached_tokens: 60 }, cost: 0.0004 },
@@ -257,20 +278,28 @@ async function providerChecks() {
   });
   process.env.SPURT_OPENROUTER_BASE_URL = openrouter.url;
   store.setSettings({ ai: { provider: "openrouter" } });
-  secrets.set("openrouter", "sk-or-test");
+  await secrets.set("openrouter", "sk-or-test");
   usage.length = 0;
   same(await ai.ask(request("OpenRouter case"), { onUsage: (u) => usage.push(u) }), { answer: 5 });
   const or = calls.at(-1);
   same(or.url, "/chat/completions");
+  same(or.body.stream, true, "answers are streamed");
+  ok(!("stream_options" in or.body), "OpenRouter reports usage its own way");
   same(or.body.response_format, { type: "json_schema", json_schema: { name: "sum", strict: true, schema: SCHEMA } });
   same(or.body.provider, { require_parameters: true }, "only providers that can do structured output");
   same(or.body.messages[1].content[0].cache_control, { type: "ephemeral" });
   same(usage, [{ input: 90, cached: 60, output: 7, cost: 0.0004 }]);
+  style = "stream";
+  usage.length = 0;
+  same(await ai.ask(request("Streamed case"), { onUsage: (u) => usage.push(u) }), { answer: 5 }, "a streamed answer is put together");
+  same(usage, [{ input: 80, cached: 0, output: 6, cost: 0.0003 }]);
+  style = "stream-error";
+  await failsWith(ai.ask(request("Error in the stream")), "rateLimit");
   style = "broke";
   await failsWith(ai.ask(request("No credit case")), "noCredit");
   style = "long";
   await failsWith(ai.ask(request("Too long case")), "tooLong");
-  secrets.set("openrouter", "nope");
+  await secrets.set("openrouter", "nope");
   await failsWith(ai.ask(request("Bad key case, OpenRouter")), "badKey");
   openrouter.close();
 
@@ -288,7 +317,18 @@ async function providerChecks() {
   same(plain.length, 3, "structured output, then JSON mode, then plain");
   ok(typeof plain[2].messages[1].content === "string" && plain[2].messages[1].content.includes('"additionalProperties":false'), "the schema is given in words");
   ok(!("provider" in plain[0]) && !("usage" in plain[0]), "nothing OpenRouter-specific goes to another server");
+  same(plain[0].stream_options, { include_usage: true });
+  ok(!("stream_options" in plain[2]) && !("response_format" in plain[2]), "the last try is the plainest request there is");
   local.close();
+  // 404: a model the server does not have, or an address that leads nowhere.
+  const lost = await serve((req, body, res) =>
+    req.url.startsWith("/v1/") ? json(res, 404, { error: { message: 'model "local-model" not found, try pulling it first' } }) : res.writeHead(404).end("404 page not found"),
+  );
+  store.setSettings({ ai: { provider: "openai", model: "local-model", baseURL: lost.url + "/v1" } });
+  await failsWith(ai.ask(request("Unknown model")), "noModel");
+  store.setSettings({ ai: { provider: "openai", model: "local-model", baseURL: lost.url + "/api" } });
+  await failsWith(ai.ask(request("Wrong address")), "badAddress");
+  lost.close();
   store.setSettings({ ai: { provider: "openai", model: "local-model", baseURL: "http://127.0.0.1:9/v1" } });
   await failsWith(ai.ask(request("Nobody home")), "offline");
 

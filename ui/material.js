@@ -1,7 +1,7 @@
 // Material: the book, the learning objectives and anything else that is exam material go in
 // here, and the strategy is worked out from here. A new exam lands on this view.
 import { html, useState, useEffect, Icon, thousands, money, modelName } from "./bits.js";
-import { t, errorText } from "./i18n.js";
+import { t, errorText, errorCode } from "./i18n.js";
 
 const api = window.spurt;
 const KINDS = ["book", "objectives", "slides", "notes", "oldExam"];
@@ -50,7 +50,7 @@ export function Material({ exam, app }) {
         app.nav({ name: "exam", id: exam.id, tab: "today" });
       })
       .catch((err) => {
-        if (err.code !== "cancelled") setError(errorText(err));
+        if (errorCode(err) !== "cancelled") setError(errorText(err));
       })
       .finally(() => {
         setRunning(false);

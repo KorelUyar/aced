@@ -86,16 +86,25 @@ function estimate(exam) {
 // ------------------------------------------------------------ checking references against the book
 
 /**
- * 2: the label stands on this page the way an exercise number does (at the start of a line, or
- * followed by a full stop or bracket: "7.", "7 .", "12 a)"); 1: it appears somewhere; 0: not there.
+ * 2: the label stands on this page the way an exercise number does: at the start of a line or
+ * of a column, or right after another numbered item ("5. 6. 7."), and followed by a full stop
+ * or a bracket, or with the word for exercise in front of it. 1: it appears somewhere, for
+ * example at the end of a sentence ("a pH of 2."). 0: not there.
  */
 function findLabel(text, label) {
-  const core = String(label).trim().replace(/^(aufgabe|übung|uebung|exercise|problem|beispiel|nr\.?|no\.?|ex\.?)\s*/i, "").replace(/[.):]+$/, "");
+  const core = String(label).trim().replace(/^(aufgabe|übung|uebung|exercise|problem|nr\.?|no\.?|ex\.?)\s*/i, "").replace(/[.):]+$/, "");
   if (!core || !text) return 0;
   const esc = core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s*");
-  const numbered = new RegExp(`(^|[^0-9A-Za-z.,])(?:(?:aufgabe|übung|exercise|problem|beispiel|nr\\.?)[ \\t]*)?${esc}[ \\t]*(?:[.):]|\\n|$)`, "i");
-  const lineStart = new RegExp(`(^|\\n)[ \\t]*(?:(?:aufgabe|übung|exercise|problem|beispiel|nr\\.?)[ \\t]*)?${esc}[ \\t]`, "i");
-  if (numbered.test(text) || lineStart.test(text)) return 2;
+  const word = "(?:aufgabe|übung|uebung|exercise|problem|nr\\.?)";
+  const patterns = [
+    // "7." or "7)" where a list number can stand
+    `(?:^|\\n|[.:;)][ \\t]+|\\t|[ ]{2,})${esc}[ \\t]*[.):]`,
+    // alone at the start of a line, with the text of the exercise after it
+    `(?:^|\\n)[ \\t]*${esc}(?:[ \\t]|\\n|$)`,
+    // "Aufgabe 7", "Exercise 12 a"
+    `${word}[ \\t]*${esc}(?![0-9A-Za-z])`,
+  ];
+  if (patterns.some((p) => new RegExp(p, "i").test(text))) return 2;
   return new RegExp(`(^|[^0-9A-Za-z])${esc}(?![0-9A-Za-z])`, "i").test(text) ? 1 : 0;
 }
 
@@ -229,6 +238,8 @@ async function analyze(exam, { today, daysLeft, minutesTotal, minutesPerDay }, {
     topics,
     checks,
     pagesRead: [...selection.values()].reduce((sum, pages) => sum + pages.length, 0),
+    // The pages the model was shown, per material: a quiz falls back on them when a topic has no pages of its own.
+    shown: g.sources.filter((src) => selection.has(src.n)).map((src) => ({ material: src.m.id, pages: selection.get(src.n) })),
     skipped: g.scanned.map((m) => m.title),
   };
 }
@@ -251,6 +262,9 @@ function topicPages(exam, topics, sources, extraKinds = []) {
       if (step.kind === "solve") add(s, step.page);
     }
   }
+  // A topic whose page references could not be used (a weak model names pages it never saw)
+  // is quizzed from everything the strategy was made from, so the questions stay grounded.
+  if (!selection.size) for (const shown of exam.strategy.shown || []) shown.pages.forEach((p) => add(byId.get(shown.material), p));
   for (const s of sources) if (extraKinds.includes(s.m.kind) && s.m.chars <= SMALL_SOURCE) allPages(s).forEach((p) => add(s, p));
   // Keep within the budget, page by page in book order.
   let room = QUIZ_CHARS;

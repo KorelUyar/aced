@@ -6,6 +6,14 @@
   "main": "main.js",
   "author": "Korel Uyar",
   "license": "MIT",
+  "homepage": "https://github.com/KorelUyar/spurt",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KorelUyar/spurt.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KorelUyar/spurt/issues"
+  },
   "scripts": {
     "start": "electron .",
     "sample": "electron . --sample",

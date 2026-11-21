@@ -32,6 +32,7 @@ function config() {
 }
 
 async function status() {
+  await secrets.ready();
   const c = config();
   const ready =
     c.provider === "claudeCode"
@@ -72,6 +73,7 @@ function call(c, request) {
  * `onUsage({input, cached, output, cost?})` is called for every request that was really sent.
  */
 async function ask({ name, system, material = "", prompt, schema, maxTokens = 16000, effort = "medium" }, { signal, onUsage } = {}) {
+  await secrets.ready();
   const c = config();
   if (!c.provider) throw coded("noProvider");
   const key = files.sha(JSON.stringify([c.provider, c.model, system, material, prompt, schema]));
@@ -107,6 +109,7 @@ async function ask({ name, system, material = "", prompt, schema, maxTokens = 16
 /** A tiny real request, for the "Test" button in Settings. */
 async function test() {
   const schema = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false };
+  await secrets.ready();
   const c = config();
   if (!c.provider) throw coded("noProvider");
   const { text } = await call(c, {

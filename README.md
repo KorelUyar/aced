@@ -38,8 +38,8 @@ The interface is English or German. What the AI writes follows the language of y
 
 ## Your data and the AI
 
-Spurt has no server, no account and no telemetry. Exams, plans and results are in one file in
-the app's folder on your Mac; your PDFs are copied next to it.
+Spurt has no server, no account, no telemetry and no update check. Exams, plans and results are
+in one file in the app's folder on your Mac; your PDFs are copied next to it.
 
 The AI is one you bring:
 
@@ -48,16 +48,32 @@ The AI is one you bring:
 | **Claude Code on this Mac** | uses your own Claude Code login, no key |
 | **Anthropic API key** | you pay Anthropic per use |
 | **OpenRouter key** | one key for models from many providers |
-| **Another server** | anything that speaks the OpenAI chat format, such as a model on your own computer |
+| **Another server** | anything that speaks the OpenAI chat format, such as [Ollama](https://ollama.com) on your own computer |
 
-Keys are stored through the Mac's keychain and never leave the main process. Your material goes
-only to the provider you chose, and only the part a step needs: for a large book, first the
-table of contents to find the pages, then those pages. Before a large run you see an estimate of
-tokens and, where the price is known, cost. Every answer is kept on disk, so nothing is asked
-twice. Claude Code runs with all its tools switched off.
+What leaves your Mac, and where to:
+
+- **To the provider you chose, and nowhere else:** the text of the pages a step needs, your
+  learning objectives, the exam's name, date, time and target grade, and your quiz answers when
+  they are corrected. For a large book that is first the table of contents, to find the pages,
+  then those pages. Never the PDF itself.
+- **With "Claude Code on this Mac":** Spurt starts the `claude` command on your Mac with all its
+  tools switched off, so it can only read the text it is given and answer.
+- **With OpenRouter:** requests carry the app's name (`X-Title: Spurt`), and the price for the
+  estimate comes from OpenRouter's public model list.
+- **Keys** are stored through the Mac's keychain and are used only in the app's main process,
+  never in the window.
+
+Before a large run you see an estimate of tokens and, where the price is known, cost. Every
+answer is kept on disk, so nothing is asked twice.
 
 A real run on a 1073-page textbook (finding the pages, the strategy, one quiz and its
 corrections) used about 43,000 tokens in and 8,000 out.
+
+**How far each provider is tested.** Claude Code on this Mac is the one the app was built and
+run with, on whole books. The key-based ones are new: they are tested against stand-ins for
+each service's format, "another server" also against a real Ollama, and the real Anthropic and
+OpenRouter services only as far as refusing a wrong key. If one of them misbehaves for you,
+please [open an issue](https://github.com/KorelUyar/spurt/issues).
 
 ## What to know
 
@@ -72,19 +88,28 @@ corrections) used about 43,000 tokens in and 8,000 out.
   write their own formulas (drawn with KaTeX).
 - **Recognised text is not perfect.** Small print and formulas in a book without real text can
   come out wrong.
+- **A small model gives a weak plan.** With a small local model, expect vague topics and page
+  references that do not hold. Spurt leaves out references to pages the model was not shown and
+  says how many.
+- **After an update, macOS may ask once** whether Spurt may read its saved key from the
+  keychain, because the app is not notarised.
 
 ## Install
 
-Spurt is not notarised by Apple (that needs a paid developer account), so a copy downloaded
-with a browser is blocked by macOS at first. `scripts/install.sh` installs it without that
-warning:
+macOS 13 or later, Apple Silicon or Intel:
 
 ```sh
-SPURT_ZIP=/path/to/Spurt-macOS.zip zsh scripts/install.sh
+curl -fsSL https://github.com/KorelUyar/spurt/releases/latest/download/install.sh | zsh
 ```
 
-It puts `Spurt.app` into `/Applications` (or `~/Applications`) and opens it. macOS 13 or newer,
-Apple Silicon or Intel.
+This downloads the latest version, puts it in Applications and opens it. Spurt is not notarised
+by Apple (that needs a paid developer account). Installing it this way skips the "cannot be
+opened" warning that macOS shows for apps downloaded with a browser. With a
+`Spurt-macOS.zip` you downloaded yourself:
+
+```sh
+SPURT_ZIP=/path/to/Spurt-macOS.zip zsh install.sh
+```
 
 ## Develop
 
@@ -104,6 +129,7 @@ npm run sample   # the app on invented exams, nothing is saved
 | `npm run checks` | keyboard only, time in total, percent and German scale, reduced motion |
 | `electron scripts/window-check.js` | opens a real window for a few seconds: traffic lights, minimum size, date field |
 | `electron scripts/e2e.js <book.pdf> <objectives.txt> <outDir>` | the whole path for real through Claude Code (costs tokens) |
+| `electron scripts/wrong-key.js` | asks the real Anthropic and OpenRouter services with a key that is not one |
 | `npm run shots` | the pictures in `docs/shots` |
 | `npm run dist` | `dist/Spurt-macOS.zip`: universal, signed ad hoc |
 

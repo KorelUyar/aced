@@ -197,6 +197,7 @@ const STRINGS = {
     objectivesGuessed: "You gave no learning objectives. These are guessed from the exam's name and the book.",
     checked: (ok, all) => `Checked against the book: ${ok} of ${all} exercise numbers were found on their page.`,
     unconfirmed: (labels) => `Not found on this page: ${labels}. Check the number in the book.`,
+    refsDropped: (n) => `The model gave ${n} page ${n === 1 ? "reference" : "references"} to pages it was not shown. ${n === 1 ? "It was" : "They were"} left out.`,
     lastQuiz: (p) => `last quiz ${p}%`,
     planLead: (days, perDay) => (days === 0 ? "The exam is today." : `${days} ${days === 1 ? "day" : "days"} to go, ${perDay} a day.`),
     planTotal: (m) => `What is planned takes ${m} in all.`,
@@ -243,7 +244,8 @@ const STRINGS = {
     err_badKey: "The key was not accepted. Check it in Settings.",
     err_noCredit: "The provider says there is no credit left on this key.",
     err_rateLimit: "The provider is limiting requests right now. Wait a moment and try again.",
-    err_offline: "No connection to the provider. Are you online?",
+    err_offline: "No connection to the provider. Check that you are online, or that the server is running.",
+    err_badAddress: "The server does not know this address. Check it in Settings: it usually ends in /v1.",
     err_noModel: "The provider does not know this model. Check its name in Settings.",
     err_noServer: "The server's address is missing. Add it in Settings.",
     err_refusal: "The model declined this request. Try again, or pick another model in Settings.",
@@ -453,6 +455,7 @@ const STRINGS = {
     objectivesGuessed: "Du hast keine Lernziele angegeben. Diese sind aus dem Namen der Prüfung und dem Buch geschätzt.",
     checked: (ok, all) => `Im Buch nachgeprüft: ${ok} von ${all} Aufgabennummern stehen auf ihrer Seite.`,
     unconfirmed: (labels) => `Auf dieser Seite nicht gefunden: ${labels}. Prüf die Nummer im Buch.`,
+    refsDropped: (n) => `Das Modell hat ${n} ${n === 1 ? "Seitenangabe" : "Seitenangaben"} zu Seiten gemacht, die es nicht gesehen hat. ${n === 1 ? "Sie wurde" : "Sie wurden"} weggelassen.`,
     lastQuiz: (p) => `letztes Quiz ${p}%`,
     planLead: (days, perDay) => (days === 0 ? "Die Prüfung ist heute." : `Noch ${days} ${days === 1 ? "Tag" : "Tage"}, ${perDay} pro Tag.`),
     planTotal: (m) => `Das Geplante braucht insgesamt ${m}.`,
@@ -499,7 +502,8 @@ const STRINGS = {
     err_badKey: "Der Schlüssel wurde nicht akzeptiert. Prüf ihn in den Einstellungen.",
     err_noCredit: "Der Anbieter meldet: Auf diesem Schlüssel ist kein Guthaben mehr.",
     err_rateLimit: "Der Anbieter bremst gerade. Warte kurz und versuch es nochmals.",
-    err_offline: "Keine Verbindung zum Anbieter. Bist du online?",
+    err_offline: "Keine Verbindung zum Anbieter. Prüf, ob du online bist oder ob der Server läuft.",
+    err_badAddress: "Der Server kennt diese Adresse nicht. Prüf sie in den Einstellungen: Meist endet sie auf /v1.",
     err_noModel: "Der Anbieter kennt dieses Modell nicht. Prüf den Namen in den Einstellungen.",
     err_noServer: "Die Adresse des Servers fehlt. Trag sie in den Einstellungen ein.",
     err_refusal: "Das Modell hat diese Anfrage abgelehnt. Versuch es nochmals oder wähle in den Einstellungen ein anderes Modell.",
@@ -536,10 +540,14 @@ export function t(key, ...args) {
   return typeof out === "string" ? out.replaceAll("{app}", APP) : out;
 }
 
-/** The sentence for an error from the main process (its `code`), in the interface's language. */
+/** The code of an error from the main process ("badKey", "offline", ...); its message is "code" or "code\ndetail". */
+export const errorCode = (err) => String((err && err.message) || "").split("\n")[0];
+
+/** The sentence for such an error, in the interface's language. */
 export function errorText(err) {
-  const key = "err_" + (err && err.code);
-  return STRINGS.en[key] ? t(key, err.detail || "") : t("err_unknown", (err && (err.detail || err.message)) || "");
+  const [code, ...rest] = String((err && err.message) || "").split("\n");
+  const detail = rest.join(" ").trim();
+  return STRINGS.en["err_" + code] ? t("err_" + code, detail) : t("err_unknown", detail || code);
 }
 
 /** "Friday 27 November" / "Freitag, 27. November", from a YYYY-MM-DD date. */
