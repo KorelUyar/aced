@@ -1,5 +1,5 @@
 // Small shared pieces: the lane, icons, and how numbers are written.
-import { html } from "./vendor/htm-preact.js";
+import { html, useState, useEffect } from "./vendor/htm-preact.js";
 import { t, lang } from "./i18n.js";
 
 export { html, render, useState, useEffect, useRef } from "./vendor/htm-preact.js";
@@ -13,6 +13,8 @@ const ICONS = {
   minus: html`<path d="M3.5 8h9" />`,
   check: html`<path d="M3.5 8.5l3 3 6-7" />`,
   x: html`<path d="M4 4l8 8M12 4l-8 8" />`,
+  ask: html`<path d="M3 3.5h10v7H8l-3 2.5v-2.5H3z" />`,
+  pencil: html`<path d="M3 13l.6-2.8L10.9 3l2.1 2.1-7.3 7.3L3 13z" />`,
   partly: html`<circle cx="8" cy="8" r="5.5" /><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor" />`,
   sliders: html`<path d="M2.5 5h5.5M12.5 5h1M2.5 11h1M8 11h5.5" /><circle cx="10.2" cy="5" r="1.8" /><circle cx="5.8" cy="11" r="1.8" />`,
   book: html`<path d="M8 4.6C6.6 3.6 4.7 3.3 2.5 3.5v8.6c2.2-.2 4.1.1 5.5 1.1 1.4-1 3.3-1.3 5.5-1.1V3.5C11.3 3.3 9.4 3.6 8 4.6zM8 4.6v8.6" />`,
@@ -35,6 +37,35 @@ export function Segs({ total, done, now = -1, post = true, label }) {
   return html`<div class="segs" role="img" aria-label=${label}>
     ${Array.from({ length: total }, (_, i) => html`<i class=${i < done ? "done" : i === now ? "now" : ""}></i>`)}
     ${post && html`<b class="post"></b>`}
+  </div>`;
+}
+
+/**
+ * What is running for an exam, said the same way wherever it shows: what it is doing, for how
+ * long already, how long such a thing usually takes, and a way to stop it.
+ */
+export function RunNote({ run, onCancel, brief }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const seconds = Math.max(0, Math.round((Date.now() - run.startedAt) / 1000));
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const text =
+    run.stage !== "read"
+      ? t("stage_" + run.stage)
+      : run.phase === "recognise" && run.state === "preparing"
+        ? t("preparing", run.title || "")
+        : t(run.phase === "recognise" ? "recognising" : "reading", run.title || "", run.done || 0, run.total || 0);
+  if (brief) return html`<span class="run-brief"><span class="spinner" aria-hidden="true"></span>${text}</span>`;
+  return html`<div class="running" role="status" data-kind=${run.kind}>
+    <span class="spinner" aria-hidden="true"></span>
+    <span class="run-text">
+      <strong>${text}</strong>
+      <small><span class="num">${clock}</span> · ${t("expect_" + run.kind)}</small>
+    </span>
+    ${onCancel && html`<button class="btn plain" id="cancelRun" onClick=${onCancel}>${t("cancel")}</button>`}
   </div>`;
 }
 
@@ -90,8 +121,6 @@ export function where(step, exam) {
 
 /** The page of the file to open for a step, or null when there is nothing to open. */
 export const firstPage = (step) => (step.kind === "read" ? step.from : step.kind === "solve" ? step.page : null);
-
-export const canOpen = (exam, step) => firstPage(step) !== null && materialOf(exam, step.material)?.type === "pdf";
 
 const MODEL_NAMES = {
   "claude-opus-5-5": "Claude Opus 5.5",

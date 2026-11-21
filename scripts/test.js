@@ -2,7 +2,9 @@
 //
 //   node_modules/.bin/electron scripts/test.js
 //
-// - the planner (grades, what fits, what is left out, repetition)
+// - the planner (grades, what fits, what is left out, the order, today's share, what an exam puts back)
+// - results typed by the student compared with the expected ones (numbers in every notation)
+// - the search through the pages of a book, the store (damaged file, backup, language, kept ticks)
 // - the check of exercise numbers against page text
 // - every key-based provider against a small server on this machine that speaks its format:
 //   what is sent (key, schema, caching marks), what comes back, and what happens on errors
@@ -83,13 +85,14 @@ function plannerChecks() {
   same(p.diffDays("2026-11-21", "2026-11-27"), 6);
 
   const step = (id, kind, minutes) => ({ id, kind, minutes });
-  const topic = (id, share, minutes) => ({
+  // Topics are numbered against the book's order on purpose: t1 is the last chapter.
+  const topic = (id, share, minutes, order) => ({
     id,
     title: id,
     share,
-    order: Number(id.slice(1)),
+    order,
     skipCost: "",
-    steps: [step(`${id}/r0`, "read", minutes * 0.3), step(`${id}/s0`, "solve", minutes * 0.5), step(`${id}/q`, "quiz", minutes * 0.2)],
+    steps: [step(`${id}/r0`, "read", minutes * 0.4), step(`${id}/s0`, "solve", minutes * 0.6), step(`${id}/q`, "quiz", 10)],
   });
   const exam = (over = {}) => ({
     date: "2026-11-27",
@@ -97,36 +100,32 @@ function plannerChecks() {
     scale: "ch",
     target: 5,
     pace: "sprint",
-    strategy: { topics: [topic("t1", 0.4, 60), topic("t2", 0.3, 60), topic("t3", 0.2, 60), topic("t4", 0.1, 100)] },
+    strategy: { topics: [topic("t1", 0.4, 60, 40), topic("t2", 0.3, 60, 30), topic("t3", 0.2, 60, 20), topic("t4", 0.1, 100, 10)] },
     done: {},
-    mastery: {},
-    attempts: {},
-    cards: {},
-    quizzes: {},
+    again: [],
     ...over,
   });
   const today = "2026-11-21";
+  const ids = (pl) => pl.stages.flatMap((st) => st.tasks.map((t) => t.id));
   let plan = p.buildPlan(exam(), today);
   same(plan.days.length, 6, "study days run up to the day before the exam");
   same(plan.dropped.map((d) => d.topicId), ["t4"], "the topic with the fewest points per minute is left out");
+  same(plan.stages.map((st) => st.id), ["t3", "t2", "t1"], "what stays is done in the book's order");
+  ok(!ids(plan).some((id) => id.endsWith("/q")), "no quizzes on the list where the book has exercises");
   same(plan.coverage, 0.9);
   ok(plan.reachable && plan.reach === 5.5, "a 5 is in reach with 90% covered");
-  ok(plan.days.every((d) => d.tasks.reduce((sum, t) => sum + t.minutes, 0) <= 40 * 1.5), "no day is overloaded");
-  const flat = (pl) => pl.days.flatMap((d, i) => d.tasks.map((t) => [t.id, i]));
-  const dayOf = (pl, id) => (flat(pl).find(([x]) => x === id) || [])[1];
-  ok(dayOf(plan, "t1/q") > dayOf(plan, "t1/s0"), "the quiz comes a day after the exercises");
-  ok(flat(plan).some(([id]) => id === "mock"), "time that is left over but too short for the dropped topic goes to a mock exam");
-  const tight = p.buildPlan(exam({ time: { mode: "perDay", minutes: 33 } }), today);
-  ok(tight.dropped.length === 1 && !flat(tight).some(([id]) => id === "mock"), "no topic is dropped to make room for a mock exam");
+  ok(plan.days.every((d) => d.tasks.reduce((sum, t) => sum + t.minutes, 0) <= 40 * 1.6), "no day is overloaded");
+  same([plan.percent, plan.next], [0, "t3/r0"], "nothing done: the first step of the first chapter is up");
+  same(plan.today, { steps: 1, minutes: 24, end: "t3/r0" }, "today's share is the next steps, as far as today's minutes reach");
+  ok(plan.stages[0].tasks[0].today && !plan.stages[0].tasks[1].today);
 
   // Too little time for the target: the plan says so.
   plan = p.buildPlan(exam({ time: { mode: "perDay", minutes: 15 } }), today);
   ok(!plan.reachable && plan.short > 0 && plan.reach < 5, "says honestly that the target is out of reach");
 
-  // Plenty of time: everything fits, repetition and a mock exam are added.
+  // Plenty of time: everything fits.
   plan = p.buildPlan(exam({ time: { mode: "perDay", minutes: 90 }, pace: "thorough" }), today);
-  same(plan.dropped.length, 0);
-  ok(flat(plan).some(([id]) => id === "mock") && flat(plan).some(([id]) => id === "t1/q~3"), "mock exam and spaced repetition are planned");
+  same([plan.dropped.length, plan.stages.map((st) => st.id).join()], [0, "t4,t3,t2,t1"]);
 
   // Efficient: stops once the target is covered.
   plan = p.buildPlan(exam({ time: { mode: "perDay", minutes: 90 }, pace: "efficient", target: 4 }), today);
@@ -137,38 +136,163 @@ function plannerChecks() {
   same(plan.days.length, 3);
   ok(plan.dropped.length >= 2, "with less time left, more is left out");
 
-  // Done work is not planned again, and counts against today's time.
-  const done = { "t1/r0": { date: today, minutes: 18, at: 1 } };
+  // Done work counts, by minutes, and against today's time.
+  const done = { "t3/r0": { date: today, minutes: 24, at: 1 }, "t3/s0": { date: today, minutes: 36, at: 2 } };
   plan = p.buildPlan(exam({ done }), today);
-  ok(plan.days[0].tasks[0].done && plan.days[0].tasks[0].id === "t1/r0", "what was done today stays visible");
-  same(plan.days.flatMap((d) => d.tasks).filter((t) => t.id === "t1/r0").length, 1);
-  // Doing more today pulls work forward.
-  const more = p.buildPlan(exam({ done, bonus: { date: today, minutes: 40 } }), today);
-  ok(more.days[0].tasks.length > plan.days[0].tasks.length, "extra time today pulls the next task in");
+  same(plan.percent, 33, "a third of the minutes is done");
+  same([plan.next, plan.today.steps], ["t2/r0", 0], "today's time is used up: the rest is ahead of plan");
+  ok(plan.days[0].tasks.every((t) => t.done), "what was done today stays on today");
+  const everything = Object.fromEntries(["t3", "t2", "t1"].flatMap((t) => [`${t}/r0`, `${t}/s0`]).map((id) => [id, { date: "2026-11-20", minutes: 30 }]));
+  plan = p.buildPlan(exam({ time: { mode: "perDay", minutes: 10 }, done: everything }), today);
+  same([plan.percent, plan.next, plan.dropped.length], [100, null, 1], "everything ticked is 100%");
+  // Time that is left when the list is done lets a topic that was left out back in.
+  plan = p.buildPlan(exam({ done: everything }), today);
+  same([plan.dropped.length, plan.next], [0, "t4/r0"]);
 
-  // A weak quiz brings the topic back; the missed questions come back too.
-  const weak = exam({
-    done: { "t1/r0": { date: today, minutes: 18 }, "t1/s0": { date: today, minutes: 30 }, "t1/q": { date: today, minutes: 12 } },
-    mastery: { t1: 0.4 },
-    attempts: { t1: 1 },
-    quizzes: { t1: { questions: [{ id: "t1/k0", topicId: "t1" }, { id: "t1/k1", topicId: "t1" }] } },
-    cards: { "t1/k0": p.nextCard(null, 0, today), "t1/k1": p.nextCard(null, 1, today) },
-  });
-  plan = p.buildPlan(weak, "2026-11-22");
-  ok(plan.days[0].tasks.some((t) => t.kind === "review"), "a missed question is due the next day");
-  same(dayOf(plan, "t1/q#1"), 1, "the weak topic's quiz comes back two days after the first");
-  same(p.dueQuestions(weak, "2026-11-22").map((q) => q.id), ["t1/k0"]);
-  same(p.nextCard(null, 1, today).due, "2026-11-23");
-  same(p.nextCard({ box: 1 }, 1, today).due, "2026-11-25");
-  same(p.nextCard({ box: 2 }, 0.5, today), { box: 0, due: "2026-11-23" });
+  // Time "in total" is shared out to the minute: an hour over 14 days is an hour.
+  plan = p.buildPlan(exam({ date: "2026-12-05", time: { mode: "total", minutes: 60 } }), today);
+  same([plan.available, plan.days.length, plan.perDay], [60, 14, 4]);
 
-  // The projection follows quiz results and stays honest about what is left out.
-  const fresh = p.standing(exam(), p.buildPlan(exam(), today));
-  const good = exam({ mastery: { t1: 1, t2: 1, t3: 1 } });
-  const bad = exam({ mastery: { t1: 0.2, t2: 0.2, t3: 0.2 } });
-  ok(p.standing(good, p.buildPlan(good, today)).projected > fresh.projected, "good quizzes raise the projection");
-  ok(p.standing(bad, p.buildPlan(bad, today)).projected < fresh.projected, "weak quizzes lower it");
-  ok(fresh.readiness < 0.3 && fresh.projected <= 5, "nobody is ready before starting");
+  // A topic whose book has no exercises gets questions instead; others never do.
+  const bare = exam({ time: { mode: "perDay", minutes: 90 } });
+  bare.strategy.topics[0].steps = bare.strategy.topics[0].steps.filter((x) => x.kind !== "solve");
+  plan = p.buildPlan(bare, today);
+  same(ids(plan).filter((id) => id.endsWith("/q")), ["t1/q"]);
+
+  // What an exam result puts back comes after everything else, and lowers the percentage.
+  const again = [{ id: "t2/a1", topicId: "t2", score: 0.3, steps: [step("t2/a1/r0", "read", 10), step("t2/a1/s0", "solve", 20)] }];
+  plan = p.buildPlan(exam({ time: { mode: "perDay", minutes: 10 }, done: everything, again }), today);
+  same([plan.stages.at(-1).id, plan.stages.at(-1).again, plan.next], ["t2/a1", true, "t2/a1/r0"]);
+  ok(plan.percent < 100 && plan.percent > 80);
+
+  // An exam whose date has passed: the list stays, nothing is "for today", and it says so.
+  plan = p.buildPlan(exam(), "2026-12-01");
+  same([plan.over, plan.daysLeft, plan.today.steps], [true, 0, 0]);
+}
+
+function answerChecks() {
+  const a = require("../src/answers");
+  const right = [
+    ["21920.70", 21920.7, 0.005], ["21'920.70", 21920.7, 0.005], ["CHF 21 920.70", 21920.7, 0.005], ["21 920,70", 21920.7, 0.005], ["21.920,70", 21920.7, 0.005],
+    ["21,920.70", 21920.7, 0.005], ["21921", 21920.7, 0.005], ["x = 3", 3, 0], ["f(2) = 5", 5, 0], ["3/4", 0.75, 0], ["0,75", 0.75, 0], ["−2.5", -2.5, 0], ["1,5·10^3", 1500, 0],
+    ["1.5e3", 1500, 0], ["12 %", 0.12, 0], ["1,234", 1234, 0], ["1,234", 1.234, 0], ["0.33", 1 / 3, 0.01], ["140 feet", 140, 0], ["h = 2,5 Sekunden", 2.5, 0], ["1 000 000", 1e6, 0],
+  ];
+  for (const [typed, expected, tolerance] of right) ok(a.numberRight(typed, expected, tolerance), `"${typed}" is ${expected}`);
+  const wrong = [["21900", 21920.7, 0.005], ["22000", 21920.7, 0.005], ["2.5", -2.5, 0], ["0.33", 1 / 3, 0], ["", 7, 0], ["seven", 7, 0], ["70", 7, 0], ["12", 12.4, 0]];
+  for (const [typed, expected, tolerance] of wrong) ok(!a.numberRight(typed, expected, tolerance), `"${typed}" is not ${expected}`);
+  for (const typed of ["x1 = 1; x2 = 3", "3 und 1", "1, 3", "1,3", "{3; 1}", "x=1 or x=3"]) ok(a.numbersRight(typed, [1, 3], 0), `"${typed}" names 1 and 3`);
+  ok(a.numbersRight("1,5 und 3", [1.5, 3], 0) && a.numbersRight("-4.65; 0.65", [0.65, -4.65], 0.005));
+  for (const typed of ["1", "1; 3; 5", "1 oder 4", ""]) ok(!a.numbersRight(typed, [1, 3], 0), `"${typed}" does not name 1 and 3`);
+}
+
+function searchChecks() {
+  const { rank, words } = require("../src/search");
+  same(words("Die Aufgaben zum Zinseszins"), words("aufgabe ZINSESZINSEN"), "plural, case and stop words do not matter");
+  const pages = ["Quadratic functions have a vertex.", "Section exercises: find the vertex of each parabola.", "Die Aufgaben zum Zinseszins: Berechne das Endkapital.", "Logarithms."];
+  same(rank([{ n: 1, hash: "t1", pages }], "Where do I find exercises on the vertex?")[0].page, 2);
+  same(rank([{ n: 1, hash: "t1", pages }], "Auf welcher Seite finde ich Aufgaben für Zinseszins?")[0].page, 3);
+  same(rank([{ n: 1, hash: "t1", pages }], "wo?"), [], "nothing to search for finds nothing");
+}
+
+function errorChecks() {
+  const { problemOf } = require("../src/ai/claude-code");
+  const code = (text) => {
+    const e = problemOf(text, "claude-haiku-5-5");
+    return e.detail ? `${e.code}: ${e.detail}` : e.code;
+  };
+  same(code("Claude usage limit reached. Your limit will reset at 7pm (Europe/Zurich)."), "usageLimit: 7pm (Europe/Zurich)", "the reset time is kept");
+  same(code("API Error: Connection error."), "offline");
+  same(code('API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'), "overloaded");
+  same(code("There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it. Run /model to pick a different model."), "noModel: claude-haiku-5-5");
+  same(code('API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}'), "serverError");
+  same(code("Not logged in · Please run /login"), "signIn: signedOut");
+  ok(!/[{}]/.test(code('Something odd {"a":1} happened')) || code('Something odd {"a":1} happened').startsWith("provider: Claude Code:"), "anything else is passed on as words");
+
+  const { completeAddress, allowedAddress } = require("../src/address");
+  same(completeAddress("localhost:7802/v1"), "http://localhost:7802/v1", "a local address without http:// is completed");
+  same(completeAddress("api.example.com/v1"), "https://api.example.com/v1");
+  ok(allowedAddress(completeAddress("127.0.0.1:11434/v1")) && !allowedAddress(completeAddress("http://example.com/v1")) && !allowedAddress(completeAddress("hello world")));
+}
+
+function storeChecks() {
+  const store = require("../src/store");
+  const files = require("../src/files");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-test-store-"));
+  const file = path.join(dir, "spurt.json");
+  // A first start follows the Mac's language; a choice is kept.
+  store.init({ dir, sample: false, systemLang: "de" });
+  same([store.settings().lang, store.problem()], ["de", null]);
+  store.setSettings({ lang: "en" });
+  store.init({ dir, sample: false, systemLang: "de" });
+  same(store.settings().lang, "en", "a language that was chosen stays");
+  // A file from 0.1 with the default English on a German Mac follows the Mac; German was a choice.
+  fs.writeFileSync(file, JSON.stringify({ settings: { lang: "en", appearance: "system", ai: { provider: null, models: {}, baseURL: "" } }, exams: [] }));
+  store.init({ dir, sample: false, systemLang: "de" });
+  same(store.settings().lang, "de");
+  fs.writeFileSync(file, JSON.stringify({ settings: { lang: "de" }, exams: [] }));
+  store.init({ dir, sample: false, systemLang: "en" });
+  same(store.settings().lang, "de");
+
+  // An exam, a strategy, ticks; a new strategy keeps the ticks of steps that say the same.
+  const exam = store.createExam({ name: "Test", date: "2099-01-01", time: { mode: "total", minutes: 60 * 100000 } });
+  ok(exam.time.minutes <= 60 * 400, "time in total is capped");
+  const strategy = (labels) => ({ topics: [{ id: "t1", title: "T", share: 1, order: 1, objectives: [], steps: [{ id: "t1/r0", kind: "read", material: "m", from: 3, to: 5, minutes: 10 }, { id: "t1/s0", kind: "solve", material: "m", page: 6, labels, minutes: 10 }] }] });
+  store.setStrategy(exam.id, strategy(["1", "2"]));
+  store.change(exam.id, (e) => (e.done = { "t1/r0": { date: "2026-01-01", minutes: 10 }, "t1/s0": { date: "2026-01-01", minutes: 10 } }));
+  same(store.progressAfter(store.exam(exam.id), strategy(["1", "3"])), { done: 2, kept: 1, lost: 1 });
+  store.setStrategy(exam.id, strategy(["1", "3"]));
+  same(Object.keys(store.exam(exam.id).done), ["t1/r0"], "the reading step is the same and stays ticked; the changed exercises start again");
+  same(store.view(store.exam(exam.id)).percent, 50);
+  // The same file or text a second time is said to be there already.
+  same(store.addMaterial(exam.id, { hash: "h1", type: "text", title: "First", pages: 1, chars: 10 }, "notes"), "");
+  same(store.addMaterial(exam.id, { hash: "h1", type: "text", title: "Copy", pages: 1, chars: 10 }, "notes"), "First");
+  // A step that points into material that is gone is noticed.
+  ok(store.view(store.exam(exam.id)).missing, "the plan points at material that is not there");
+
+  // A damaged file is never written over; the backup of the last good start can take its place.
+  store.init({ dir, sample: false });
+  const good = fs.readFileSync(file, "utf8");
+  fs.writeFileSync(file, good.slice(0, good.length / 2));
+  store.init({ dir, sample: false });
+  ok(store.problem() && store.problem().backup, "the damage is noticed and there is a backup");
+  same(store.exams().length, 0);
+  store.setSettings({ appearance: "dark" });
+  same(fs.readFileSync(file, "utf8"), good.slice(0, good.length / 2), "nothing is written while the file is damaged");
+  store.recover("backup");
+  same([store.problem(), store.exams().length, store.exams()[0].name], [null, 1, "Test"]);
+  ok(fs.readdirSync(dir).some((name) => name.startsWith("spurt.damaged-")), "the damaged file is kept beside it");
+  fs.writeFileSync(file, "{ not json");
+  fs.rmSync(path.join(dir, "spurt.backup.json"));
+  store.init({ dir, sample: false });
+  same(store.problem(), { backup: null });
+  store.recover("empty");
+  same([store.problem(), store.exams().length], [null, 0]);
+
+  // A file written by the released 0.1.0 (scripts/fixtures/profile-0.1.0.json: a real strategy,
+  // two ticked steps, one quiz) opens as it is: the plan is there, the ticks count, and nothing
+  // 0.1 kept is thrown away, although 0.2 no longer uses all of it.
+  const old = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "profile-0.1.0.json"), "utf8"));
+  const carried = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-test-carry-"));
+  fs.writeFileSync(path.join(carried, "spurt.json"), JSON.stringify(old));
+  store.init({ dir: carried, sample: false, systemLang: "de" });
+  same([store.problem(), store.exams().length, store.settings().lang], [null, 1, "de"], "it is read, and follows the Mac's language (0.1 only knew its default)");
+  const then = store.view(store.exam(old.exams[0].id), "2026-11-21");
+  same([then.percent, then.plan.next, then.final.state, then.plan.stages.some((st) => st.tasks.some((t) => t.kind === "quiz"))], [14, "t1/r0", "none", false], "the two ticked steps count; the quizzes of 0.1 are not on the list");
+  same(JSON.stringify(store.exam(old.exams[0].id).strategy), JSON.stringify(old.exams[0].strategy), "the strategy is not touched");
+  store.setSettings({ appearance: "dark" });
+  const kept = JSON.parse(fs.readFileSync(path.join(carried, "spurt.json"), "utf8")).exams[0];
+  for (const key of ["done", "mastery", "attempts", "cards", "quizzes", "history", "usage", "materials"]) same(kept[key], old.exams[0][key], `"${key}" from 0.1 is still in the file`);
+
+  // Text files in the encodings people really have.
+  const text = "Lernziele: Größe, Fläche, Übung";
+  same(files.decode(Buffer.from(text, "utf8")), text);
+  same(files.decode(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")])), text, "UTF-16 with a mark");
+  same(files.decode(Buffer.from(text, "utf16le")), text, "UTF-16 without one");
+  same(files.decode(Buffer.from(text, "latin1")), text, "Latin-1");
+  files.init(dir);
+  const long = files.addText(("A paragraph of text that is about a hundred characters long, so that a great many of them make pages.\n\n").repeat(400), "long");
+  ok(long.pages > 8 && !long.cut, "a long text is kept as pages, whole");
+  ok(files.addText("x".repeat(3000500), "huge").cut, "what is cut off is said");
 }
 
 function referenceChecks() {
@@ -214,6 +338,10 @@ async function providerChecks() {
     if (key !== "sk-ant-test") return json(res, 401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
     if (mode === "refuse") return anthropicStream(res, "", "refusal");
     if (mode === "cut") return anthropicStream(res, '{"answer":', "max_tokens");
+    if (mode === "402") return json(res, 402, { type: "error", error: { type: "billing_error", message: "Your credit balance is too low to access the API." } });
+    if (mode === "529") return json(res, 529, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } });
+    if (mode === "500") return json(res, 500, { type: "error", error: { type: "api_error", message: "Internal server error" } });
+    if (mode === "400") return json(res, 400, { type: "error", error: { type: "invalid_request_error", message: "messages: something is not right" } });
     if (mode === "bad-then-good" && !body.messages[0].content.at(-1).text.includes("previous answer")) return anthropicStream(res, "The answer is five.");
     anthropicStream(res, '{"answer": 5}');
   });
@@ -253,7 +381,25 @@ async function providerChecks() {
   await failsWith(ai.ask(request("Refusal case")), "refusal");
   mode = "cut";
   await failsWith(ai.ask(request("Cut off case")), "tooLong");
+  // Errors of the API become codes the interface has a sentence for, never its JSON.
+  mode = "402";
+  await failsWith(ai.ask(request("No credit case")), "noCredit");
+  mode = "529";
+  await failsWith(ai.ask(request("Overloaded case")), "overloaded");
+  mode = "500";
+  await failsWith(ai.ask(request("Server error case")), "serverError");
+  mode = "400";
+  const other = await ai.ask(request("Other error case")).catch((e) => e);
+  same([other.code, other.detail], ["provider", "messages: something is not right"], "what the API says, in words, without status or JSON");
   mode = "good";
+  // An answer that fits the schema but cannot be used is not kept: the next try asks again.
+  const sentSoFar = seen.length;
+  const six = { usable: (v) => (v.answer === 6 ? "" : "not six") };
+  await failsWith(ai.ask(request("Usable case", six)), "badOutput");
+  await failsWith(ai.ask(request("Usable case", six)), "badOutput");
+  same(seen.length, sentSoFar + 4, "an unusable answer is asked for again, this time and the next");
+  await ai.ask(request("What is two plus three?"), { fresh: true });
+  same(seen.length, sentSoFar + 5, "a fresh run asks although the answer is on disk");
   await secrets.set("anthropic", "sk-ant-wrong");
   await failsWith(ai.ask(request("Bad key case")), "badKey");
   store.setSettings({ ai: { provider: "anthropic", model: "claude-haiku-5-5" } });
@@ -391,6 +537,14 @@ async function providerChecks() {
   ok(!fs.existsSync(path.join(dir, "library")) || !fs.readdirSync(path.join(dir, "library")).length, "a cancelled file is not kept");
   const item = await files.add(pdfFile);
   same([item.pages, item.scanned, item.chars > 500], [1, false, true], "and read when it is not cancelled");
+  // A PDF with a single line of real text is short, not "a PDF no text could be read from".
+  const liner = new BrowserWindow({ show: false });
+  await liner.loadURL("data:text/html," + encodeURIComponent("<p>Lernziel: Ich kann den pH-Wert berechnen.</p>"));
+  const oneLine = path.join(dir, "one-line.pdf");
+  fs.writeFileSync(oneLine, await liner.webContents.printToPDF({}));
+  liner.destroy();
+  const short = await files.add(oneLine);
+  same([short.pages, short.scanned, short.chars > 20], [1, false, true], "one line of text is material");
   fs.rmSync(path.join(dir, "library"), { recursive: true });
   fs.rmSync(path.join(dir, "texts"), { recursive: true });
   for (const [folder, name] of [["library", "aaa.pdf"], ["library", "bbb.pdf"], ["texts", "aaa.json"], ["texts", "bbb.json"], ["answers", "k1.json"], ["answers", "k2.json"]]) {
@@ -413,15 +567,105 @@ async function providerChecks() {
   ok(!JSON.stringify(await ai.status()).includes("sk-"), "the status sent to the window holds no key");
 }
 
+/** The engine against a server that plays the model: questions, marking, formula sheet, helper. */
+async function engineChecks() {
+  const store = require("../src/store");
+  const files = require("../src/files");
+  const secrets = require("../src/secrets");
+  const engine = require("../src/engine");
+  const P = require("../src/prompts");
+  const dir = app.getPath("userData");
+  const seen = [];
+  const last = (body) => body.messages[0].content.at(-1).text;
+  const answers = {
+    "Task: the final exam": {
+      questions: [
+        { topic: 0, type: "number", prompt: "Interest?", value: 21920.7, values: [], tolerance: 0.005, unit: "CHF", choices: [], correct: -1, answer: "", solution: "s", points: 2, book: 1, page: 2 },
+        { topic: 0, type: "numbers", prompt: "Solutions?", value: 0, values: [1, 3], tolerance: 0, unit: "", choices: [], correct: -1, answer: "$x_1=1$, $x_2=3$", solution: "s", points: 2, book: 1, page: 2 },
+        { topic: 1, type: "choice", prompt: "Which?", value: 0, values: [], tolerance: 0, unit: "", choices: ["a", "b"], correct: 9, answer: "b", solution: "s", points: 1, book: 1, page: 3 },
+        { topic: 1, type: "text", prompt: "The line through (0,1) with slope 2?", value: 0, values: [], tolerance: 0, unit: "", choices: [], correct: -1, answer: "$y=2x+1$", solution: "s", points: 7, book: 1, page: 99 },
+        { topic: 1, type: "number", prompt: "Ten?", value: 10, values: [], tolerance: 1000, unit: "", choices: [], correct: -1, answer: "10", solution: "s", points: 1, book: 1, page: 3 },
+      ],
+      more: [
+        { topic: 0, book: 1, page: 2, label: "5", minutes: 5 },
+        { topic: 0, book: 1, page: 2, label: "99", minutes: 5 },
+        { topic: 0, book: 1, page: 2, label: "1", minutes: 5 },
+      ],
+    },
+    "Task: mark results": { results: [{ n: 0, points: 3, note: "" }, { n: 1, points: 0, note: "The slope is wrong." }] },
+    "Task: the formula sheet": { groups: [{ topic: 0, formulas: [{ name: "Square", latex: "$a^2$", note: "n", book: 1, page: 2 }, { name: "Cube", latex: "a^3", note: "", book: 1, page: 77 }] }, { topic: 1, formulas: [] }] },
+    "Task: answer the student's question": { answer: "On the exercise page.", pages: [{ book: 1, page: 2, what: "exercises" }, { book: 1, page: 99, what: "nowhere" }, { book: 1, page: 4, what: "from the contents" }] },
+  };
+  const server = await serve((req, body, res) => {
+    seen.push(body);
+    const task = Object.keys(answers).find((k) => last(body).includes(k));
+    anthropicStream(res, JSON.stringify(answers[task] || {}));
+  });
+  process.env.SPURT_ANTHROPIC_BASE_URL = server.url;
+  store.setSettings({ ai: { provider: "anthropic", model: "claude-opus-5-5" } });
+  await secrets.set("anthropic", "sk-ant-test");
+
+  const book = files.addText("a book for the engine checks", "Book");
+  const pages = ["Contents", "Compound interest and quadratic equations.\n1. First exercise\n2. Second exercise\n5. Fifth exercise", "Lines and slopes: theory of the straight line.", "Zebras live in herds. An unrelated chapter about zebras."];
+  fs.writeFileSync(path.join(dir, "texts", book.hash + ".json"), JSON.stringify({ pages, outline: [1, 2, 3, 4, 5, 6].map((n) => ({ title: "Chapter " + n, page: Math.min(n, 4), depth: 0 })) }));
+  const exam = store.createExam({ name: "Engine", date: "2099-01-01", time: { mode: "perDay", minutes: 60 } });
+  store.addMaterial(exam.id, { ...book, id: "m1", pages: pages.length, chars: 400 }, "book");
+  store.setStrategy(exam.id, {
+    objectives: ["o1", "o2"],
+    shown: [{ material: "m1", pages: [2, 3] }],
+    topics: [
+      { id: "t1", title: "Compound interest", share: 0.5, order: 2, objectives: [0], steps: [{ id: "t1/r0", kind: "read", material: "m1", from: 2, to: 2, chapter: "1", minutes: 5 }, { id: "t1/s0", kind: "solve", material: "m1", page: 2, labels: ["1"], minutes: 5 }] },
+      { id: "t2", title: "Lines", share: 0.5, order: 3, objectives: [1], steps: [{ id: "t2/r0", kind: "read", material: "m1", from: 3, to: 3, chapter: "2", minutes: 5 }, { id: "t2/q", kind: "quiz", questions: 3, minutes: 10 }] },
+    ],
+  });
+  const stored = () => store.exam(exam.id);
+
+  // ---- questions: every one has a result that can be typed, and the points are for the result
+  ok(/points are for the result only/i.test(P.questionsTask({ topics: [{ title: "T", objectives: [] }], count: 3, final: true, planned: "" })), "the question writer is told that only the result earns points");
+  const set = await engine.writeQuestions(stored(), { key: "final#0", final: true, topicIds: ["t1", "t2"], count: 5 });
+  ok(last(seen.at(-1)).includes("book 1 page 2: 1"), "the exercises already in the plan are named, so other ones are suggested");
+  same(set.questions.map((q) => q.type), ["number", "numbers", "text", "text", "number"], "a choice without a valid right option is asked as text");
+  same([set.questions[0].answer, set.questions[0].tolerance, set.questions[4].tolerance, set.questions[3].points], ["21920.7 CHF", 0.005, 0.5, 3], "missing answers are filled in, wild tolerances and points are cut back");
+  same([set.questions[3].page, set.questions[0].page], [3, 2], "a page the model was not shown is replaced by the topic's own");
+  same(set.spare, { t1: [{ material: "m1", page: 2, labels: ["5"], minutes: 5 }] }, "spare exercises: only ones that stand on the page and are not in the plan");
+
+  // ---- marking: numbers are decided here, in any notation; only other results go to the model
+  const [q0, q1, q2, q3, q4] = set.questions;
+  let before = seen.length;
+  let marks = await engine.mark(set.questions, { [q0.id]: "CHF 21'920.70", [q1.id]: "3 und 1", [q2.id]: "b", [q3.id]: "y=2x+1", [q4.id]: "" });
+  same(seen.length, before, "nothing is sent when every result can be decided here");
+  same(set.questions.map((q) => marks[q.id].points), [2, 2, 1, 3, 0], "a right final number earns all its points, with no working shown");
+  marks = await engine.mark(set.questions, { [q0.id]: "21000", [q1.id]: "1", [q2.id]: "the second one", [q3.id]: "y - 1 = 2x", [q4.id]: "10" });
+  same(seen.length, before + 1, "the results that are not numbers go to the model in one request");
+  ok(/Only the result counts/.test(last(seen.at(-1))) && /never take a point off because steps are missing/i.test(last(seen.at(-1))), "which is told to mark the result only");
+  ok(!last(seen.at(-1)).includes("21000") && last(seen.at(-1)).includes("y - 1 = 2x"), "and gets only what it has to decide");
+  // Items go out in the order of the questions: the choice turned text first, the line second.
+  same(set.questions.map((q) => [marks[q.id].points, marks[q.id].note]), [[0, ""], [0, ""], [1, ""], [0, "The slope is wrong."], [1, ""]]);
+
+  // ---- formula sheet: every formula with the page it stands on, where that page was read
+  const formulas = await engine.writeFormulas(stored());
+  same(formulas, [{ topicId: "t1", formulas: [{ name: "Square", latex: "a^2", note: "n", material: "m1", page: 2 }, { name: "Cube", latex: "a^3", note: "", material: null, page: null }] }]);
+
+  // ---- helper: the pages are found here, in the whole book, and only those are sent
+  const reply = await engine.help(stored(), "Where is the chapter about zebras?", { earlier: [{ question: "Hello?", answer: "Hi." }], now: "solve step" });
+  const sent = seen.at(-1).messages[0].content;
+  ok(sent[0].cache_control && sent[0].text.includes("Chapter 3") && sent[0].text.includes("<plan>") && !sent[0].text.includes("Zebras live"), "contents and plan are the part that stays the same, marked for the provider's cache");
+  ok(sent.at(-1).text.includes("[[book 1, page 4]]") && sent.at(-1).text.includes("Zebras live") && !sent.at(-1).text.includes("Compound interest and quadratic"), "the page found for the question is sent, the rest of the book is not");
+  ok(sent.at(-1).text.includes("Student: Hello?") && sent.at(-1).text.includes("solve step"), "with the conversation so far and where the student is");
+  same(reply.pages.map((x) => x.page), [2, 4], "a page that does not exist is not linked; one named by the plan or the contents is");
+  server.close();
+}
+
 app.whenReady().then(async () => {
   try {
-    plannerChecks();
-    referenceChecks();
-    await providerChecks();
+    for (const part of [plannerChecks, answerChecks, searchChecks, errorChecks, storeChecks, referenceChecks, providerChecks, engineChecks]) {
+      if (process.env.SPURT_TEST_TRACE) console.log("…", part.name);
+      await part();
+    }
     console.log(`ok: ${checks} checks`);
   } catch (err) {
     console.log("FAIL", err.message, "\n", String(err.stack).split("\n").slice(1, 4).join("\n"));
     process.exitCode = 1;
   }
-  app.quit();
+  app.exit(process.exitCode || 0);
 });

@@ -1,0 +1,1 @@
+{"groups":[{"topic":0,"formulas":[{"name":"pH-Wert","latex":"\\mathrm{pH} = -\\log_{10} c(\\mathrm{H_3O^+})","note":"Für starke Säuren ist $c$ die Konzentration der Säure.","book":1,"page":1}]},{"topic":1,"formulas":[]}]}

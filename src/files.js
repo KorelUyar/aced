@@ -85,7 +85,8 @@ function readPdf(file, onProgress, signal) {
 /**
  * Many books print a page number that differs from the page's position in the file (a cover,
  * a table of contents). Finds that difference when most pages agree on one, else returns 0:
- * printed page = position in the file - offset.
+ * printed page = position in the file - offset. It is negative when the file is a part of a
+ * book and its first page is, say, page 120.
  */
 function printedOffset(pages) {
   const votes = new Map();
@@ -93,11 +94,14 @@ function printedOffset(pages) {
   pages.forEach((text, i) => {
     const lines = text.split("\n").filter((l) => l.trim());
     const seen = new Set();
-    for (const line of [lines[0], lines[1], lines[lines.length - 2], lines[lines.length - 1]]) {
-      const m = line && line.trim().match(/^(\d{1,4})\b|\b(\d{1,4})$/);
-      if (!m) continue;
-      const printed = Number(m[1] || m[2]);
-      if (printed > 0 && printed <= i + 1) seen.add(i + 1 - printed);
+    for (const line of new Set([lines[0], lines[1], lines[lines.length - 2], lines[lines.length - 1]])) {
+      if (!line) continue;
+      // A page number stands on its own at either end of the line: "20  1 • Prerequisites",
+      // "1.1 • Real Numbers 21", "Seite 7", "– 12 –". Not the "1" of "1.1", not the "5" of "pH 4.5".
+      const bare = line.replace(/^[\s|•·–—-]+|[\s|•·–—-]+$/g, "");
+      for (const m of [bare.match(/^(\d{1,4})(?=\s|$)/), bare.match(/(?:^|\s)(\d{1,4})$/)]) {
+        if (m && Number(m[1]) > 0) seen.add(i + 1 - Number(m[1]));
+      }
     }
     if (seen.size) withNumber++;
     for (const k of seen) votes.set(k, (votes.get(k) || 0) + 1);
@@ -129,9 +133,22 @@ async function add(file, onProgress, signal) {
       data = await readPdf(file, (done, total) => onProgress?.(done, total, "read"), signal);
       // No text in it: a scan, or letters drawn as shapes. Read the pages with text recognition.
       if (isScan(data.pages) && ocr.available()) {
+        // Said at once, before the helper has even started: until now the last thing on screen
+        // was "page N of N" of the step before, for as long as the first page took.
+        onProgress?.(0, data.pages.length, "recognise");
         try {
-          const pages = await ocr.read(file, (done, total) => onProgress?.(done, total, "recognise"), signal);
-          if (!isScan(pages)) data = { pages, outline: data.outline, recognised: true };
+          // `state`: "preparing" while macOS gets its recogniser ready (about a minute, the
+          // first time), then which one reads the whole file: "accurate" or "fast".
+          let recogniser;
+          const pages = await ocr.read(
+            file,
+            (done, total, state) => {
+              if (state && state !== "preparing") recogniser = state;
+              onProgress?.(done, total, "recognise", state);
+            },
+            signal,
+          );
+          if (!isScan(pages)) data = { pages, outline: data.outline, recognised: true, recogniser };
         } catch (err) {
           if (err.code === "cancelled") throw err;
           // recognition failed: the file stays what it is, a PDF without text
@@ -148,12 +165,13 @@ async function add(file, onProgress, signal) {
       pages: data.pages.length,
       chars,
       offset: printedOffset(data.pages),
-      // Still no text after everything: it is left out, and the person is told.
-      scanned: isScan(data.pages),
+      // Still no text after everything: it is left out, and the person is told. (A page or two
+      // with one line of real text is short, not a scan.)
+      scanned: isScan(data.pages) && !(data.pages.length <= 3 && chars >= 10),
       recognised: Boolean(data.recognised),
     };
   }
-  if ([".txt", ".md", ".markdown", ".text"].includes(ext)) return addText(fs.readFileSync(file, "utf8"), title);
+  if ([".txt", ".md", ".markdown", ".text"].includes(ext)) return addText(decode(fs.readFileSync(file)), title);
   throw new Error("unsupported");
 }
 
@@ -167,13 +185,57 @@ async function ensureText(material, onProgress, signal) {
   return true;
 }
 
-/** Pasted text (learning objectives, notes) is kept the same way, as one "page". */
+/**
+ * A text file as text, whatever it was saved as: UTF-8 (with or without a mark at the start),
+ * UTF-16 (which Windows and TextEdit both write), or the Western European encoding of older
+ * files, in which every byte is a letter.
+ */
+function decode(bytes) {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder("utf-16le").decode(bytes.subarray(2));
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder("utf-16be").decode(bytes.subarray(2));
+  // UTF-16 without a mark: every other byte of ordinary text is zero.
+  const sample = bytes.subarray(0, 2000);
+  let zeroEven = 0;
+  let zeroOdd = 0;
+  sample.forEach((b, i) => b === 0 && (i % 2 ? zeroOdd++ : zeroEven++));
+  if (sample.length >= 8 && zeroOdd > sample.length * 0.3 && zeroEven < sample.length * 0.05) return new TextDecoder("utf-16le").decode(bytes);
+  if (sample.length >= 8 && zeroEven > sample.length * 0.3 && zeroOdd < sample.length * 0.05) return new TextDecoder("utf-16be").decode(bytes);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
+}
+
+const TEXT_LIMIT = 3000000; // characters of one text; what is beyond is left out, and the person is told
+const TEXT_PAGE = 3500;
+
+/** A long text in pieces of about a page each, cut where a paragraph or a line ends. */
+function inPages(text) {
+  if (text.length <= TEXT_PAGE * 2) return [text];
+  const pages = [];
+  let rest = text;
+  while (rest.length > TEXT_PAGE * 1.5) {
+    let cut = rest.lastIndexOf("\n\n", TEXT_PAGE);
+    if (cut < TEXT_PAGE * 0.4) cut = rest.lastIndexOf("\n", TEXT_PAGE);
+    if (cut < TEXT_PAGE * 0.4) cut = rest.lastIndexOf(" ", TEXT_PAGE);
+    if (cut < TEXT_PAGE * 0.4) cut = TEXT_PAGE;
+    pages.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) pages.push(rest);
+  return pages;
+}
+
+/** Pasted text and text files (learning objectives, notes) are kept the same way as a book: as pages of text. */
 function addText(text, title) {
-  const clean = String(text).replace(/\r\n?/g, "\n").trim().slice(0, 400000);
+  const whole = String(text).replace(/\u0000/g, "").replace(/\r\n?/g, "\n").trim();
+  const clean = whole.slice(0, TEXT_LIMIT);
   if (!clean) throw new Error("empty");
   const hash = sha(clean);
-  writeJson(textPath(hash), { pages: [clean], outline: [] });
-  return { hash, type: "text", title, pages: 1, chars: clean.length, offset: 0, scanned: false };
+  const pages = inPages(clean);
+  writeJson(textPath(hash), { pages, outline: [] });
+  return { hash, type: "text", title, pages: pages.length, chars: clean.length, offset: 0, scanned: false, ...(whole.length > clean.length ? { cut: true } : {}) };
 }
 
 // AI answers are kept by the hash of everything that went into the question.
@@ -202,4 +264,4 @@ function prune({ hashes, answers }) {
   sweep("answers", answers);
 }
 
-module.exports = { init, add, addText, ensureText, readText, pdfPath, printedOffset, sha, cached, remember, prune };
+module.exports = { init, add, addText, decode, ensureText, readText, pdfPath, printedOffset, sha, cached, remember, prune };

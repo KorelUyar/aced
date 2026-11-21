@@ -1,16 +1,14 @@
-// The plan, worked out locally from the strategy: which task goes on which day, what does not
-// fit, how far along the person is. No AI and no clock in here: every function gets `today`
-// (YYYY-MM-DD), so the same input always gives the same plan, and a plan re-forms by itself
-// when the person falls behind, does more, or a quiz shows a weak topic.
+// The plan, worked out locally from the strategy: one ordered list of steps (read these pages,
+// solve these exercises), what does not fit into the time, how much of it is done, and what
+// today's share is. No AI and no clock in here: every function gets `today` (YYYY-MM-DD), so
+// the same input always gives the same plan, and the plan re-forms by itself when the person
+// falls behind or gets ahead.
 //
-// What it draws on from learning research: retrieval practice (every topic ends in a quiz, and
-// the quiz comes a day after the exercises where there is a day), spaced repetition (missed
-// questions come back after 1, 2, 4 and 7 days), interleaving (a review mixes topics), and a
-// mock exam near the end.
+// What decides: value per minute decides what is left out when time is short. What stays is
+// done in the book's own order, because a later chapter leans on the earlier one.
 
 const DAY = 86400000;
 const clamp = (x, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
-const round5 = (x) => Math.max(5, Math.round(x / 5) * 5);
 
 function addDays(iso, n) {
   const d = new Date(iso + "T12:00:00");
@@ -38,246 +36,131 @@ function gradeFor(scale, score) {
   return clamp(Math.round(grade * 2) / 2, 1, 6);
 }
 
-// ------------------------------------------------------------ where the person stands
-
-/** How well a topic is expected to go, 0..1: from quizzes if there are any, else from the work done. */
-function topicMastery(exam, topic) {
-  const measured = exam.mastery && exam.mastery[topic.id];
-  if (typeof measured === "number") return measured;
-  const work = topic.steps.filter((s) => s.kind !== "quiz");
-  const done = work.filter((s) => exam.done && exam.done[s.id]).length;
-  return 0.15 + 0.35 * (work.length ? done / work.length : 0);
-}
-
-/**
- * Readiness: how much of what the target grade needs is secured today.
- * Projected grade: where the person lands if they finish the plan. Topics still ahead are
- * assumed to go reasonably well (80%), quizzed topics count as measured (with a little credit
- * for the repetition still to come), dropped topics count as they stand. An estimate, and
- * labelled as one.
- */
-function standing(exam, plan) {
-  const topics = exam.strategy ? exam.strategy.topics : [];
-  if (!topics.length) return { readiness: 0, projected: null, quizzed: false };
-  const weight = topics.reduce((sum, t) => sum + t.share, 0) || 1;
-  const dropped = new Set(plan ? plan.dropped.map((d) => d.topicId) : []);
-  let now = 0;
-  let atExam = 0;
-  for (const t of topics) {
-    const current = topicMastery(exam, t);
-    const measured = exam.mastery && exam.mastery[t.id];
-    const later = dropped.has(t.id) ? current : typeof measured === "number" ? measured + (0.85 - measured) * 0.4 : 0.8;
-    now += (t.share / weight) * current;
-    atExam += (t.share / weight) * Math.max(current, later);
-  }
-  const need = targetScore(exam.scale, exam.target) || 1;
-  return { readiness: clamp(now / need), projected: gradeFor(exam.scale, atExam), quizzed: Object.keys(exam.mastery || {}).length > 0 };
-}
-
-// ------------------------------------------------------------ spaced repetition
-
-const INTERVALS = [1, 2, 4, 7];
-
-/** The card of a question after an answer worth `ratio` (0..1) of its points. */
-function nextCard(card, ratio, today) {
-  if (ratio >= 0.999) {
-    // Right: the next look is further away each time (2, 4, 7 days), then the question rests.
-    const box = Math.min(INTERVALS.length - 1, (card ? card.box : 0) + 1);
-    return { box, due: addDays(today, INTERVALS[box]) };
-  }
-  // Missed or half right: back to the start. Half right gets one more day.
-  return { box: 0, due: addDays(today, ratio >= 0.5 ? 2 : 1) };
-}
-
-/** Questions due for review today, topics mixed. */
-function dueQuestions(exam, today, limit = 10) {
-  const byTopic = new Map();
-  for (const [topicId, quiz] of Object.entries(exam.quizzes || {})) {
-    for (const q of quiz.questions || []) {
-      const card = exam.cards && exam.cards[q.id];
-      if (!card || card.due > today || card.box >= INTERVALS.length - 1) continue;
-      const key = q.topicId || topicId;
-      if (!byTopic.has(key)) byTopic.set(key, []);
-      byTopic.get(key).push(q);
-    }
-  }
-  const lists = [...byTopic.values()];
-  const out = [];
-  for (let i = 0; out.length < limit && lists.some((l) => l.length > i); i++) {
-    for (const l of lists) if (l[i] && out.length < limit) out.push(l[i]);
-  }
-  return out;
-}
+/** Is `grade` at least as good as `target` on this scale? */
+const reaches = (scale, grade, target) => (scale === "de" ? grade <= target : grade >= target);
 
 // ------------------------------------------------------------ the plan
 
 const minutesOf = (steps) => steps.reduce((sum, s) => sum + s.minutes, 0);
 
+/**
+ * The steps of a topic that go on the list: what to read and which exercises to solve. Only a
+ * topic whose book has no exercises gets questions written by the AI instead.
+ */
+function workOf(topic) {
+  const work = topic.steps.filter((s) => s.kind === "read" || s.kind === "solve");
+  if (work.some((s) => s.kind === "solve")) return work;
+  const questions = topic.steps.find((s) => s.kind === "quiz");
+  return questions ? [...work, questions] : work;
+}
+
 function buildPlan(exam, today) {
   const s = exam.strategy;
   if (!s) return null;
   const done = exam.done || {};
-  const daysLeft = Math.max(0, diffDays(today, exam.date));
+  const daysLeft = diffDays(today, exam.date);
+  const over = daysLeft < 0;
   // Study days: today up to the day before the exam (on the exam day itself, only today).
   const dates = Array.from({ length: Math.max(1, daysLeft) }, (_, i) => addDays(today, i));
 
-  const doneToday = Object.entries(done).filter(([, d]) => d.date === today);
-  const spentToday = doneToday.reduce((sum, [, d]) => sum + (d.minutes || 0), 0);
+  const spentToday = Object.values(done).reduce((sum, d) => sum + (d.date === today ? d.minutes || 0 : 0), 0);
   const spentBefore = Object.values(done).reduce((sum, d) => sum + (d.date < today ? d.minutes || 0 : 0), 0);
-  const perDay =
-    exam.time.mode === "perDay" ? exam.time.minutes : round5(Math.max(10, (exam.time.minutes - spentBefore) / dates.length));
-  const bonus = exam.bonus && exam.bonus.date === today ? exam.bonus.minutes : 0;
-  const left = dates.map((_, i) => (i === 0 ? Math.max(0, perDay + bonus - spentToday) : perDay));
+  // Time "in total" is shared out over the days that are left, to the minute: 60 minutes over
+  // 14 days is 60 minutes, not 14 times a rounded-up share.
+  const total = exam.time.mode === "total" ? Math.max(0, exam.time.minutes - spentBefore) : exam.time.minutes * dates.length;
+  const base = Math.floor(total / dates.length);
+  const budget = dates.map((_, i) => base + (i < total - base * dates.length ? 1 : 0));
+  const left = budget.map((m, i) => (i === 0 ? Math.max(0, m - spentToday) : m));
   const totalLeft = left.reduce((a, b) => a + b, 0);
 
-  const days = dates.map((date, i) => ({ date, minutes: i === 0 ? perDay + bonus : perDay, tasks: [] }));
-  const taskOf = (topic, step, extra) => ({
-    id: step.id,
-    kind: step.kind,
-    topicId: topic ? topic.id : null,
-    title: topic ? topic.title : "",
-    step,
-    minutes: step.minutes,
-    done: Boolean(done[step.id]),
-    ...extra,
-  });
-
-  // What is already done today stays visible, in the order it was done.
-  const stepIndex = new Map();
-  for (const t of s.topics) for (const step of t.steps) stepIndex.set(step.id, [t, step]);
-  for (const [id, d] of doneToday.sort((a, b) => (a[1].at || 0) - (b[1].at || 0))) {
-    const hit = stepIndex.get(id);
-    if (hit) days[0].tasks.push(taskOf(hit[0], hit[1]));
-    else if (id.startsWith("review:")) days[0].tasks.push({ id, kind: "review", title: "", step: { kind: "review" }, minutes: d.minutes, done: true });
-    else if (id === "mock") days[0].tasks.push({ id, kind: "mock", title: "", step: { kind: "mock" }, minutes: d.minutes, done: true });
-  }
-
-  const place = (from, task, force) => {
-    for (let i = Math.min(from, days.length - 1); i < days.length; i++) {
-      const fresh = left[i] >= days[i].minutes && !days[i].tasks.some((t) => !t.done);
-      if (left[i] >= task.minutes * 0.6 || (fresh && left[i] > 0) || (force && i === days.length - 1)) {
-        days[i].tasks.push(task);
-        left[i] -= task.minutes;
-        return i;
-      }
-    }
-    return -1;
-  };
-
-  // Due questions first: a short mixed review today.
-  const due = dueQuestions(exam, today);
-  if (due.length && !done["review:" + today]) {
-    const minutes = clamp(due.length * 2, 5, 15);
-    place(0, { id: "review:" + today, kind: "review", title: "", step: { kind: "review", questions: due.length }, minutes, done: false }, true);
-  }
-
-  // A mock exam on the last study day, when there is more than one day and more than one topic,
-  // and only if no topic has to be dropped for it: covering the exam comes first.
-  const mockWish = s.topics.length >= 2 && dates.length >= 2 && !done.mock ? clamp(round5(perDay * 0.6), 20, 45) : 0;
-  const reviewReserve = Math.round(totalLeft * (exam.pace === "thorough" ? 0.15 : 0.08));
-
-  // Which topics, in which order. Value per minute decides, except when there is time for
-  // everything in the book's own order.
-  const density = (t) => t.share / Math.max(5, minutesOf(t.steps));
-  const byValue = [...s.topics].sort((a, b) => density(b) - density(a));
+  // What stays and what is left out.
+  const density = (t) => t.share / Math.max(5, minutesOf(workOf(t)));
   const need = targetScore(exam.scale, exam.target);
-  let room = totalLeft - reviewReserve;
+  let room = totalLeft;
   let covered = 0;
-  const chosen = [];
+  const kept = new Set();
   const dropped = [];
-  for (const t of byValue) {
-    const open = t.steps.filter((st) => !done[st.id]);
+  for (const t of [...s.topics].sort((a, b) => density(b) - density(a))) {
+    const work = workOf(t);
+    const open = work.filter((st) => !done[st.id]);
     const remaining = minutesOf(open);
-    const started = open.length < t.steps.length;
+    const started = open.length < work.length;
     if (remaining === 0) {
-      chosen.push(t);
+      kept.add(t.id);
       covered += t.share;
     } else if (exam.pace === "efficient" && !started && covered * 0.85 >= need) {
       dropped.push({ topicId: t.id, title: t.title, minutes: remaining, share: t.share, reason: "notNeeded", note: t.skipCost || "" });
     } else if (remaining <= room || started) {
-      chosen.push(t);
+      kept.add(t.id);
       room -= remaining;
       covered += t.share;
     } else {
       dropped.push({ topicId: t.id, title: t.title, minutes: remaining, share: t.share, reason: "time", note: t.skipCost || "" });
     }
   }
-  const mockMinutes = mockWish && (room >= mockWish || !dropped.some((d) => d.reason === "time")) ? mockWish : 0;
-  const ordered = exam.pace === "thorough" && !dropped.length ? [...chosen].sort((a, b) => a.order - b.order) : chosen;
 
-  let cursor = 0;
-  const quizDay = new Map(); // topic id -> day (0 = today, negative = days ago) of its first quiz
-  for (const t of ordered) {
-    let last = cursor;
-    for (const step of t.steps) {
-      if (done[step.id]) {
-        if (step.kind === "quiz") quizDay.set(t.id, diffDays(today, done[step.id].date));
-        continue;
-      }
-      // The quiz comes a day after the exercises where there is a day: recalling after a
-      // night's sleep teaches more than recalling right away.
-      const from = step.kind === "quiz" && t.steps.some((x) => x.kind !== "quiz" && !done[x.id]) ? last + 1 : cursor;
-      const at = place(from, taskOf(t, step), true);
-      if (step.kind === "quiz") quizDay.set(t.id, at);
-      else {
-        last = at;
-        cursor = at;
-      }
-    }
-    // A weak quiz result brings the topic's quiz back two days later (at most twice).
-    const attempts = (exam.attempts && exam.attempts[t.id]) || 0;
-    const weak = typeof (exam.mastery || {})[t.id] === "number" && exam.mastery[t.id] < 0.6;
-    const quizStep = t.steps.find((x) => x.kind === "quiz");
-    if (weak && quizStep && done[quizStep.id] && attempts < 3) {
-      const againId = `${quizStep.id}#${attempts}`;
-      if (!done[againId]) {
-        const from = Math.max(0, diffDays(today, addDays(done[quizStep.id].date, 2)));
-        place(from, taskOf(t, { ...quizStep, id: againId, again: true }), true);
-      }
-    }
+  // The list: topics in the book's order, then whatever an exam result put back on it.
+  const byId = new Map(s.topics.map((t) => [t.id, t]));
+  const task = (topic, step, again) => ({
+    id: step.id,
+    kind: step.kind,
+    topicId: topic ? topic.id : null,
+    step,
+    minutes: step.minutes,
+    done: Boolean(done[step.id]),
+    doneOn: done[step.id] ? done[step.id].date : null,
+    again,
+    today: false,
+  });
+  const stages = [];
+  const ordered = s.topics.map((t, i) => ({ t, i })).filter((x) => kept.has(x.t.id)).sort((a, b) => (a.t.order ?? 9999) - (b.t.order ?? 9999) || a.i - b.i);
+  for (const { t } of ordered) stages.push({ id: t.id, topicId: t.id, title: t.title, again: false, tasks: workOf(t).map((step) => task(t, step, false)) });
+  for (const a of exam.again || []) {
+    const t = byId.get(a.topicId);
+    if (t && a.steps.length) stages.push({ id: a.id, topicId: t.id, title: t.title, again: true, score: a.score ?? null, tasks: a.steps.map((step) => task(t, step, true)) });
   }
+  const tasks = stages.flatMap((stage) => stage.tasks);
 
-  // Time left over goes into repetition: each topic's quiz again with new questions, three
-  // and seven days after the first one. With the thorough pace this is the point; with the
-  // others it only happens when nothing had to be dropped.
-  if (exam.pace === "thorough" || !dropped.some((d) => d.reason === "time")) {
-    for (const gap of [3, 7]) {
-      for (const t of ordered) {
-        const quizStep = t.steps.find((x) => x.kind === "quiz");
-        if (!quizStep || !quizDay.has(t.id)) continue;
-        const id = `${quizStep.id}~${gap}`;
-        const at = quizDay.get(t.id) + gap;
-        if (done[id] || at >= days.length) continue;
-        const from = Math.max(0, at);
-        if (left[from] >= quizStep.minutes) place(from, taskOf(t, { ...quizStep, id, again: true }), false);
-      }
-    }
+  // Which day each open step falls on: in order, a day is full when the next step would
+  // overrun it by more than a little. The last day takes what is left.
+  const days = dates.map((date, i) => ({ date, minutes: budget[i], tasks: [] }));
+  days[0].tasks.push(...tasks.filter((t) => t.doneOn === today));
+  let at = 0;
+  for (const t of tasks) {
+    if (t.done) continue;
+    const fits = (i) => left[i] >= t.minutes * 0.6 || (left[i] > 0 && !days[i].tasks.some((x) => !x.done));
+    while (at < days.length - 1 && !fits(at)) at++;
+    days[at].tasks.push(t);
+    left[at] -= t.minutes;
   }
+  if (!over) for (const t of days[0].tasks) if (!t.done) t.today = true;
 
-  if (mockMinutes) {
-    days[days.length - 1].tasks.push({ id: "mock", kind: "mock", title: "", step: { kind: "mock" }, minutes: mockMinutes, done: false });
-  }
-
-  const planned = days.reduce((sum, d) => sum + d.tasks.filter((t) => !t.done).reduce((m, t) => m + t.minutes, 0), 0);
-  const droppedShare = dropped.reduce((sum, d) => sum + d.share, 0);
+  const open = tasks.filter((t) => !t.done);
+  const allMinutes = minutesOf(tasks) || 1;
   const weight = s.topics.reduce((sum, t) => sum + t.share, 0) || 1;
-  const coverage = clamp((weight - droppedShare) / weight);
+  const coverage = clamp((weight - dropped.reduce((sum, d) => sum + d.share, 0)) / weight);
+  const todayOpen = open.filter((t) => t.today);
   return {
     computedOn: today,
-    daysLeft,
-    perDay,
+    daysLeft: Math.max(0, daysLeft),
+    over,
+    perDay: Math.round(total / dates.length),
     available: totalLeft,
-    planned,
+    planned: minutesOf(open),
+    // How much of the plan is done, by minutes: a long exercise set counts for more than a short page.
+    percent: tasks.length && !open.length ? 100 : Math.min(99, Math.round(((allMinutes - minutesOf(open)) / allMinutes) * 100)),
+    next: open.length ? open[0].id : null,
+    today: { steps: todayOpen.length, minutes: minutesOf(todayOpen), end: todayOpen.length && todayOpen.length < open.length ? todayOpen[todayOpen.length - 1].id : null },
     coverage,
-    // The honest part: the best grade this plan can reach if everything in it goes well, and
-    // how much more time the dropped topics would take.
+    // The honest part: the best grade this plan can reach if everything in it goes well.
     reach: gradeFor(exam.scale, coverage),
     // Compared as grades, the way they are shown: 78% and 80% of the points are both a 5.0.
-    reachable: exam.scale === "de" ? gradeFor(exam.scale, coverage) <= exam.target : gradeFor(exam.scale, coverage) >= exam.target,
+    reachable: reaches(exam.scale, gradeFor(exam.scale, coverage), exam.target),
     short: dropped.filter((d) => d.reason === "time").reduce((sum, d) => sum + d.minutes, 0),
+    stages,
     days,
     dropped,
   };
 }
 
-module.exports = { buildPlan, standing, topicMastery, nextCard, dueQuestions, targetScore, gradeFor, addDays, diffDays, todayIso };
+module.exports = { buildPlan, workOf, targetScore, gradeFor, reaches, addDays, diffDays, todayIso };

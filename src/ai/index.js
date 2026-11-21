@@ -72,16 +72,19 @@ function call(c, request) {
 /**
  * Asks the model. `material` is the long text from the person's files (data, never
  * instructions); `prompt` is the task. Resolves to the checked JSON.
+ * `cache: true` marks the material for the provider's own cache, where it has one.
  * `onUsage({input, cached, output, cost?})` is called for every request that was really sent.
  */
-async function ask({ name, system, material = "", prompt, schema, maxTokens = 32000, effort = "medium", cache = false }, { signal, onUsage, onKey } = {}) {
+async function ask({ name, system, material = "", prompt, schema, maxTokens = 32000, effort = "medium", cache = false, usable }, { signal, onUsage, onKey, fresh } = {}) {
   await secrets.ready();
   const c = config();
   if (!c.provider) throw coded("noProvider");
   const key = files.sha(JSON.stringify([c.provider, c.model, system, material, prompt, schema]));
   onKey?.(key); // lets the caller note which kept answers belong to which exam
-  const hit = files.cached(key);
-  if (hit) return hit;
+  // An answer is kept only when it could be used (`usable` returns what is wrong with it, or
+  // ""): an empty one must not come back from the disk for ever. `fresh` asks again regardless.
+  const hit = fresh ? null : files.cached(key);
+  if (hit && !(usable && usable(hit))) return hit;
 
   let problem = "";
   for (let round = 0; round < 2; round++) {
@@ -101,6 +104,8 @@ async function ask({ name, system, material = "", prompt, schema, maxTokens = 32
     onUsage?.(usage);
     try {
       const value = validate(schema, parse(text));
+      const wrong = usable ? usable(value) : "";
+      if (wrong) throw new Error(wrong);
       files.remember(key, value);
       return value;
     } catch (err) {

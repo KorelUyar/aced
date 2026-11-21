@@ -16,6 +16,18 @@ function ignoreEnvironment() {
   for (const name of Object.keys(process.env)) if (name.startsWith("ANTHROPIC_")) delete process.env[name];
 }
 
+/** An error from the API as a code the interface has a sentence for; what the API itself says only as a last resort, in words, never as JSON. */
+function apiProblem(err) {
+  const status = err.status || 0;
+  const body = err.error && err.error.error ? err.error.error : {};
+  const said = String(body.message || "").replace(/\s+/g, " ").trim();
+  if (status === 402 || /credit balance|billing/i.test(said)) return coded("noCredit");
+  if (status === 529 || body.type === "overloaded_error") return coded("overloaded");
+  if (status === 413 || /prompt is too long|too many tokens/i.test(said)) return coded("tooBig");
+  if (status >= 500) return coded("serverError");
+  return coded("provider", said ? said.slice(0, 200) : `HTTP ${status}`);
+}
+
 async function complete({ key, baseURL, model, system, material, prompt, schema, maxTokens, effort, cache, signal }) {
   if (!key) throw coded("noKey");
   ignoreEnvironment();
@@ -49,7 +61,7 @@ async function complete({ key, baseURL, model, system, material, prompt, schema,
     if (err instanceof Anthropic.RateLimitError) throw coded("rateLimit");
     if (err instanceof Anthropic.NotFoundError) throw coded("noModel", model);
     if (err instanceof Anthropic.APIConnectionError) throw coded("offline");
-    if (err instanceof Anthropic.APIError) throw coded("provider", `${err.status || ""} ${err.message}`.trim().slice(0, 300));
+    if (err instanceof Anthropic.APIError) throw apiProblem(err);
     throw err;
   }
   if (message.stop_reason === "refusal") throw coded("refusal");

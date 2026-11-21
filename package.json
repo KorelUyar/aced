@@ -1,7 +1,7 @@
 {
   "name": "spurt",
   "productName": "Spurt",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A study app for the Mac: what to learn, in what order, for the grade you want in the time you have",
   "main": "main.js",
   "author": "Korel Uyar",
@@ -17,8 +17,8 @@
   "scripts": {
     "start": "electron .",
     "sample": "electron . --sample",
-    "test": "electron scripts/test.js",
-    "smoke": "electron scripts/smoke.js && electron scripts/smoke.js sample",
+    "test": "electron scripts/test.js && electron scripts/test-ocr.js",
+    "smoke": "electron scripts/smoke.js && electron scripts/smoke.js sample && electron scripts/smoke.js damaged",
     "checks": "electron scripts/checks.js",
     "shots": "electron scripts/shots.js docs/shots light && electron scripts/shots.js docs/shots dark && electron scripts/sheet.js docs/shots",
     "icon": "electron scripts/icon.js",

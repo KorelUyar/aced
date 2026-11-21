@@ -539,6 +539,7 @@ input[type="date"].field {
 .seg button {
   height: 32px;
   padding: 0 14px;
+  white-space: nowrap;
   border-radius: 8px;
   font-weight: 540;
   font-size: 14px;
@@ -659,11 +660,11 @@ input[type="date"].field {
   font-variant-numeric: tabular-nums;
 }
 
+/* The names of the scales are long in German: they get a line of their own, the note goes below. */
 .grade-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  display: grid;
+  justify-items: start;
+  gap: 12px;
   margin-top: 30px;
 }
 
@@ -1831,7 +1832,10 @@ select.field {
 
 .plan {
   overflow-y: auto;
+  min-height: 0;
   padding: 8px 26px 56px 40px;
+  container-type: inline-size;
+  transition: opacity 0.2s var(--ease);
 }
 
 .divider {
@@ -1885,7 +1889,26 @@ select.field {
   white-space: nowrap;
 }
 
-.pager {
+.side-body {
+  overflow-y: auto;
+  padding: 22px 24px 28px;
+}
+
+/* ---- book panel (start) */
+
+/* The book: its pages below each other on the field, and in the panel's head the zoom and
+   the page the person is on. */
+
+.book {
+  container-type: inline-size;
+}
+
+.book .side-head strong {
+  margin-right: auto;
+}
+
+.pager,
+.zoom {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1893,9 +1916,19 @@ select.field {
   white-space: nowrap;
 }
 
-.pager small {
+.zoom {
+  gap: 0;
+}
+
+.pager small,
+.zoom small {
   color: var(--muted);
   font-size: 13px;
+}
+
+.zoom small {
+  min-width: 4.4ch;
+  text-align: center;
 }
 
 .mini.flip .icon {
@@ -1907,24 +1940,64 @@ select.field {
   cursor: default;
 }
 
+.mini:disabled:hover {
+  color: var(--muted);
+  background: none;
+}
+
 .book-page {
+  position: relative;
   overflow: auto;
-  padding: 14px;
+  /* ui/book.js keeps the place itself when pages turn out taller or shorter than guessed */
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   background: var(--field);
 }
 
-.book-page canvas {
-  display: block;
-  width: 100%;
+.book-page:focus-visible {
+  outline-offset: -2px;
+}
+
+.book-page > p {
+  max-width: 46ch;
+  padding: 22px 24px;
+}
+
+.book-run {
+  position: relative;
+}
+
+/* one page of the book: a white sheet, in both themes */
+.leaf {
+  position: absolute;
+  left: 14px;
+  overflow: hidden;
   border-radius: 4px;
   background: #fff;
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
 }
 
-.side-body {
-  overflow-y: auto;
-  padding: 22px 24px 28px;
+.leaf canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
+
+.leaf p {
+  padding: 22px 24px;
+  color: #5c6370;
+}
+
+/* In a narrow panel the head keeps its buttons and drops the small print. */
+@container (max-width: 420px) {
+  .zoom small,
+  .pager small {
+    display: none;
+  }
+}
+
+/* ---- book panel (end) */
 
 /* the head of the plan */
 
@@ -2481,6 +2554,665 @@ select.field {
 
 [data-look="b"] .step.now .mark {
   box-shadow: inset 0 0 0 2px #14161b;
+}
+
+/* ------------------------------------------------------------ 0.2: around the plan
+
+   The title bar's right end, what is running, the helper over the plan, notes in the list,
+   the topic's own formulas, and the final exam at the end of the list. */
+
+.bar-end {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.bar-btn[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--field);
+  font-weight: 600;
+}
+
+.bar-end .bar-btn {
+  padding: 0 10px;
+}
+
+.running .run-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.running .run-text strong {
+  font-weight: 560;
+  color: var(--ink);
+}
+
+.running .run-text small {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.run-brief {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run-brief .spinner {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(640px, calc(100vw - 48px));
+  z-index: 20;
+}
+
+.toast-btn {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 7px;
+  color: var(--paper);
+  font-weight: 620;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--paper) 45%, transparent);
+}
+
+.toast-btn:hover {
+  box-shadow: inset 0 0 0 1px var(--paper);
+}
+
+.plan-box {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+}
+
+.path.alone .plan-box {
+  width: 100%;
+}
+
+.plan .running {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+.plan-note {
+  margin: -6px 0 20px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: var(--glow);
+  color: var(--ink);
+  font-size: 14px;
+  max-width: 68ch;
+}
+
+.plan-note .link {
+  font-weight: 600;
+}
+
+.step.asks .mark {
+  box-shadow: inset 0 0 0 1.5px var(--edge);
+  border-radius: 7px;
+}
+
+.step.asks.done .mark {
+  box-shadow: none;
+}
+
+.jump:disabled {
+  cursor: default;
+}
+
+.jump:disabled span {
+  text-decoration: none;
+}
+
+.step-note {
+  margin: -4px 0 6px 36px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.stage.again h2::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 9px 2px 0;
+  border-radius: 50%;
+  background: var(--track);
+}
+
+/* the formulas of the topic that is up: at hand while the panel shows the book */
+.own-formulas {
+  margin-top: 14px;
+  max-width: 62ch;
+}
+
+.own-formulas ul {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.own-formulas li {
+  display: grid;
+  grid-template-columns: minmax(0, 11em) minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 16px;
+  padding: 7px 0;
+  box-shadow: inset 0 -1px 0 var(--rule);
+}
+
+.own-formulas li:last-child {
+  box-shadow: none;
+}
+
+.own-name {
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.own-tex {
+  font-size: 17px;
+  color: var(--ink);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+@container (max-width: 520px) {
+  .own-formulas li {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stage.final .row-start {
+  margin-top: 14px;
+}
+
+.final-result {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 10px;
+}
+
+.final-result b {
+  font-size: 46px;
+  font-weight: 660;
+  font-stretch: 112%;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.final-result p {
+  color: var(--muted);
+  font-size: 14.5px;
+  max-width: 44ch;
+}
+
+.page-ref {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--track-ink);
+  white-space: nowrap;
+}
+
+/* the helper: over the plan, so the book stays where it is */
+.drawer {
+  position: absolute;
+  inset: 0 12px 14px 26px;
+  z-index: 3;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+  border-radius: 16px;
+  background: var(--sheet);
+  box-shadow:
+    inset 0 0 0 1px var(--rule),
+    0 18px 40px -24px rgb(0 0 0 / 0.5);
+  overflow: hidden;
+}
+
+.plan[inert] {
+  opacity: 0;
+}
+
+.path.alone .drawer {
+  left: 50%;
+  right: auto;
+  width: min(720px, calc(100% - 52px));
+  transform: translateX(-50%);
+}
+
+/* ------------------------------------------------------------ an exam being taken */
+
+.page.set {
+  max-width: 760px;
+  padding-top: 8px;
+}
+
+.set-head {
+  margin-bottom: 26px;
+}
+
+.set-head .bar-btn {
+  margin-left: -8px;
+}
+
+.set-head h1 {
+  margin-top: 10px;
+  font-size: 28px;
+  outline: none;
+}
+
+.set-head p {
+  margin-top: 8px;
+  max-width: 62ch;
+}
+
+.page.set > .running {
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+.questions {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.question-card {
+  padding: 20px 22px 22px;
+  border-radius: 16px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+.q-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.q-n {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--ink);
+  font-weight: 640;
+  font-size: 14px;
+}
+
+.q-points {
+  margin-left: auto;
+}
+
+.q-prompt {
+  margin-top: 12px;
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.set .choices {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.set .choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--rule);
+  color: var(--ink);
+  text-align: left;
+}
+
+.set .choice:hover {
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+.set .choice[aria-checked="true"] {
+  background: var(--glow);
+  box-shadow: inset 0 0 0 2px var(--track);
+}
+
+.set .choice .dot {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--edge);
+}
+
+.set .choice[aria-checked="true"] .dot {
+  box-shadow: inset 0 0 0 5px var(--track);
+}
+
+.result-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.result-field > span:first-child {
+  font-size: 14px;
+  font-weight: 560;
+  color: var(--muted);
+}
+
+.result-field .field {
+  flex: 1;
+  max-width: 320px;
+  height: 46px;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.question-card[data-type="text"] .result-field .field {
+  max-width: none;
+}
+
+.result-field .unit {
+  color: var(--muted);
+}
+
+.set-foot {
+  display: grid;
+  gap: 14px;
+  margin-top: 26px;
+}
+
+.set-foot .row-end {
+  align-items: center;
+  gap: 18px;
+}
+
+.result-head {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  margin: 4px 0 18px;
+}
+
+.result-head .percent b {
+  font-size: 96px;
+}
+
+.result-line {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 620;
+}
+
+.result-head .muted {
+  margin-top: 4px;
+  max-width: 44ch;
+}
+
+.result-topics {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 26px;
+  display: grid;
+}
+
+.result-topics li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 16px;
+  padding: 10px 0;
+  box-shadow: inset 0 -1px 0 var(--rule);
+  color: var(--ink);
+}
+
+.result-topics li small {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--track-ink);
+}
+
+.set .verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  background: none;
+  font-size: 13.5px;
+  font-weight: 620;
+}
+
+.set .verdict.right {
+  color: var(--right);
+}
+
+.set .verdict.partly {
+  color: var(--partly);
+}
+
+.set .verdict.wrong {
+  color: var(--wrong);
+}
+
+.q-answers {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 16px;
+  margin-top: 14px;
+  font-size: 15.5px;
+}
+
+.q-answers dt {
+  color: var(--muted);
+  font-size: 14px;
+  padding-top: 1px;
+}
+
+.q-answers dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+.question-card.wrong .q-answers dd:first-of-type,
+.question-card.partly .q-answers dd:first-of-type {
+  text-decoration: line-through;
+  text-decoration-color: var(--edge);
+}
+
+.q-note {
+  margin-top: 10px;
+  font-size: 14.5px;
+  color: var(--text);
+}
+
+.set .solution {
+  margin-top: 14px;
+  padding-top: 12px;
+  box-shadow: inset 0 1px 0 var(--rule);
+  font-size: 15px;
+  color: var(--text);
+}
+
+.set .solution summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.set .solution p {
+  margin-top: 8px;
+}
+
+/* ------------------------------------------------------------ material and settings of an exam */
+
+.page.setup {
+  max-width: 760px;
+}
+
+.setup-title {
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.setup section + section {
+  margin-top: 34px;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.section-head h2 {
+  font-size: 18px;
+}
+
+.section-head .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.facts dl {
+  display: grid;
+  grid-template-columns: 7.5em minmax(0, 1fr);
+  gap: 0;
+  border-radius: 14px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  padding: 4px 18px;
+}
+
+.facts dt,
+.facts dd {
+  margin: 0;
+  padding: 11px 0;
+  box-shadow: inset 0 -1px 0 var(--rule);
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.facts dd {
+  color: var(--ink);
+}
+
+.facts dt:last-of-type,
+.facts dd:last-of-type {
+  box-shadow: none;
+}
+
+.link.strong {
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+}
+
+.drop .running {
+  flex: 1;
+}
+
+.materials .link.strong {
+  display: block;
+}
+
+.problem.mild {
+  color: var(--muted);
+}
+
+.strategy-state {
+  color: var(--muted);
+  font-size: 14.5px;
+  margin-bottom: 16px;
+  max-width: 62ch;
+}
+
+.strategy-state strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.estimate .warn {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--glow);
+  color: var(--ink);
+}
+
+.analysis > .running {
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+/* ------------------------------------------------------------ the exams, as cards */
+
+.exam-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  text-align: left;
+}
+
+.exam-percent {
+  flex: none;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.exam-percent b {
+  font-size: 30px;
+  font-weight: 660;
+  font-stretch: 112%;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  margin-right: 1px;
+}
+
+.wizard-top .mini {
+  margin-left: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {

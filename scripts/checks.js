@@ -90,7 +90,15 @@ app.whenReady().then(async () => {
       await sleep(80);
     }
     assert.equal(await js(`document.querySelector('.stepper output').textContent`), "12");
-    assert.match(await js(`document.querySelector('.hint').textContent`), /about 1 h 10 min a day/);
+    assert.match(await js(`document.querySelector('.hint').textContent`), /about 1 h 12 min a day over 10 days/, "time in total is shared out to the minute");
+    // More than sixteen hours a day is not on offer: with one day left, the hours stop at 16.
+    await js(`window.__nav({ name: 'home' })`);
+    await js(`window.__nav({ name: 'new', step: 3, draft: { name: 'Morgen', dateMode: 'days', days: 1, timeMode: 'total', totalHours: 200 } })`);
+    await until(`document.querySelector('.stepper output')?.textContent === '16'`);
+    assert.match(await js(`document.querySelector('.hint').textContent`), /More does not fit/);
+    await js(`window.__nav({ name: 'home' })`);
+    await js(`window.__nav({ name: 'new', step: 3, draft: { name: 'Geschichte: Kalter Krieg', dateMode: 'days', days: 10, timeMode: 'total', totalHours: 12 } })`);
+    await until(`document.querySelector('.stepper output')?.textContent === '12'`);
     await shot("check-total");
     await js(`document.querySelector('.wizard-foot .btn.primary').click()`);
     await until(`!!document.querySelector('.grade-range')`);
@@ -118,6 +126,66 @@ app.whenReady().then(async () => {
     assert.deepEqual([e.time, e.scale, e.target], [{ mode: "total", minutes: 720 }, "pct", 80]);
     console.log("ok: time in total, percent and German scale");
 
+    // ---- the wizard never gets stuck
+    const go = ".wizard-foot .btn.primary";
+    const disabled = () => js(`document.querySelector(${JSON.stringify(go)}).disabled`);
+    const setDate = (value) =>
+      js(`(() => { const el = document.querySelector('input[type=date]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await js(`window.__nav({ name: 'home' })`);
+    await js(`window.__nav({ name: 'new', step: 2, draft: { name: 'Datum' } })`);
+    await until(`!!document.querySelector('input[type=date]')`);
+    // A date that is none (what a year with five digits leaves in the field): said, and nothing freezes.
+    await setDate("");
+    await until(`/Pick the date/.test(document.querySelector('.hint').textContent)`);
+    assert.equal(await disabled(), true);
+    await js(`window.__nav({ name: 'home' })`);
+    await js(`window.__nav({ name: 'new', step: 2, draft: { name: 'Datum', date: '20266-12-05' } })`);
+    await until(`/Pick the date/.test(document.querySelector('.hint')?.textContent || '')`);
+    await js(`document.querySelectorAll('.question .seg button')[1].click()`); // the other way to say when still works
+    await until(`!!document.querySelector('.stepper')`);
+    await js(`document.querySelectorAll('.question .seg button')[0].click()`);
+    await until(`!!document.querySelector('input[type=date]')`);
+    const far = new Date(Date.now() + 1200 * 864e5).toLocaleDateString("sv");
+    await setDate(far);
+    await until(`/more than two years away/.test(document.querySelector('.hint').textContent)`);
+    assert.equal(await disabled(), true, "a date decades away is not accepted");
+    await setDate(new Date(Date.now() + 20 * 864e5).toLocaleDateString("sv"));
+    await until(`/in 20 days/.test(document.querySelector('.hint').textContent) || /20/.test(document.querySelector('.hint').textContent)`);
+    assert.equal(await disabled(), false, "a corrected date lets the person go on");
+    await js(`document.querySelector('.wizard-foot .btn.plain').click()`); // Back works too
+    await until(`!!document.querySelector('.question .field:not([type=date])')`);
+    assert.equal(await js(`document.querySelector('.question .field').maxLength`), 120, "a name cannot grow past what is kept");
+    await key("Enter");
+    await key("Enter"); // -> time
+    await until(`!!document.querySelector('.chips')`);
+    // Arrow keys move through the choices, and Enter goes on from a focused choice.
+    await js(`document.querySelector('.chips [aria-checked="true"]').focus()`);
+    const chosen = () => js(`document.querySelector('.chips [aria-checked="true"]').textContent`);
+    const first = await chosen();
+    await key("Right");
+    await until(`document.querySelector('.chips [aria-checked="true"]').textContent !== ${JSON.stringify(first)}`);
+    assert.equal(await js(`document.activeElement.getAttribute('aria-checked')`), "true", "the keyboard stays on the choice it made");
+    await key("Enter");
+    await until(`!!document.querySelector('.grade-range')`);
+    // Escape, or the cross at the top, leaves at any step.
+    assert.ok(await js(`!!document.querySelector('#wizardCancel')`));
+    await key("Escape");
+    await until(`!!document.querySelector('.exam-card, .empty')`);
+    console.log("ok: the wizard: dates that are none or far away, arrow keys, Enter, Escape");
+
+    // ---- German: nothing is cut off in the grade step
+    await js(`window.spurt.setSettings({ lang: 'de' }).then(() => window.dispatchEvent(new Event('focus')))`);
+    await sleep(400);
+    await js(`window.__nav({ name: 'new', step: 4, draft: { name: 'Noten' } })`);
+    await until(`!!document.querySelector('.grade-foot .seg')`);
+    await shot("check-grade-de");
+    assert.deepEqual(await js(`[...document.querySelectorAll('.grade-foot .seg button')].map((b) => b.scrollWidth <= b.clientWidth + 1 && b.scrollHeight <= b.clientHeight + 1)`), [true, true, true], "the scale names fit their buttons");
+    assert.equal(await js(`(() => { const s = document.querySelector('.grade-foot'); return s.scrollWidth <= s.clientWidth + 1; })()`), true);
+    await js(`window.spurt.setSettings({ lang: 'en' }).then(() => window.dispatchEvent(new Event('focus')))`);
+    await sleep(300);
+    await js(`window.__nav({ name: 'home' })`);
+    console.log("ok: German labels fit");
+
     // ---- reduced motion
     wc.debugger.attach("1.3");
     await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
@@ -129,8 +197,9 @@ app.whenReady().then(async () => {
     wc.debugger.detach();
     console.log("ok: reduced motion is respected");
   } catch (err) {
-    console.log("FAIL", err.message);
+    const where = await js(`[document.querySelector('.wizard-top .muted')?.textContent, document.querySelector('.hint')?.textContent, document.activeElement?.outerHTML.slice(0, 120)].join(' | ')`).catch(() => "");
+    console.log("FAIL", err.message, "| on screen:", where);
     process.exitCode = 1;
   }
-  app.quit();
+  app.exit(process.exitCode || 0);
 });

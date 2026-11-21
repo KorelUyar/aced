@@ -89,29 +89,43 @@ async function locate() {
   });
 }
 
+const children = new Set(); // every Claude Code process under way: none outlives the app
+
+function stopAll() {
+  for (const child of children) child.kill();
+}
+
 function run(exe, env, args, input, signal, limit = 15 * 60 * 1000) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(coded("cancelled"));
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-cc-"));
     const child = spawn(exe, args, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
+    children.add(child);
     let out = "";
     let err = "";
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      children.delete(child);
+      fs.rm(cwd, { recursive: true, force: true }, () => {});
+      fn(value);
+    };
     const timer = setTimeout(() => child.kill(), limit);
-    const onAbort = () => child.kill();
+    // Cancelled means cancelled now: the process is stopped and nobody waits for it to wind down.
+    const onAbort = () => {
+      child.kill();
+      child.stdout.destroy();
+      child.stderr.destroy();
+      finish(reject, coded("cancelled"));
+    };
     signal?.addEventListener("abort", onAbort);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      fs.rm(cwd, { recursive: true, force: true }, () => {});
-      reject(coded("provider", "Claude Code: " + e.message));
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      fs.rm(cwd, { recursive: true, force: true }, () => {});
-      if (signal?.aborted) return reject(coded("cancelled"));
-      resolve({ out, err, code });
-    });
+    child.on("error", (e) => finish(reject, coded("provider", "Claude Code: " + e.message)));
+    child.on("close", (code) => finish(resolve, { out, err, code }));
     child.stdin.on("error", () => {});
     child.stdin.end(input);
   });
@@ -128,6 +142,30 @@ function signInProblem(message) {
   if (/not logged in|please run \/login/i.test(message)) return "signedOut";
   if (/oauth|session expired|could not be refreshed|failed to authenticate|authentication_error|invalid (api key|bearer token|x-api-key)|\b401\b|unauthori[sz]ed/i.test(message)) return "expired";
   return null;
+}
+
+/**
+ * What went wrong, as a code the interface has a sentence for. Claude Code reports its own
+ * failures and those of the service behind it as plain English text; that text is for a
+ * terminal ("Run /model …") and is never shown as it is.
+ */
+function problemOf(message, model) {
+  const text = String(message || "").trim();
+  const reason = signInProblem(text);
+  if (reason) return coded("signIn", reason);
+  if (/usage limit|limit reached|limit will reset|out of (extra )?usage/i.test(text)) {
+    // "Your limit will reset at 7pm (Europe/Zurich)": the time is the one thing worth keeping.
+    const reset = text.match(/reset(?:s)?(?:\s+(?:at|on))?\s+([^.\n]{1,60})/i);
+    return coded("usageLimit", reset ? reset[1].trim() : "");
+  }
+  if (/rate.?limit|\b429\b/i.test(text)) return coded("rateLimit");
+  if (/overloaded|\b529\b/i.test(text)) return coded("overloaded");
+  if (/issue with the selected model|model[^.]*(does not exist|not exist|not found|not available)|not have access to it|run \/model/i.test(text)) return coded("noModel", model);
+  if (/credit balance|billing/i.test(text)) return coded("noCredit");
+  if (/connection error|connection refused|enotfound|econn|etimedout|getaddrinfo|network|fetch failed|socket hang up|offline/i.test(text)) return coded("offline");
+  if (/\b5\d\d\b|internal server error|api_error/i.test(text)) return coded("serverError");
+  if (/prompt is too long|too many tokens|context (window|length)/i.test(text)) return coded("tooBig");
+  return coded("provider", "Claude Code: " + text.replace(/\s+/g, " ").slice(0, 200));
 }
 
 /**
@@ -208,18 +246,9 @@ async function attempt(exe, env, request, settingSources) {
   try {
     json = JSON.parse(out);
   } catch {
-    const text = (out || err || "no output").trim();
-    const reason = signInProblem(text);
-    if (reason) throw coded("signIn", reason);
-    throw coded("provider", "Claude Code: " + text.slice(0, 300));
+    throw problemOf(out || err || "no output", model);
   }
-  if (json.is_error) {
-    const message = String(json.result || "error");
-    const reason = signInProblem(message);
-    if (reason) throw coded("signIn", reason);
-    if (/usage limit|rate limit/i.test(message)) throw coded("rateLimit");
-    throw coded("provider", "Claude Code: " + message.slice(0, 300));
-  }
+  if (json.is_error) throw problemOf(json.result || "error", model);
   const u = json.usage || {};
   return {
     text: json.structured_output || json.result || "",
@@ -256,4 +285,4 @@ async function complete(request) {
   }
 }
 
-module.exports = { complete, locate, status, signIn, signInProblem, warm: readShellEnv, SETUP_PAGE };
+module.exports = { complete, locate, status, signIn, signInProblem, problemOf, stopAll, warm: readShellEnv, SETUP_PAGE };

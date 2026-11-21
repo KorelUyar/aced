@@ -79,7 +79,11 @@ async function post(url, key, body, signal, extraHeaders, openrouter) {
     if (status === 429) throw fail("rateLimit");
     // 404 is either a model the server does not have or an address that leads nowhere.
     if (status === 404) throw /model|endpoint|provider/i.test(message) ? fail("noModel", body.model) : fail("badAddress");
-    throw fail("provider", `${status || ""} ${message}`.trim());
+    if (status === 529 || status === 503 || /overloaded/i.test(message)) throw fail("overloaded");
+    if (status === 413 || /context length|too many tokens|maximum context/i.test(message)) throw fail("tooBig");
+    if (status >= 500) throw fail("serverError");
+    // What the server says, in words. Never its raw JSON.
+    throw fail("provider", /^\s*[{[<]/.test(message) ? `HTTP ${status}` : message.replace(/\s+/g, " ").slice(0, 200));
   }
   if (!json) throw coded("provider", "The server did not answer with JSON.");
   return json;

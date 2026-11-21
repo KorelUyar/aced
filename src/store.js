@@ -4,35 +4,106 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const planner = require("./planner");
-const { allowedAddress } = require("./address");
+const { allowedAddress, completeAddress, isAddress } = require("./address");
 
 const DEFAULT_SETTINGS = { lang: "en", appearance: "system", ai: { provider: null, models: {}, baseURL: "" } };
 
 let file = null; // null while running on sample data: nothing is written to disk
 let data = { settings: structuredClone(DEFAULT_SETTINGS), exams: [] };
+// A file that is there but cannot be read is never written over: the person decides first
+// (use the backup, or start empty). Until then nothing is saved.
+let damaged = null; // { backup: ISO date of the backup or null }
 
-function init({ dir, sample }) {
+const backupFile = () => file.replace(/\.json$/, ".backup.json");
+
+function parse(text) {
+  const saved = JSON.parse(text);
+  if (!saved || typeof saved !== "object" || !Array.isArray(saved.exams) || saved.exams.some((e) => !e || typeof e !== "object" || !e.id)) throw new Error("shape");
+  return saved;
+}
+
+function take(saved, systemLang) {
+  const settings = { ...DEFAULT_SETTINGS, ...saved.settings, ai: { ...DEFAULT_SETTINGS.ai, ...(saved.settings && saved.settings.ai) } };
+  // The language follows the Mac until the person picks one. A file from 0.1 does not say
+  // whether English was picked or just never changed; German could only have been picked.
+  if (!settings.langFrom) settings.langFrom = settings.lang === "de" ? "choice" : "system";
+  if (settings.langFrom === "system") settings.lang = systemLang;
+  data = { settings, exams: saved.exams.map(upgrade) };
+}
+
+/** An exam written by an earlier version, with what this version expects. Nothing is thrown away. */
+function upgrade(exam) {
+  exam.done = exam.done || {};
+  exam.materials = exam.materials || [];
+  exam.sets = exam.sets || {};
+  exam.again = exam.again || [];
+  exam.results = exam.results || [];
+  exam.usage = exam.usage || { input: 0, cached: 0, output: 0, cost: 0 };
+  return exam;
+}
+
+function init({ dir, sample, systemLang = "en" }) {
+  damaged = null;
   if (sample) {
-    data = { settings: structuredClone(DEFAULT_SETTINGS), exams: require("./sample").exams() };
+    data = { settings: { ...structuredClone(DEFAULT_SETTINGS), langFrom: "system", lang: systemLang }, exams: require("./sample").exams().map(upgrade) };
     return;
   }
   file = path.join(dir, "spurt.json");
+  data = { settings: { ...structuredClone(DEFAULT_SETTINGS), langFrom: "system", lang: systemLang }, exams: [] };
+  let text = null;
   try {
-    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
-    data = {
-      settings: { ...DEFAULT_SETTINGS, ...saved.settings, ai: { ...DEFAULT_SETTINGS.ai, ...(saved.settings && saved.settings.ai) } },
-      exams: saved.exams || [],
-    };
-  } catch {
-    // first start, or an unreadable file: begin empty
+    text = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    if (err.code !== "ENOENT") damaged = { backup: null };
+  }
+  if (text !== null) {
+    try {
+      take(parse(text), systemLang);
+      // What could be read at this start is the backup for the next time something goes wrong.
+      fs.copyFileSync(file, backupFile());
+    } catch {
+      damaged = { backup: null };
+    }
+  }
+  if (damaged) {
+    try {
+      parse(fs.readFileSync(backupFile(), "utf8"));
+      damaged.backup = fs.statSync(backupFile()).mtime.toISOString();
+    } catch {
+      // no backup that can be read
+    }
   }
 }
 
+/** Is the data file unreadable? { backup: date or null } while the person has not decided, else null. */
+const problem = () => damaged;
+
+/** The damaged file is put aside under another name (never deleted), then the backup or an empty start takes its place. */
+function recover(how, systemLang = "en") {
+  if (!damaged) return;
+  const aside = file.replace(/\.json$/, `.damaged-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`);
+  try {
+    fs.copyFileSync(file, aside);
+  } catch {
+    // nothing there to put aside
+  }
+  if (how === "backup" && damaged.backup) take(parse(fs.readFileSync(backupFile(), "utf8")), systemLang);
+  damaged = null;
+  save();
+}
+
 function save() {
-  if (!file) return;
+  if (!file || damaged) return;
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  // Written beside the file and flushed, then moved over it: a crash leaves the old file or the new one, never half of one.
   const tmp = file + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(data));
+  const fd = fs.openSync(tmp, "w");
+  try {
+    fs.writeSync(fd, JSON.stringify(data));
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
   fs.renameSync(tmp, file);
 }
 
@@ -40,19 +111,20 @@ const settings = () => data.settings;
 
 function setSettings(patch) {
   const next = { ...data.settings, ai: { ...data.settings.ai, models: { ...data.settings.ai.models } } };
-  if (patch.lang === "en" || patch.lang === "de") next.lang = patch.lang;
+  if (patch.lang === "en" || patch.lang === "de") {
+    next.lang = patch.lang;
+    next.langFrom = "choice";
+  }
   if (["system", "light", "dark"].includes(patch.appearance)) next.appearance = patch.appearance;
-  // The exam on one screen is being tried in two looks while one is chosen; "" is the 0.1 screens.
-  if (["a", "b"].includes(patch.look)) next.look = patch.look;
-  if (patch.look === "") delete next.look;
   if (patch.ai) {
     const { provider, model, baseURL } = patch.ai;
     if (provider === null || ["claudeCode", "anthropic", "openrouter", "openai"].includes(provider)) next.ai.provider = provider;
     if (typeof model === "string" && next.ai.provider) next.ai.models[next.ai.provider] = model.trim().slice(0, 200);
     if (typeof baseURL === "string") {
-      const address = baseURL.trim().slice(0, 500);
-      // https anywhere; plain http only for a server on this computer (see address.js).
-      if (address && !allowedAddress(address)) throw Object.assign(new Error("insecureAddress"), { code: "insecureAddress" });
+      // "localhost:1234/v1" is completed to an address; https anywhere, plain http only for a
+      // server on this computer (see address.js).
+      const address = completeAddress(baseURL.trim().slice(0, 500));
+      if (address && !allowedAddress(address)) throw Object.assign(new Error("insecureAddress"), { code: /^[a-z]+:\/\//i.test(address) && isAddress(address) ? "insecureAddress" : "badAddressText" });
       next.ai.baseURL = address;
     }
   }
@@ -71,15 +143,16 @@ function basics(draft, old = {}) {
   const name = String(draft.name ?? old.name ?? "").trim().slice(0, 120);
   if (!name) throw new Error("name");
   const date = draft.date ?? old.date;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("date");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(date + "T12:00:00").getTime())) throw new Error("date");
   const time = draft.time ?? old.time ?? {};
+  const mode = time.mode === "total" ? "total" : "perDay";
+  // Nobody studies more than sixteen hours a day: more than that in total is cut to what the days hold.
+  const days = Math.max(1, planner.diffDays(planner.todayIso(), date));
+  const most = mode === "total" ? Math.min(60 * 400, days * 16 * 60) : 16 * 60;
   return {
     name,
     date,
-    time: {
-      mode: time.mode === "total" ? "total" : "perDay",
-      minutes: Math.max(5, Math.min(60 * 200, Math.round(Number(time.minutes) || 30))),
-    },
+    time: { mode, minutes: Math.max(5, Math.min(most, Math.round(Number(time.minutes) || 30))) },
     scale: SCALES.includes(draft.scale) ? draft.scale : old.scale || "ch",
     target: Number(draft.target ?? old.target ?? 5),
     pace: PACES.includes(draft.pace) ? draft.pace : old.pace || "sprint",
@@ -101,20 +174,14 @@ function change(id, fn) {
 }
 
 function createExam(draft) {
-  const exam = {
+  const exam = upgrade({
     id: crypto.randomUUID(),
     ...basics(draft),
     createdAt: new Date().toISOString(),
     materials: [],
     strategy: null,
     done: {},
-    mastery: {},
-    attempts: {},
-    cards: {},
-    quizzes: {},
-    history: [],
-    usage: { input: 0, cached: 0, output: 0, cost: 0 },
-  };
+  });
   data.exams = [exam, ...data.exams];
   save();
   return exam;
@@ -128,12 +195,16 @@ function deleteExam(id) {
   save();
 }
 
+/** Adds a file or a text to an exam. Returns the title it already has there, if it does ("" when it was added). */
 function addMaterial(id, item, kind) {
-  return change(id, (exam) => {
-    if (exam.materials.some((m) => m.hash === item.hash)) return;
-    exam.materials.push({ id: crypto.randomUUID().slice(0, 8), kind: KINDS.includes(kind) ? kind : "book", ...item });
+  let already = "";
+  change(id, (exam) => {
+    const same = exam.materials.find((m) => m.hash === item.hash);
+    if (same) return void (already = same.title);
+    exam.materials.push({ id: item.id || crypto.randomUUID().slice(0, 8), kind: KINDS.includes(kind) ? kind : "book", ...item });
     if (exam.strategy) exam.strategy.stale = true;
   });
+  return already;
 }
 
 function setMaterialKind(id, materialId, kind) {
@@ -152,17 +223,35 @@ function removeMaterial(id, materialId) {
   });
 }
 
-/** A new strategy replaces the old one; what was learned so far only stays where topics still exist. */
+/** What a step asks for, whatever its id: a step that says the same in a new strategy keeps its tick. */
+const sameStep = (step) => (step.kind === "read" ? `r:${step.material}:${step.from}-${step.to}` : step.kind === "solve" ? `s:${step.material}:${step.page}:${[...step.labels].sort().join(",")}` : null);
+
+/** How many ticked steps a new strategy would keep and lose. */
+function progressAfter(exam, strategy) {
+  const old = exam.strategy ? exam.strategy.topics.flatMap((t) => t.steps) : [];
+  const done = old.filter((step) => exam.done[step.id]);
+  const next = new Set(strategy ? strategy.topics.flatMap((t) => t.steps).map(sameStep) : []);
+  const kept = done.filter((step) => sameStep(step) && next.has(sameStep(step))).length;
+  return { done: done.length, kept, lost: done.length - kept };
+}
+
+/**
+ * A new strategy replaces the old one. Steps that ask for the same thing as before stay
+ * ticked; exam results stay in the record. What belonged to the old topics (questions, steps
+ * put back on the list) goes.
+ */
 function setStrategy(id, strategy) {
   return change(id, (exam) => {
+    const before = new Map();
+    for (const step of exam.strategy ? exam.strategy.topics.flatMap((t) => t.steps) : []) {
+      if (exam.done[step.id] && sameStep(step)) before.set(sameStep(step), exam.done[step.id]);
+    }
     exam.strategy = strategy;
     exam.done = {};
-    exam.mastery = {};
-    exam.attempts = {};
-    exam.cards = {};
-    exam.quizzes = {};
+    for (const step of strategy.topics.flatMap((t) => t.steps)) if (before.has(sameStep(step))) exam.done[step.id] = before.get(sameStep(step));
+    exam.sets = {};
+    exam.again = [];
     delete exam.formulas;
-    delete exam.bonus;
   });
 }
 
@@ -180,18 +269,42 @@ function addUsage(id, usage) {
 
 // ------------------------------------------------------------ what the window gets
 
-/** An exam with everything worked out for today: the plan, where the person stands, what is due. */
+/** The newest set of questions of a kind ("final", or "topic:<id>"), or undefined. */
+function latestSet(exam, kind) {
+  return Object.values(exam.sets || {})
+    .filter((x) => x.key.split("#")[0] === kind)
+    .sort((a, b) => b.variant - a.variant)[0];
+}
+
+/**
+ * An exam as the window gets it, with everything worked out for today: the plan, how much of
+ * it is done, and where the final exam stands. Questions and their answers stay here; the
+ * window asks for them when an exam is taken.
+ */
 function view(exam, today = planner.todayIso()) {
   const plan = planner.buildPlan(exam, today);
-  const stand = planner.standing(exam, plan);
+  const { sets, ...rest } = exam;
+  const final = latestSet(exam, "final");
+  const ids = new Set(exam.materials.map((m) => m.id));
+  const steps = exam.strategy ? exam.strategy.topics.flatMap((t) => t.steps) : [];
   return {
-    ...exam,
+    ...rest,
     plan,
-    readiness: stand.readiness,
-    projected: stand.projected,
-    quizzed: stand.quizzed,
-    topicMastery: exam.strategy ? Object.fromEntries(exam.strategy.topics.map((t) => [t.id, planner.topicMastery(exam, t)])) : {},
-    due: planner.dueQuestions(exam, today).length,
+    percent: plan ? plan.percent : 0,
+    // A step that points into a book that was removed since.
+    missing: steps.some((step) => step.material && !ids.has(step.material)),
+    final: {
+      // "written": questions are there and unanswered. "done": the newest one has a result.
+      state: !final ? "none" : final.result ? "done" : "written",
+      started: Boolean(final && !final.result && Object.keys(final.draft || {}).length),
+      taken: Object.values(sets || {}).filter((x) => x.final && x.result).length,
+      result: final && final.result ? { date: final.result.date, points: final.result.points, max: final.result.max, grade: final.result.grade, weak: final.result.weak } : null,
+    },
+    topicSets: Object.fromEntries(
+      Object.values(sets || {})
+        .filter((x) => !x.final)
+        .map((x) => [x.key, x.result ? { points: x.result.points, max: x.result.max } : null]),
+    ),
   };
 }
 
@@ -219,6 +332,10 @@ const exam = (id) => find(id);
 
 module.exports = {
   init,
+  problem,
+  recover,
+  latestSet,
+  progressAfter,
   settings,
   setSettings,
   exams,

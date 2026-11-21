@@ -1,7 +1,8 @@
 // Invented exams for `--sample`: what the app looks like once the engine has done its work.
 // Same shape as real exams (see store.js and engine.js). The texts are German on purpose:
-// plans, quizzes and feedback follow the language of the material, not of the interface.
+// plans, formulas and questions follow the language of the material, not of the interface.
 // Nothing in this file comes from a real book, and there are no book files behind it.
+const answers = require("./answers");
 
 function inDays(n) {
   const d = new Date();
@@ -33,7 +34,8 @@ function topic(id, title, share, why, skipCost, objectives, steps, material) {
   };
 }
 
-const empty = () => ({ done: {}, mastery: {}, attempts: {}, cards: {}, quizzes: {}, history: [], usage: { input: 0, cached: 0, output: 0, cost: 0 } });
+const empty = () => ({ done: {}, sets: {}, again: [], results: [], usage: { input: 0, cached: 0, output: 0, cost: 0 } });
+const formula = (name, latex, note, page) => ({ name, latex, note, material: "m1", page });
 
 function exams() {
   const today = inDays(0);
@@ -42,7 +44,7 @@ function exams() {
       id: "sample-math",
       name: "Mathematik: Quadratische Funktionen",
       date: inDays(6),
-      time: { mode: "perDay", minutes: 35 },
+      time: { mode: "perDay", minutes: 25 },
       scale: "ch",
       target: 5,
       pace: "sprint",
@@ -132,59 +134,46 @@ function exams() {
         ],
       },
       ...empty(),
-      done: { "t1/r0": { date: today, minutes: 15, at: 1 } },
-      quizzes: {
-        t1: {
-          key: "t1",
+      done: {
+        "t1/r0": { date: inDays(-1), minutes: 15, at: 1 },
+        "t1/s0": { date: inDays(-1), minutes: 20, at: 2 },
+        "t1/s1": { date: inDays(-1), minutes: 15, at: 3 },
+        "t2/r0": { date: today, minutes: 15, at: 4 },
+      },
+      formulas: [
+        {
+          topicId: "t1",
+          formulas: [
+            formula("Scheitelpunktform", "f(x) = a(x - d)^2 + e", "Scheitelpunkt $S(d \\mid e)$; $a$ öffnet und streckt die Parabel.", 88),
+            formula("Quadratische Ergänzung", "x^2 + px = \\left(x + \\tfrac{p}{2}\\right)^2 - \\left(\\tfrac{p}{2}\\right)^2", "So wird aus der Normalform die Scheitelpunktform.", 90),
+          ],
+        },
+        {
+          topicId: "t2",
+          formulas: [
+            formula("Mitternachtsformel", "x_{1,2} = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}", "Für $ax^2 + bx + c = 0$.", 96),
+            formula("Diskriminante", "D = b^2 - 4ac", "$D > 0$: zwei Lösungen, $D = 0$: eine, $D < 0$: keine.", 98),
+          ],
+        },
+        { topicId: "t3", formulas: [formula("Rechteck mit festem Umfang", "A(x) = x \\left(\\tfrac{U}{2} - x\\right)", "Die grösste Fläche liegt im Scheitelpunkt.", 104)] },
+      ],
+      sets: {
+        "final#0": {
+          key: "final#0",
+          final: true,
           variant: 0,
+          topicIds: ["t1", "t2", "t3", "t4", "t5"],
+          createdOn: today,
+          draft: {},
+          result: null,
+          spare: { t2: [{ material: "m1", page: 100, labels: ["8", "9"], minutes: 15 }] },
           questions: [
-            {
-              id: "t1/k0",
-              topicId: "t1",
-              type: "choice",
-              prompt: "Welchen Scheitelpunkt hat die Parabel $f(x) = (x - 3)^2 + 2$?",
-              choices: ["$S(3 \\mid 2)$", "$S(-3 \\mid 2)$", "$S(3 \\mid -2)$", "$S(2 \\mid 3)$"],
-              correct: 0,
-              answer: "$S(3 \\mid 2)$",
-              rubric: "1 Punkt für den richtigen Scheitelpunkt.",
-              explain: "In der Scheitelpunktform $f(x) = a(x - d)^2 + e$ liegt der Scheitelpunkt bei $S(d \\mid e)$. Das Vorzeichen in der Klammer dreht sich um: aus $(x - 3)$ wird $d = 3$.",
-              points: 1,
-              material: "m1",
-              page: 89,
-            },
-            {
-              id: "t1/k1",
-              topicId: "t1",
-              type: "short",
-              prompt: "Bringe $f(x) = x^2 - 6x + 5$ in die Scheitelpunktform und gib den Scheitelpunkt an.",
-              answer: "$f(x) = (x - 3)^2 - 4$, Scheitelpunkt $S(3 \\mid -4)$",
-              rubric: "1 Punkt quadratische Ergänzung, 1 Punkt richtig ausgeglichen, 1 Punkt Scheitelpunkt.",
-              explain: "Quadratisch ergänzen: $x^2 - 6x + 9 - 9 + 5$.",
-              points: 3,
-              material: "m1",
-              page: 90,
-              // Stands in for the AI's correction, so the screenshots need no AI.
-              sampleAnswer: "f(x) = (x − 3)² + 4, also S(3 | 4)",
-              sampleFeedback: {
-                points: 2,
-                feedback: "Die quadratische Ergänzung mit $(x - 3)^2$ stimmt. Beim Ausgleichen ist dir das Vorzeichen verrutscht: $-9 + 5$ ergibt $-4$, nicht $+4$.",
-                correct: "$f(x) = (x - 3)^2 - 4$, Scheitelpunkt $S(3 \\mid -4)$",
-              },
-            },
-            {
-              id: "t1/k2",
-              topicId: "t1",
-              type: "choice",
-              prompt: "Wie sieht die Parabel $f(x) = -2(x + 1)^2 + 3$ im Vergleich zur Normalparabel aus?",
-              choices: ["Nach unten geöffnet und schmaler", "Nach unten geöffnet und breiter", "Nach oben geöffnet und schmaler", "Nach oben geöffnet und breiter"],
-              correct: 0,
-              answer: "Nach unten geöffnet und schmaler",
-              rubric: "1 Punkt für die richtige Auswahl.",
-              explain: "$a = -2$: Das Minus öffnet die Parabel nach unten, und weil der Betrag grösser als 1 ist, wird sie schmaler.",
-              points: 1,
-              material: "m1",
-              page: 88,
-            },
+            { id: "final#0/k0", topicId: "t1", type: "number", prompt: "Die Parabel $f(x) = (x - 3)^2 + 2$: Wie gross ist der kleinste Funktionswert?", value: 2, unit: "", tolerance: 0, answer: "2", solution: "Der Scheitelpunkt ist $S(3 \\mid 2)$ und die Parabel ist nach oben geöffnet: Der kleinste Wert ist $e = 2$.", points: 1, material: "m1", page: 89 },
+            { id: "final#0/k1", topicId: "t2", type: "numbers", prompt: "Löse $x^2 - 5x + 6 = 0$. Gib beide Lösungen an.", values: [2, 3], unit: "", tolerance: 0, answer: "$x_1 = 2$, $x_2 = 3$", solution: "$D = 25 - 24 = 1$, also $x_{1,2} = \\frac{5 \\pm 1}{2}$.", points: 2, material: "m1", page: 97 },
+            { id: "final#0/k2", topicId: "t4", type: "choice", prompt: "Wie viele Lösungen hat $x^2 + 4x + 5 = 0$?", choices: ["Keine", "Genau eine", "Zwei", "Unendlich viele"], correct: 0, answer: "Keine", solution: "$D = 16 - 20 = -4 < 0$: keine Lösung.", points: 1, material: "m1", page: 98 },
+            { id: "final#0/k3", topicId: "t3", type: "number", prompt: "Ein Rechteck hat den Umfang 40 m. Wie gross ist seine grösste mögliche Fläche in m²?", value: 100, unit: "m²", tolerance: 0, answer: "100 m²", solution: "$A(x) = x(20 - x)$ hat den Scheitelpunkt bei $x = 10$: $A = 10 \\cdot 10 = 100$.", points: 2, material: "m1", page: 104 },
+            { id: "final#0/k4", topicId: "t1", type: "text", prompt: "Bringe $f(x) = x^2 - 6x + 5$ in die Scheitelpunktform.", answer: "$f(x) = (x - 3)^2 - 4$", solution: "Quadratisch ergänzen: $x^2 - 6x + 9 - 9 + 5 = (x - 3)^2 - 4$.", points: 2, material: "m1", page: 90, sampleMark: { points: 0, note: "Beim Ausgleichen ist das Vorzeichen verrutscht: $-9 + 5$ ergibt $-4$, nicht $+4$." } },
+            { id: "final#0/k5", topicId: "t5", type: "numbers", prompt: "Bei welchen $x$ schneidet die Parabel $y = x^2$ die Gerade $y = x + 2$?", values: [-1, 2], unit: "", tolerance: 0, answer: "$x_1 = -1$, $x_2 = 2$", solution: "$x^2 = x + 2$, also $x^2 - x - 2 = 0$ und $(x + 1)(x - 2) = 0$.", points: 2, material: "m1", page: 110 },
           ],
         },
       },
@@ -205,23 +194,37 @@ function exams() {
         approach: "Lerne die Begriffe an Fällen, nicht als Liste: Die Prüfung fragt fast nur Fallbeispiele.",
         objectives: ["Ich kann erklären, wie ein Vertrag entsteht.", "Ich kann die Formvorschriften nennen.", "Ich kann Vertragsmängel an Fällen erkennen.", "Ich kann die Folgen einer Anfechtung beschreiben."],
         objectivesGuessed: false,
-        checks: { exercises: 5, confirmed: 5, moved: 0, unconfirmed: 0, rangesDropped: 0 },
+        checks: { exercises: 3, confirmed: 3, moved: 0, unconfirmed: 0, rangesDropped: 0 },
         pagesRead: 22,
         skipped: [],
         topics: [
           topic("t1", "Entstehung eines Vertrags", 0.55, "Antrag, Annahme und Form sind die Grundlage für alle Fallbeispiele in der Prüfung.", "Ohne dieses Thema lassen sich die Fälle nicht lösen.", [0, 1], [["read", 142, 149, "7.1 Vertragsabschluss", 30], ["solve", 150, ["1", "2", "5"], 35], ["quiz", 5, 15]], "m1"),
-          topic("t2", "Vertragsmängel und Anfechtung", 0.45, "Irrtum, Täuschung und Drohung kommen fast immer als Fall vor.", "Etwa die Hälfte der Fallaufgaben.", [2, 3], [["read", 156, 161, "7.3 Mängel des Vertrags", 25], ["solve", 162, ["3", "4"], 30], ["quiz", 5, 15]], "m1"),
+          topic("t2", "Vertragsmängel und Anfechtung", 0.45, "Irrtum, Täuschung und Drohung kommen fast immer als Fall vor.", "Etwa die Hälfte der Fallaufgaben.", [2, 3], [["read", 156, 161, "7.3 Mängel des Vertrags", 25], ["quiz", 5, 15]], "m1"),
         ],
       },
       ...empty(),
       done: {
         "t1/r0": { date: inDays(-3), minutes: 30, at: 1 },
         "t1/s0": { date: inDays(-2), minutes: 35, at: 2 },
-        "t1/q": { date: inDays(-1), minutes: 15, at: 3 },
       },
-      mastery: { t1: 0.8 },
-      attempts: { t1: 1 },
-      history: [{ date: inDays(-1), kind: "topic", topicId: "t1", points: 8, max: 10 }],
+      sets: {
+        "topic:t2/q#0": {
+          key: "topic:t2/q#0",
+          final: false,
+          variant: 0,
+          stepId: "t2/q",
+          topicIds: ["t2"],
+          createdOn: inDays(-1),
+          draft: {},
+          result: null,
+          spare: {},
+          questions: [
+            { id: "topic:t2/q#0/k0", topicId: "t2", type: "choice", prompt: "Lea kauft ein Velo, weil der Verkäufer verschweigt, dass der Rahmen gerissen ist. Welcher Mangel liegt vor?", choices: ["Absichtliche Täuschung", "Erklärungsirrtum", "Furchterregung", "Übervorteilung"], correct: 0, answer: "Absichtliche Täuschung", solution: "Der Verkäufer verschweigt den Mangel mit Absicht: Das ist Täuschung, nicht Irrtum.", points: 1, material: "m1", page: 157 },
+            { id: "topic:t2/q#0/k1", topicId: "t2", type: "number", prompt: "Innert wie vielen Jahren muss ein Vertrag wegen Irrtums angefochten werden?", value: 1, unit: "Jahr", tolerance: 0, answer: "1 Jahr", solution: "Die Frist beträgt ein Jahr ab Entdeckung des Irrtums.", points: 1, material: "m1", page: 160 },
+            { id: "topic:t2/q#0/k2", topicId: "t2", type: "text", prompt: "Wie heisst der Irrtum über eine notwendige Grundlage des Vertrags?", answer: "Grundlagenirrtum", solution: "Der Grundlagenirrtum ist der einzige Motivirrtum, der zur Anfechtung berechtigt.", points: 1, material: "m1", page: 158 },
+          ],
+        },
+      },
     },
     {
       id: "sample-m323",
@@ -239,4 +242,22 @@ function exams() {
   ];
 }
 
-module.exports = { exams };
+/**
+ * Marks a set without a model, for the sample exams: numbers and choices as in the real app,
+ * text only when it is the expected text (or with the mark prepared for the screenshots).
+ */
+function marks(set, typed) {
+  const tidy = (text) => String(text).toLowerCase().replace(/[\s$\\{}]/g, "");
+  const out = {};
+  for (const q of set.questions) {
+    const given = typed[q.id];
+    const text = typeof given === "string" ? given.trim() : "";
+    const right =
+      q.type === "choice" ? given === q.correct : !text ? false : q.type === "number" ? answers.numberRight(text, q.value, q.tolerance) : q.type === "numbers" ? answers.numbersRight(text, q.values, q.tolerance) : tidy(text) === tidy(q.answer);
+    const prepared = !right && text && q.sampleMark;
+    out[q.id] = { points: prepared ? q.sampleMark.points : right ? q.points : 0, max: q.points, note: prepared ? q.sampleMark.note : "" };
+  }
+  return out;
+}
+
+module.exports = { exams, marks };

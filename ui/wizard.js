@@ -13,6 +13,11 @@ export const SCALES = {
 
 const PER_DAY = [15, 30, 45, 60, 90, 120];
 const PACES = ["sprint", "thorough", "efficient"];
+const FAR = 730; // days: an exam further away than two years is a typing mistake
+const NAME_MAX = 120;
+
+/** A date as the date field gives it, and one that exists: "2026-12-05", not "20266-12-05" and not "". */
+const isDate = (iso) => /^\d{4}-\d{2}-\d{2}$/.test(iso || "") && !Number.isNaN(new Date(iso + "T12:00:00").getTime());
 
 function Stepper({ value, min, max, unit, onChange }) {
   const set = (v) => onChange(Math.max(min, Math.min(max, v)));
@@ -42,11 +47,16 @@ export function Wizard({ draft: given, step: startAt, editing, onCancel, onDone 
   const set = (patch) => setD((old) => ({ ...old, ...patch }));
   const nameField = useRef(null);
 
-  const n = d.dateMode === "date" ? (d.date ? daysUntil(d.date) : -1) : d.days;
+  // null: not a date (yet). Negative: in the past, which only an exam that exists may be.
+  const n = d.dateMode === "date" ? (isDate(d.date) ? daysUntil(d.date) : null) : d.days;
   const date = d.dateMode === "date" ? d.date : isoInDays(d.days);
-  const studyDays = Math.max(1, n);
-  const pace = d.pace || (n <= 7 ? "sprint" : "thorough");
-  const valid = step === 1 ? d.name.trim().length > 0 : step === 2 ? n >= 0 : true;
+  const dateOk = n !== null && n <= FAR && (n >= 0 || editing);
+  const studyDays = Math.max(1, n || 0);
+  // Nobody studies more than sixteen hours a day.
+  const mostHours = Math.max(1, Math.min(400, studyDays * 16));
+  const totalHours = Math.min(d.totalHours, mostHours);
+  const pace = d.pace || (studyDays <= 7 ? "sprint" : "thorough");
+  const valid = step === 1 ? d.name.trim().length > 0 : dateOk;
 
   const go = () => {
     if (!valid) return;
@@ -54,21 +64,41 @@ export function Wizard({ draft: given, step: startAt, editing, onCancel, onDone 
     onDone({
       name: d.name,
       date,
-      time: d.timeMode === "perDay" ? { mode: "perDay", minutes: d.perDay } : { mode: "total", minutes: d.totalHours * 60 },
+      time: d.timeMode === "perDay" ? { mode: "perDay", minutes: d.perDay } : { mode: "total", minutes: totalHours * 60 },
       scale: d.scale,
       target: d.target,
       pace,
     });
   };
 
+  // One listener for as long as the wizard is open; it always calls what the latest draw defined.
+  const onKey = useRef(null);
+  onKey.current = (e) => {
+    if (e.key === "Escape") return onCancel();
+    // Enter goes on, wherever the keyboard is, except on the buttons that go back or away.
+    if (e.key === "Enter" && !e.target.closest(".wizard-foot .plain, .wizard-top button")) {
+      e.preventDefault();
+      return go();
+    }
+    // Arrow keys move through a set of choices and choose, as in any group of radio buttons.
+    const group = e.target.closest('[role="radiogroup"]');
+    const move = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (group && move && e.target.getAttribute("role") === "radio") {
+      const all = [...group.querySelectorAll('[role="radio"]')];
+      const to = all[(all.indexOf(e.target) + move + all.length) % all.length];
+      e.preventDefault();
+      to.focus();
+      to.click();
+    }
+  };
+  useEffect(() => {
+    const listener = (e) => onKey.current(e);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
   useEffect(() => {
     if (step === 1) nameField.current?.focus();
-    const onKey = (e) => {
-      if (e.key === "Enter" && e.target.tagName !== "BUTTON") go();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [step]);
 
   const scale = SCALES[d.scale];
   const p = scale.best === "max" ? (d.target - scale.min) / (scale.max - scale.min) : (scale.max - d.target) / (scale.max - scale.min);
@@ -82,9 +112,10 @@ export function Wizard({ draft: given, step: startAt, editing, onCancel, onDone 
         value=${d.name}
         placeholder=${t("q1Placeholder")}
         spellcheck=${false}
+        maxlength=${NAME_MAX}
         onInput=${(e) => set({ name: e.target.value })}
       />
-      <p class="hint">${t("q1Hint")}</p>
+      <p class="hint">${d.name.length >= NAME_MAX ? t("q1Full", NAME_MAX) : t("q1Hint")}</p>
     `,
     2: () => html`
       <h1>${t("q2")}</h1>
@@ -99,10 +130,10 @@ export function Wizard({ draft: given, step: startAt, editing, onCancel, onDone 
       />
       <div>
         ${d.dateMode === "date"
-          ? html`<input class="field" type="date" value=${d.date} min=${isoInDays(0)} onInput=${(e) => set({ date: e.target.value })} />`
+          ? html`<input class="field" type="date" value=${d.date} min=${editing ? undefined : isoInDays(0)} max=${isoInDays(FAR)} onInput=${(e) => set({ date: e.target.value })} />`
           : html`<${Stepper} value=${d.days} min=${1} max=${365} unit=${t("dayUnit", d.days)} onChange=${(v) => set({ days: v })} />`}
       </div>
-      <p class="hint">${n < 0 ? t("q2Past") : t("q2Echo", n, longDate(date))}</p>
+      <p class="hint" role="status">${n === null ? t("q2Invalid") : n > FAR ? t("q2Far") : n < 0 ? t(editing ? "q2PastEdit" : "q2Past") : t("q2Echo", n, longDate(date))}</p>
     `,
     3: () => html`
       <h1>${t("q3")}</h1>
@@ -123,12 +154,12 @@ export function Wizard({ draft: given, step: startAt, editing, onCancel, onDone 
             )}
           </div>`
         : html`<div>
-            <${Stepper} value=${d.totalHours} min=${1} max=${200} unit=${t("hourUnit", d.totalHours)} onChange=${(v) => set({ totalHours: v })} />
+            <${Stepper} value=${totalHours} min=${1} max=${mostHours} unit=${t("hourUnit", totalHours)} onChange=${(v) => set({ totalHours: v })} />
           </div>`}
       <p class="hint">
         ${d.timeMode === "perDay"
           ? t("q3EchoDay", minutes(d.perDay), studyDays, minutes(d.perDay * studyDays))
-          : t("q3EchoTotal", minutes(Math.max(5, Math.round((d.totalHours * 60) / studyDays / 5) * 5)))}
+          : t("q3EchoTotal", minutes(Math.max(1, Math.round((totalHours * 60) / studyDays))), studyDays, totalHours >= mostHours)}
       </p>
     `,
     4: () => html`
@@ -176,6 +207,7 @@ export function Wizard({ draft: given, step: startAt, editing, onCancel, onDone 
     <div class="wizard-top">
       <${Segs} total=${STEPS} done=${step - 1} now=${step - 1} post=${false} label=${t("step", step, STEPS)} />
       <span class="muted">${t("step", step, STEPS)}</span>
+      <button class="mini" id="wizardCancel" title=${t("cancel")} aria-label=${t("cancel")} onClick=${onCancel}><${Icon} name="x" size=${14} /></button>
     </div>
     <section class="question view" key=${step}>${body()}</section>
     <div class="wizard-foot">

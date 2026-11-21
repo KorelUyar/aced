@@ -1,26 +1,34 @@
-// Screenshots of the real app on its sample exams, made without a person at the screen:
+// Takes the pictures in docs/shots, in a hidden window at 2x:
 //
-//   node_modules/.bin/electron scripts/shots.js <outDir> light|dark
+//   node_modules/.bin/electron scripts/shots.js <outDir> <light|dark>             the invented sample exams:
+//                                              home, the final exam, material and settings, a new exam, settings
+//   node_modules/.bin/electron scripts/shots.js <outDir> <light|dark> <profile>   a real exam with a real book:
+//                                              the plan with the book, the formula sheet, the helper, a result
 //
-// The window stays hidden. Pictures are 2x. In the dark run, three screens are also taken in German.
+// <profile> is a data folder the app has written (scripts/e2e.js leaves one in <its outDir>/data).
+// It is copied first, so taking pictures changes nothing in it. The helper's answer in the
+// picture is a real one: with a profile, this asks the provider that profile names once.
 const { app, nativeTheme } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { SCALE, quiet, hideWindowsOf, capture, sleep } = require("./hidden");
 
-const [outArg, theme] = process.argv.slice(-2);
-const out = path.resolve(outArg);
-const W = 1120;
-const H = 800;
-
-process.env.SPURT_SAMPLE = "1";
-// "Claude Code" in the pictures is the stand-in from scripts/fixtures, so each sign-in state can be shown.
-const claudeState = path.join(os.tmpdir(), `spurt-shots-claude-${process.pid}`);
-const stub = path.join(__dirname, "fixtures", "claude-stub.sh");
-Object.assign(process.env, { SPURT_CLAUDE: stub, SPURT_STUB_STATE: claudeState, SPURT_SIGNIN: "run" });
-fs.writeFileSync(claudeState, "ok");
-app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "spurt-shots-")));
+const [outArg, theme = "light", profile] = process.argv.slice(2).filter((a) => !a.startsWith("--") && !a.endsWith("shots.js"));
+const out = path.resolve(outArg || "docs/shots");
+fs.mkdirSync(out, { recursive: true });
+if (profile) {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-shots-"));
+  fs.cpSync(path.resolve(profile), copy, { recursive: true });
+  app.setPath("userData", copy);
+} else {
+  process.env.SPURT_SAMPLE = "1";
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "spurt-shots-"));
+  app.setPath("userData", scratch);
+  // "Claude Code" in the Settings picture is the stand-in from the tests, signed in: no real login is looked at.
+  fs.writeFileSync(path.join(scratch, "claude-state"), "ok");
+  Object.assign(process.env, { SPURT_CLAUDE: path.join(__dirname, "fixtures", "claude-stub.sh"), SPURT_STUB_STATE: path.join(scratch, "claude-state") });
+}
 quiet();
 const mainFile = path.join(__dirname, "..", "main.js");
 const window = hideWindowsOf(mainFile);
@@ -28,129 +36,114 @@ require(mainFile);
 
 app.whenReady().then(async () => {
   const win = await window;
-  nativeTheme.themeSource = theme === "dark" ? "dark" : "light";
-  fs.mkdirSync(out, { recursive: true });
-  win.setContentSize(W * SCALE, H * SCALE);
+  win.setContentSize(1360 * SCALE, 860 * SCALE);
   const js = (code) => win.webContents.executeJavaScript(code);
-  win.webContents.on("console-message", (e) => e.level === "error" && console.log("PAGE ERROR", e.message));
-  const until = async (code, timeout = 15000) => {
+  const until = async (code, timeout = 20000) => {
     const end = Date.now() + timeout;
     while (Date.now() < end) {
       if (await js(code).catch(() => false)) return;
-      await sleep(100);
+      await sleep(150);
     }
     throw new Error("timeout: " + code);
   };
-  // The window's own buttons are drawn by macOS and missing from a capture; paint them in.
-  const chrome = `(() => { if (document.getElementById('shotChrome')) return;
+  const click = async (selector, timeout) => {
+    await until(`!!document.querySelector(${JSON.stringify(selector)})`, timeout);
+    await js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+    await sleep(200);
+  };
+  const type = (selector, value) =>
+    js(`(() => { const el = document.querySelector(${JSON.stringify(selector)});
+      Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set.call(el, ${JSON.stringify(value)});
+      el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  // The window's own buttons are not part of a capture: three dots stand in for them.
+  const lights = `(() => { if (document.getElementById('shotChrome')) return;
     const d = document.createElement('div'); d.id = 'shotChrome';
     Object.assign(d.style, { position: 'fixed', left: '18px', top: '20px', display: 'flex', gap: '8px', zIndex: 99, pointerEvents: 'none' });
     for (const c of ['#ff5f57', '#febc2e', '#28c840']) { const s = document.createElement('span');
       Object.assign(s.style, { width: '12px', height: '12px', borderRadius: '50%', background: c, boxShadow: 'inset 0 0 0 .5px rgb(0 0 0 / .18)' }); d.append(s); }
     document.body.append(d); })()`;
-  const ready = async () => {
-    await until(`!!window.__nav && document.fonts.status === 'loaded'`);
-    win.webContents.setZoomFactor(SCALE);
-    await js(chrome);
-  };
   const shot = async (name) => {
-    await sleep(300);
+    await js(lights);
+    await sleep(450);
     fs.writeFileSync(path.join(out, `${name}-${theme}.png`), await capture(win));
-    console.log("shot", name, theme);
+    console.log("shot", `${name}-${theme}`);
   };
-  const nav = (route) => js(`window.__nav(${JSON.stringify(route)})`);
-  const click = (selector) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
-  const type = (selector, text) =>
-    js(`(() => { const el = document.querySelector(${JSON.stringify(selector)});
-      Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set.call(el, ${JSON.stringify(text)});
-      el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-
-  const exam = { name: "exam", id: "sample-math" };
-  const draft = { name: "Mathematik: Quadratische Funktionen", dateMode: "days", days: 6 };
-  const quizFeedback = async () => {
-    await nav({ name: "quiz", id: "sample-math", what: { kind: "topic", topicId: "t1" } });
-    await until(`!!document.querySelector('.choice')`);
-    await click(".choice");
-    await click("#check");
-    await until(`!!document.querySelector('.feedback')`);
-    await click("#next");
-    await until(`!!document.querySelector('textarea.answer')`);
-    await type("textarea.answer", "f(x) = (x − 3)² + 4, also S(3 | 4)");
-    await click("#check");
-    await until(`!!document.querySelector('.feedback.partly')`);
-  };
-  const wizard = async (step, name) => {
-    await nav({ name: "home" });
-    await nav({ name: "new", step, draft });
-    await until(`!!document.querySelector('.question')`);
-    await shot(name);
-  };
-  const tab = async (name, suffix = "") => {
-    await nav({ ...exam, tab: name });
-    await shot(name + suffix);
-  };
+  const lang = (code) => js(`window.spurt.setSettings({ lang: ${JSON.stringify(code)} }).then(() => window.dispatchEvent(new Event('focus')))`).then(() => sleep(500));
 
   try {
-    await ready();
-    // The theme is also set in the app's own settings, or the next change there would put it back to the Mac's.
-    await js(`window.spurt.setSettings({ appearance: ${JSON.stringify(theme === "dark" ? "dark" : "light")} })`);
-    await shot("home");
-    await wizard(1, "new-name");
-    await wizard(2, "new-when");
-    await wizard(3, "new-time");
-    await wizard(4, "new-grade");
-    await wizard(5, "new-pace");
-    await nav({ name: "exam", id: "sample-m323", tab: "material" });
-    await shot("material-empty");
-    for (const name of ["material", "today", "strategy", "plan", "practice"]) await tab(name);
-    await nav({ name: "settings" });
-    await until(`!!document.querySelector('.ai .provider .pace')`);
-    await click(".ai .provider:nth-child(2) .pace");
-    await until(`!!document.querySelector('#key')`);
-    await shot("settings");
-    if (theme === "light") {
-      // Claude Code on this Mac, in each state the person can meet.
-      const state = async (word, name, wanted = word) => {
-        fs.writeFileSync(claudeState, word);
-        await click(".ai .provider:nth-child(2) .pace");
-        await click(".ai .provider:nth-child(1) .pace");
-        await until(`document.querySelector('.cc-state')?.dataset.state === '${wanted}'`);
-        await js(`document.querySelector('.ai h2').scrollIntoView({ block: 'start' })`);
-        await shot(name);
-      };
-      await state("ok", "claude-signed-in");
-      await state("expired", "claude-expired");
-      await state("signedOut", "claude-signed-out");
-      await click("#ccSignIn");
-      await until(`document.querySelector('.cc-state')?.dataset.state === 'waiting'`);
-      await js(`document.querySelector('.ai h2').scrollIntoView({ block: 'start' })`);
-      await shot("claude-waiting");
-      await until(`document.querySelector('.cc-state')?.dataset.state === 'ok'`, 20000);
-      process.env.SPURT_CLAUDE = path.join(os.tmpdir(), "no-claude-here");
-      await state("ok", "claude-missing", "missing");
-      process.env.SPURT_CLAUDE = stub;
-      fs.writeFileSync(claudeState, "ok");
-      await click(".ai .provider:nth-child(2) .pace");
-    }
-    await nav({ name: "home" });
-    await quizFeedback();
-    await shot("quiz");
-
-    if (theme === "dark") {
-      // Switch to German the way a person does, in Settings.
-      await nav({ name: "settings" });
-      await until(`document.querySelectorAll('.setting').length === 2`);
-      await js(`document.querySelector('.setting').querySelectorAll('button')[1].click()`);
-      await until(`document.documentElement.lang === 'de'`);
-      await nav({ name: "home" });
-      await shot("home-de");
-      for (const name of ["material", "today", "strategy", "plan"]) await tab(name, "-de");
-      await quizFeedback();
-      await shot("quiz-de");
+    await until(`!!window.__nav && document.fonts.status === 'loaded'`);
+    win.webContents.setZoomFactor(SCALE);
+    nativeTheme.themeSource = theme;
+    await js(`window.spurt.setSettings({ appearance: ${JSON.stringify(theme)}, lang: 'en' }).then(() => window.dispatchEvent(new Event('focus')))`);
+    await sleep(500);
+    if (profile) {
+      await click(".exam-card");
+      await until(`!!document.querySelector('.path .step')`);
+      await click(".step.now .jump");
+      await until(`document.querySelector('.book-page')?.dataset.state === 'shown'`, 120000);
+      await sleep(600);
+      await shot("exam");
+      await click(".tabs.panels button:nth-child(2)");
+      await until(`!!document.querySelector('.formula')`, 300000);
+      await shot("formulas");
+      await click(".tabs.panels button:nth-child(1)");
+      await click("#helperToggle");
+      await click(".drawer .idea");
+      await until(`!!document.querySelector('.drawer .answered') || !!document.querySelector('.drawer .problem-box')`, 300000);
+      if (await js(`!!document.querySelector('.drawer .page-link')`)) {
+        await click(".drawer .page-link");
+        await until(`document.querySelector('.book-page')?.dataset.state === 'shown'`, 120000);
+      }
+      await sleep(600);
+      await shot("helper");
+      await click(".drawer .mini");
+      if (await js(`!!document.querySelector('#finalSee')`)) {
+        await click("#finalSee");
+        await until(`!!document.querySelector('.result-head')`);
+        await shot("result");
+      }
+    } else {
+      await until(`document.querySelectorAll('.exam-card').length === 3`);
+      await shot("home");
+      await click(".exam-card");
+      await until(`!!document.querySelector('.path .step')`);
+      await click(".tabs.panels button:nth-child(2)");
+      await until(`!!document.querySelector('.formula')`);
+      await shot("plan");
+      await click("#finalStart");
+      await until(`document.querySelectorAll('.question-card').length === 6`);
+      const typed = ["2", "x1 = 2; x2 = 3", null, "100 m²"];
+      for (let i = 0; i < typed.length; i++) {
+        if (typed[i] === null) await click(`.question-card:nth-child(${i + 1}) .choice`);
+        else await type(`.question-card:nth-child(${i + 1}) input`, typed[i]);
+      }
+      await shot("final");
+      await js(`window.__nav({ name: 'setup', id: 'sample-math' })`);
+      await until(`!!document.querySelector('.facts')`);
+      await shot("setup");
+      await js(`window.__nav({ name: 'new', step: 2, draft: { name: 'Geschichte: Kalter Krieg' } })`);
+      await until(`!!document.querySelector('input[type=date]')`);
+      await shot("new-when");
+      await js(`window.__nav({ name: 'new', step: 4, draft: { name: 'Geschichte: Kalter Krieg' } })`);
+      await until(`!!document.querySelector('.grade-range')`);
+      await shot("new-grade");
+      await js(`window.__nav({ name: 'settings', from: { name: 'home' } })`);
+      await click(".ai .provider:nth-child(1) .pace");
+      await until(`!!document.querySelector('.cc-state')`);
+      await sleep(1200);
+      await shot("settings");
+      if (theme === "dark") {
+        // German, once: the interface follows the Mac's language or the choice in Settings.
+        await lang("de");
+        await js(`window.__nav({ name: 'exam', id: 'sample-math' })`);
+        await until(`!!document.querySelector('.path .step')`);
+        await shot("plan-de");
+        await lang("en");
+      }
     }
   } catch (e) {
     console.log("FAIL", e.message);
     process.exitCode = 1;
   }
-  app.quit();
+  app.exit(process.exitCode || 0);
 });

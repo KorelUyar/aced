@@ -1,5 +1,4 @@
 const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog, session, protocol, net } = require("electron");
-const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -7,6 +6,7 @@ const { pathToFileURL } = require("url");
 const brand = require("./src/brand");
 const store = require("./src/store");
 const files = require("./src/files");
+const ocr = require("./src/ocr");
 const secrets = require("./src/secrets");
 const planner = require("./src/planner");
 const engine = require("./src/engine");
@@ -38,18 +38,26 @@ app.on("second-instance", () => {
 const SAMPLE = process.argv.includes("--sample") || process.env.SPURT_SAMPLE === "1";
 
 let win;
-const bookWindows = new Map(); // material hash -> window showing that PDF
-const jobs = new Set(); // AbortControllers of everything under way that "Cancel" must reach
-const sessions = new Map(); // quiz sessions under way
+const jobs = new Map(); // AbortController -> exam id: everything under way that "Cancel" must reach
+// What is running, per exam: { kind, stage, title, done, total, startedAt }. The window shows it
+// wherever the person is, and nothing is started twice.
+const runs = new Map();
 
 const isMac = process.platform === "darwin";
 const colors = () =>
   nativeTheme.shouldUseDarkColors
-    ? { background: "#15171c", symbols: "#f3f4f7" }
+    ? { background: "#0e1116", symbols: "#f4f6fa" }
     : { background: "#f4f5f7", symbols: "#14161b" };
 
 function applyAppearance(value) {
   nativeTheme.themeSource = value === "light" || value === "dark" ? value : "system";
+}
+
+/** German on a German Mac, English everywhere else. (SPURT_LANG stands in for the Mac's language in tests.) */
+function systemLang() {
+  const forced = !app.isPackaged && process.env.SPURT_LANG;
+  const first = forced || (app.getPreferredSystemLanguages ? app.getPreferredSystemLanguages()[0] : "") || app.getLocale() || "en";
+  return first.toLowerCase().startsWith("de") ? "de" : "en";
 }
 
 function createWindow() {
@@ -90,40 +98,68 @@ function createWindow() {
   win.webContents.on("will-navigate", (e) => e.preventDefault());
 }
 
-/** The book in its own window, at the page. Chromium's own PDF view, with nothing of the app in it. */
-function openBook(material, page) {
-  const file = files.pdfPath(material.hash);
-  if (material.type !== "pdf" || !fs.existsSync(file)) throw Object.assign(new Error("noBookFile"), { code: "noBookFile" });
-  const url = `${pathToFileURL(file).href}#page=${Math.max(1, Math.min(material.pages, Math.round(page) || 1))}`;
-  let book = bookWindows.get(material.hash);
-  if (!book || book.isDestroyed()) {
-    book = new BrowserWindow({
-      width: 900,
-      height: 1000,
-      minWidth: 480,
-      minHeight: 400,
-      title: material.title,
-      backgroundColor: colors().background,
-      webPreferences: { plugins: true, sandbox: true, contextIsolation: true, nodeIntegration: false },
-    });
-    book.setMenuBarVisibility(false);
-    book.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    book.webContents.on("will-navigate", (e, to) => {
-      if (!to.startsWith(pathToFileURL(file).href)) e.preventDefault();
-    });
-    book.on("page-title-updated", (e) => e.preventDefault());
-    bookWindows.set(material.hash, book);
-  }
-  // The PDF view only reads the page number when the document loads.
-  book.loadURL("about:blank").then(() => book.loadURL(url));
-  book.show();
+/** The app's own menu: what a Mac app has, and nothing that reloads the page or opens developer tools. */
+function buildMenu() {
+  const de = store.settings().lang === "de";
+  const tell = (what) => () => win && !win.isDestroyed() && win.webContents.send("menu", what);
+  const template = [
+    ...(isMac
+      ? [
+          {
+            label: brand.name,
+            submenu: [
+              { role: "about", label: de ? `Über ${brand.name}` : `About ${brand.name}` },
+              { type: "separator" },
+              { label: de ? "Einstellungen …" : "Settings…", accelerator: "Cmd+,", click: tell("settings") },
+              { type: "separator" },
+              { role: "hide", label: de ? `${brand.name} ausblenden` : `Hide ${brand.name}` },
+              { role: "hideOthers", label: de ? "Andere ausblenden" : "Hide Others" },
+              { role: "unhide", label: de ? "Alle einblenden" : "Show All" },
+              { type: "separator" },
+              { role: "quit", label: de ? `${brand.name} beenden` : `Quit ${brand.name}` },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: de ? "Ablage" : "File",
+      submenu: [
+        { label: de ? "Neue Prüfung" : "New Exam", accelerator: "CmdOrCtrl+N", click: tell("new") },
+        ...(isMac ? [] : [{ label: de ? "Einstellungen …" : "Settings…", accelerator: "Ctrl+,", click: tell("settings") }, { type: "separator" }, { role: "quit" }]),
+      ],
+    },
+    {
+      label: de ? "Bearbeiten" : "Edit",
+      submenu: [
+        { role: "undo", label: de ? "Widerrufen" : "Undo" },
+        { role: "redo", label: de ? "Wiederholen" : "Redo" },
+        { type: "separator" },
+        { role: "cut", label: de ? "Ausschneiden" : "Cut" },
+        { role: "copy", label: de ? "Kopieren" : "Copy" },
+        { role: "paste", label: de ? "Einsetzen" : "Paste" },
+        { role: "selectAll", label: de ? "Alles auswählen" : "Select All" },
+      ],
+    },
+    {
+      label: de ? "Darstellung" : "View",
+      submenu: [
+        { role: "resetZoom", label: de ? "Originalgrösse" : "Actual Size" },
+        { role: "zoomIn", label: de ? "Vergrössern" : "Zoom In" },
+        { role: "zoomOut", label: de ? "Verkleinern" : "Zoom Out" },
+        { type: "separator" },
+        { role: "togglefullscreen", label: de ? "Vollbild" : "Toggle Full Screen" },
+      ],
+    },
+    { label: de ? "Fenster" : "Window", submenu: [{ role: "minimize", label: de ? "Im Dock ablegen" : "Minimize" }, { role: "zoom", label: de ? "Zoomen" : "Zoom" }] },
+    { role: "help", label: de ? "Hilfe" : "Help", submenu: [{ label: de ? `${brand.name} auf GitHub` : `${brand.name} on GitHub`, click: () => shell.openExternal(brand.home) }] },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 app.setName(brand.name);
 
 app.whenReady().then(() => {
   if (!single) return;
-  if (!isMac) Menu.setApplicationMenu(null);
   // Nothing in this app needs the camera, the location or any other permission a page can ask for.
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, answer) => answer(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
@@ -131,7 +167,7 @@ app.whenReady().then(() => {
     const hash = new URL(request.url).pathname.replace(/^\/+/, "");
     const file = /^[a-f0-9]{64}$/.test(hash) ? files.pdfPath(hash) : null;
     if (!file || !fs.existsSync(file)) return new Response("not found", { status: 404 });
-    return net.fetch(pathToFileURL(file).href);
+    return net.fetch(pathToFileURL(file).href, { headers: request.headers });
   });
   // Run from the source folder, the Dock would show Electron's icon.
   const devIcon = path.join(__dirname, "build", "icon.png");
@@ -141,17 +177,29 @@ app.whenReady().then(() => {
   // Test runs from the source folder can keep keys in memory only (SPURT_KEYS=memory), so they
   // leave nothing in the keychain. The app people install always stores them.
   secrets.init(userData, { persist: !SAMPLE && !(process.env.SPURT_KEYS === "memory" && !app.isPackaged) });
-  store.init({ dir: userData, sample: SAMPLE });
+  store.init({ dir: userData, sample: SAMPLE, systemLang: systemLang() });
   ai.init(() => store.settings());
-  if (!SAMPLE) files.prune(store.references()); // whatever an earlier run left without an owner
+  // Whatever an earlier run left without an owner goes. Not while the data file is unreadable:
+  // then nothing is known to be without an owner.
+  if (!SAMPLE && !store.problem()) files.prune(store.references());
   applyAppearance(store.settings().appearance);
+  buildMenu();
   createWindow();
+  // The first time after an install or an update, macOS needs about a minute to get its text
+  // recognition ready. That is started now, quietly, so it is done by the time a book without
+  // text is added. (Only in the installed app: test runs do not need it.)
+  if (app.isPackaged && !SAMPLE && ocr.available()) setTimeout(() => ocr.prepare().catch(() => {}), 4000);
   app.on("activate", () => {
     if (!win || win.isDestroyed()) createWindow();
   });
 });
 
 app.on("window-all-closed", () => app.quit());
+// Nothing that was started outlives the app: requests are cancelled, Claude Code processes stopped.
+app.on("before-quit", () => {
+  for (const controller of jobs.keys()) controller.abort();
+  claudeCode.stopAll();
+});
 
 // ---------------------------------------------------------------- IPC
 
@@ -167,7 +215,7 @@ const wrap = (fn) => async (e, ...args) => {
   }
 };
 const handle = (channel, fn) => ipcMain.handle(channel, wrap(fn));
-const send = (payload) => win && !win.isDestroyed() && win.webContents.send("progress", payload);
+const tell = (channel, payload) => win && !win.isDestroyed() && win.webContents.send(channel, payload);
 // Tokens are counted per exam, and where the price is known (Anthropic's own models) the cost.
 const usageOf = (id) => (u) => {
   const { provider, model } = ai.config();
@@ -177,19 +225,43 @@ const usageOf = (id) => (u) => {
 // Every kept answer is noted with its exam, so deleting the exam deletes it too.
 const tracked = (id, signal) => ({ onUsage: usageOf(id), onKey: (key) => store.addAnswer(id, key), signal });
 
-/** Runs something that "Cancel" can stop. */
-async function job(fn) {
+/**
+ * Runs something for an exam that takes a while and that "Cancel" can stop. Only one thing
+ * runs per exam; the window is told what it is at every change. `fn(signal, say)`: `say`
+ * updates what is shown (a stage, how many pages are read).
+ */
+async function run(id, kind, fn) {
+  if (runs.has(id)) throw coded("busy");
   const controller = new AbortController();
-  jobs.add(controller);
+  const say = (patch) => {
+    if (!runs.has(id)) return;
+    runs.set(id, { ...runs.get(id), ...patch });
+    tell("runs", Object.fromEntries(runs));
+  };
+  jobs.set(controller, id);
+  runs.set(id, { kind, stage: kind, startedAt: Date.now() });
+  tell("runs", Object.fromEntries(runs));
   try {
-    return await fn(controller.signal);
+    return await fn(controller.signal, say);
   } finally {
     jobs.delete(controller);
+    runs.delete(id);
+    tell("runs", Object.fromEntries(runs));
   }
 }
 const today = () => planner.todayIso();
+const view = (id) => store.view(store.exam(id));
 
-handle("state", async () => ({ settings: store.settings(), exams: store.exams(), ai: await ai.status() }));
+handle("state", async () => ({ settings: store.settings(), exams: store.exams(), ai: await ai.status(), runs: Object.fromEntries(runs), damaged: store.problem() }));
+
+// The data file could not be read: the person chooses the backup or an empty start. The
+// unreadable file is kept under another name either way.
+handle("data:recover", (how) => {
+  store.recover(how === "backup" ? "backup" : "empty", systemLang());
+  if (!SAMPLE) files.prune(store.references());
+  buildMenu();
+});
+handle("data:reveal", () => shell.showItemInFolder(path.join(app.getPath("userData"), "spurt.json")));
 
 handle("settings:set", async (patch) => {
   const before = origin(store.settings().ai.baseURL);
@@ -197,6 +269,7 @@ handle("settings:set", async (patch) => {
   // The key for "another server" belongs to that server: at a new address it is forgotten.
   if (origin(next.ai.baseURL) !== before) await secrets.set("openai", "");
   applyAppearance(next.appearance);
+  if (patch.lang) buildMenu();
   return { settings: next, ai: await ai.status() };
 });
 handle("ai:key", async (provider, key) => {
@@ -213,6 +286,7 @@ handle("claude:setup", () => shell.openExternal(claudeCode.SETUP_PAGE));
 handle("exam:create", (draft) => store.view(store.createExam(draft)));
 handle("exam:edit", (id, draft) => store.view(store.editExam(id, draft)));
 handle("exam:delete", (id) => {
+  for (const [controller, examId] of jobs) if (examId === id) controller.abort();
   store.deleteExam(id);
   // Its book copies, the text read from them and the answers kept for it go too, unless another exam uses them.
   if (!SAMPLE) files.prune(store.references());
@@ -227,24 +301,27 @@ const GUESS = [
   ["notes", /notiz|notes|zusammenfassung|summary|skript/i],
 ];
 
-async function addFiles(id, paths) {
-  const problems = [];
-  await job(async (signal) => {
+/** Adds files. Whatever could not be added, or was there already, comes back as `problems` with a reason each. */
+function addFiles(id, paths) {
+  return run(id, "read", async (signal, say) => {
+    const problems = [];
     for (const file of paths.slice(0, 20)) {
       const title = path.basename(file);
       try {
-        send({ examId: id, stage: "read", title, done: 0, total: 0 });
-        const item = await files.add(file, (done, total, phase) => send({ examId: id, stage: "read", phase, title, done, total }), signal);
+        say({ stage: "read", phase: "read", title, done: 0, total: 0 });
+        const item = await files.add(file, (done, total, phase, state) => say({ stage: "read", phase, state, title, done, total }), signal);
         const guess = item.pages > 40 ? "book" : (GUESS.find(([, re]) => re.test(title)) || ["book"])[0];
-        store.addMaterial(id, item, guess);
+        const already = store.addMaterial(id, item, guess);
+        if (already) problems.push({ title, code: "duplicate", detail: already });
+        else if (item.cut) problems.push({ title, code: "cut" });
       } catch (err) {
         if (err.code === "cancelled") break;
-        problems.push({ title, code: ["unsupported", "empty"].includes(err.message) ? err.message : "unreadable" });
+        const code = ["unsupported", "empty"].includes(err.message) ? err.message : /password/i.test(err.message) ? "protected" : "unreadable";
+        problems.push({ title, code });
       }
     }
+    return { exam: view(id), problems };
   });
-  send({ examId: id, stage: "idle" });
-  return { exam: store.view(store.exam(id)), problems };
 }
 
 handle("material:choose", async (id) => {
@@ -252,29 +329,64 @@ handle("material:choose", async (id) => {
     properties: ["openFile", "multiSelections"],
     filters: [{ name: "PDF, text", extensions: ["pdf", "txt", "md"] }],
   });
-  return r.canceled ? { exam: store.view(store.exam(id)), problems: [] } : addFiles(id, r.filePaths);
+  return r.canceled ? { exam: view(id), problems: [] } : addFiles(id, r.filePaths);
 });
-handle("material:add", (id, paths) => addFiles(id, paths.filter((p) => typeof p === "string" && p)));
+handle("material:add", (id, paths) => addFiles(id, (Array.isArray(paths) ? paths : []).filter((p) => typeof p === "string" && p)));
+
+/** A title for pasted text: its own first words, so two pasted texts can be told apart. */
+const titleOf = (text, fallback) => {
+  const first = String(text).split("\n").map((l) => l.replace(/^[\s\-–•*#\d.)]+/, "").trim()).find(Boolean) || "";
+  return first ? first.slice(0, 60) + (first.length > 60 ? "…" : "") : fallback;
+};
+
 handle("material:text", (id, kind, title, text) => {
   let item;
   try {
-    item = files.addText(text, String(title).slice(0, 80));
+    item = files.addText(text, titleOf(text, String(title).slice(0, 80)));
   } catch {
     throw coded("empty");
   }
-  return store.view(store.addMaterial(id, item, kind));
+  const already = store.addMaterial(id, item, kind);
+  if (already) throw coded("duplicate", already);
+  return view(id);
+});
+/** The text of a pasted material, to look at or change. */
+handle("material:read", (id, materialId) => {
+  const m = store.exam(id).materials.find((x) => x.id === materialId);
+  const data = m && m.type === "text" ? files.readText(m.hash) : null;
+  if (!data) throw coded("unknown");
+  return data.pages.join("\n\n");
+});
+/** A pasted text, changed: the new text takes the place of the old one. */
+handle("material:retext", (id, materialId, text) => {
+  const old = store.exam(id).materials.find((x) => x.id === materialId);
+  if (!old || old.type !== "text") throw coded("unknown");
+  let item;
+  try {
+    item = files.addText(text, titleOf(text, old.title));
+  } catch {
+    throw coded("empty");
+  }
+  if (item.hash === old.hash) return view(id);
+  store.change(id, (exam) => {
+    const at = exam.materials.findIndex((x) => x.id === materialId);
+    if (exam.materials.some((x) => x.hash === item.hash)) exam.materials.splice(at, 1);
+    else exam.materials[at] = { ...old, ...item };
+    if (exam.strategy) exam.strategy.stale = true;
+  });
+  return view(id);
 });
 handle("material:kind", (id, materialId, kind) => store.view(store.setMaterialKind(id, materialId, kind)));
+// Removing keeps the files until the app is next started, so "Undo" can bring the material back.
 handle("material:remove", (id, materialId) => {
-  const exam = store.removeMaterial(id, materialId);
-  if (!SAMPLE) files.prune(store.references());
-  return store.view(exam);
+  const removed = store.exam(id).materials.find((m) => m.id === materialId) || null;
+  return { exam: store.view(store.removeMaterial(id, materialId)), removed };
 });
-
-handle("book:open", (id, materialId, page) => {
-  const material = store.exam(id).materials.find((m) => m.id === materialId);
-  if (!material) throw coded("noBookFile");
-  openBook(material, page);
+handle("material:restore", (id, item) => {
+  if (!item || !/^[a-f0-9]{64}$/.test(String(item.hash)) || !files.readText(item.hash)) throw coded("unknown");
+  const { id: materialId, kind, hash, type, title, pages, chars, offset, scanned, recognised } = item;
+  store.addMaterial(id, { id: String(materialId).slice(0, 8), hash, type: type === "pdf" ? "pdf" : "text", title: String(title).slice(0, 200), pages: Number(pages) || 1, chars: Number(chars) || 0, offset: Number(offset) || 0, scanned: Boolean(scanned), recognised: Boolean(recognised) }, kind);
+  return view(id);
 });
 
 // ------------------------------------------------ analysis
@@ -294,55 +406,73 @@ async function openRouterPrice(model) {
 }
 
 /** The text of every PDF of an exam is on disk again (it is re-read from the library copy if it was lost). */
-async function ensureTexts(id, signal) {
-  let read = false;
+async function ensureTexts(id, signal, say) {
   for (const m of store.exam(id).materials) {
-    if (await files.ensureText(m, (done, total, phase) => send({ examId: id, stage: "read", phase, title: m.title, done, total }), signal)) read = true;
+    await files.ensureText(m, (done, total, phase, state) => say({ stage: "read", phase, state, title: m.title, done, total }), signal);
   }
-  if (read) send({ examId: id, stage: "idle" });
+}
+
+/** What a strategy was made from: the material, the exam's own numbers and the model. The same again gives the same strategy. */
+function basisOf(exam) {
+  const { provider, model } = ai.config();
+  return files.sha(JSON.stringify([exam.materials.map((m) => [m.hash, m.kind]), exam.name, exam.date, exam.time, exam.scale, exam.target, exam.pace, provider, model]));
 }
 
 handle("analysis:estimate", async (id) => {
-  await job((signal) => ensureTexts(id, signal));
-  const est = engine.estimate(store.exam(id));
+  await run(id, "read", (signal, say) => ensureTexts(id, signal, say));
+  const exam = store.exam(id);
+  const est = engine.estimate(exam);
   const status = await ai.status();
   const price = status.provider === "openrouter" ? await openRouterPrice(status.model) : status.price;
+  // With Anthropic's own key the pages are written to its cache once and read from it for the formula sheet.
+  const cached = status.provider === "anthropic" && price && price[2] !== undefined;
+  const cost = (input) => (price ? (input * price[0] * (cached ? 1.25 : 1) + est.again * (cached ? price[2] : price[0]) + est.output * price[1]) / 1e6 : null);
   return {
     ...est,
+    input: est.input + est.again,
+    inputMax: est.inputMax + Math.round(est.again * (est.inputMax / Math.max(1, est.input))),
     provider: status.provider,
     model: status.model,
     ready: status.ready,
     // With Claude Code the person may have to sign in first: the panel says so before anything starts.
     claude: status.provider === "claudeCode" ? await claudeCode.status() : null,
-    cost: price ? (est.input * price[0] + est.output * price[1]) / 1e6 : null,
-    costMax: price ? (est.inputMax * price[0] + est.output * 2 * price[1]) / 1e6 : null,
+    cost: cost(est.input),
+    costMax: price ? cost(est.inputMax) * 1.6 : null,
+    // Nothing has changed since the strategy was made: running it again would give the same one.
+    unchanged: Boolean(exam.strategy && !exam.strategy.stale && exam.strategy.basis === basisOf(exam)),
+    ticked: exam.strategy ? exam.strategy.topics.flatMap((t) => t.steps).filter((step) => exam.done[step.id]).length : 0,
   };
 });
 
-handle("analysis:run", (id) =>
-  job(async (signal) => {
-    await ensureTexts(id, signal);
+/** Works out the strategy and, right after, the formula sheet. `again`: ask the model anew even though nothing changed. */
+handle("analysis:run", (id, options) =>
+  run(id, "strategy", async (signal, say) => {
+    await ensureTexts(id, signal, say);
     const exam = store.exam(id);
     const daysLeft = Math.max(0, planner.diffDays(today(), exam.date));
     const days = Math.max(1, daysLeft);
     const minutesPerDay = exam.time.mode === "perDay" ? exam.time.minutes : Math.round(exam.time.minutes / days);
     const minutesTotal = exam.time.mode === "perDay" ? minutesPerDay * days : exam.time.minutes;
+    say({ stage: "strategy" });
+    const strategy = await engine.analyze(exam, { today: today(), daysLeft, minutesTotal, minutesPerDay }, { onProgress: (p) => say(p), ...tracked(id, signal), fresh: Boolean(options && options.again) });
+    strategy.basis = basisOf(exam);
+    const progress = store.progressAfter(exam, strategy);
+    store.setStrategy(id, strategy);
+    // The formula sheet belongs to the strategy. If it fails, the strategy still stands; the sheet is asked for again when it is opened.
     try {
-      const strategy = await engine.analyze(
-        exam,
-        { today: today(), daysLeft, minutesTotal, minutesPerDay },
-        { onProgress: (p) => send({ examId: id, ...p }), ...tracked(id, signal) },
-      );
-      store.setStrategy(id, strategy);
-      return store.view(store.exam(id));
-    } finally {
-      send({ examId: id, stage: "idle" });
+      say({ stage: "formulas" });
+      const formulas = await engine.writeFormulas(store.exam(id), tracked(id, signal));
+      store.change(id, (e) => (e.formulas = formulas));
+    } catch (err) {
+      if (err.code === "cancelled") throw err;
     }
+    return { exam: view(id), kept: progress.kept, lost: progress.lost };
   }),
 );
 
-handle("cancel", () => {
-  for (const controller of jobs) controller.abort();
+/** Stops what is running for one exam (or everything, when no exam is named). */
+handle("cancel", (id) => {
+  for (const [controller, examId] of jobs) if (!id || examId === id) controller.abort();
 });
 
 // ------------------------------------------------ formula sheet and helper
@@ -351,152 +481,162 @@ handle("formulas", async (id) => {
   const exam = store.exam(id);
   if (!exam.strategy) throw coded("unknown");
   if (!exam.formulas) {
-    const formulas = await job(async (signal) => {
-      await ensureTexts(id, signal);
+    const formulas = await run(id, "formulas", async (signal, say) => {
+      await ensureTexts(id, signal, say);
+      say({ stage: "formulas" });
       return engine.writeFormulas(exam, tracked(id, signal));
     });
     store.change(id, (e) => (e.formulas = formulas));
   }
-  return store.exam(id).formulas;
+  return view(id);
 });
 
-handle("help", (id, question) =>
-  job(async (signal) => {
-    await ensureTexts(id, signal);
-    return engine.help(store.exam(id), question, tracked(id, signal));
-  }),
-);
+// A question to the helper is short and may run beside anything else: it is not a "run".
+handle("help", async (id, question, context) => {
+  const controller = new AbortController();
+  jobs.set(controller, id);
+  try {
+    const exam = store.exam(id);
+    if (!exam.strategy) throw coded("unknown");
+    for (const m of exam.materials) await files.ensureText(m, () => {}, controller.signal);
+    const earlier = Array.isArray(context && context.earlier) ? context.earlier.filter((x) => x && typeof x.question === "string" && typeof x.answer === "string").slice(-3) : [];
+    return await engine.help(exam, question, { earlier, now: String((context && context.now) || "").slice(0, 300) }, tracked(id, controller.signal));
+  } finally {
+    jobs.delete(controller);
+  }
+});
 
 // ------------------------------------------------ plan
 
+const taskOf = (exam, taskId) => planner.buildPlan(exam, today())?.stages.flatMap((stage) => stage.tasks).find((t) => t.id === taskId);
+
 handle("task:done", (id, taskId) => {
-  const exam = store.exam(id);
-  const task = planner.buildPlan(exam, today())?.days.flatMap((d) => d.tasks).find((t) => t.id === taskId);
-  if (!task || ["quiz", "review", "mock"].includes(task.kind)) throw coded("unknown");
+  const task = taskOf(store.exam(id), taskId);
+  // Questions are done by answering them, not by a tick.
+  if (!task || task.kind === "quiz") throw coded("unknown");
   return store.view(store.change(id, (e) => (e.done[taskId] = { date: today(), minutes: task.minutes, at: Date.now() })));
 });
-
-/** Done for today and still going: pulls the next task into today. */
-handle("task:more", (id) => {
-  const exam = store.exam(id);
-  const plan = planner.buildPlan(exam, today());
-  const next = plan?.days.slice(1).flatMap((d) => d.tasks).find((t) => !t.done);
-  if (!next) return store.view(exam);
-  const had = exam.bonus && exam.bonus.date === today() ? exam.bonus.minutes : 0;
-  const leftToday = plan.days[0].tasks.filter((t) => !t.done).reduce((sum, t) => sum + t.minutes, 0);
-  return store.view(store.change(id, (e) => (e.bonus = { date: today(), minutes: had + next.minutes + leftToday })));
+handle("task:undo", (id, taskId) => {
+  const task = taskOf(store.exam(id), taskId);
+  if (!task || task.kind === "quiz") throw coded("unknown");
+  return store.view(store.change(id, (e) => delete e.done[taskId]));
 });
 
-// ------------------------------------------------ quizzes
+// ------------------------------------------------ the final exam, and questions on a topic
 
-function questionOf(exam, questionId) {
-  for (const quiz of Object.values(exam.quizzes)) {
-    const q = quiz.questions.find((x) => x.id === questionId);
-    if (q) return q;
-  }
-  throw coded("unknown");
+/** A question as it is asked: without its answer. */
+const asked = ({ id, topicId, type, prompt, unit, choices, points }) => ({ id, topicId, type, prompt, unit: unit || "", choices: choices || [], points });
+const topicTitle = (exam, topicId) => (exam.strategy.topics.find((t) => t.id === topicId) || {}).title || "";
+
+/** A set as the window gets it. The answers come along only once it has a result. */
+function shown(exam, set) {
+  return {
+    key: set.key,
+    final: set.final,
+    title: set.final ? "" : topicTitle(exam, set.topicIds[0]),
+    questions: set.result ? set.questions : set.questions.map(asked),
+    draft: set.draft || {},
+    result: set.result || null,
+    topics: Object.fromEntries(set.topicIds.map((t) => [t, topicTitle(exam, t)])),
+    scale: exam.scale,
+    target: exam.target,
+  };
 }
 
-handle("quiz:open", async (id, { kind, taskId = null, topicId = null }) => {
+/**
+ * Opens the final exam (`{ kind: "final" }`) or the questions of one step (`{ kind: "topic",
+ * stepId }`): the one that is waiting to be answered, or a new one. `another`: write a new
+ * final exam although the last one has a result.
+ */
+handle("set:open", async (id, what) => {
   const exam = store.exam(id);
-  let questions;
-  let title = "";
-  if (kind === "review") {
-    questions = planner.dueQuestions(exam, today());
+  const strategy = exam.strategy;
+  if (!strategy) throw coded("unknown");
+  let request;
+  let kind;
+  if (what && what.kind === "final") {
+    kind = "final";
+    const last = store.latestSet(exam, kind);
+    if (last && (!last.result || !what.another)) return shown(exam, last);
+    const plan = planner.buildPlan(exam, today());
+    const dropped = new Set(plan.dropped.map((d) => d.topicId));
+    const topicIds = strategy.topics.filter((t) => !dropped.has(t.id)).map((t) => t.id);
+    const variant = last ? last.variant + 1 : 0;
+    request = { key: `final#${variant}`, final: true, topicIds, count: Math.max(6, Math.min(12, topicIds.length * 2)), variant };
   } else {
-    const strategy = exam.strategy;
-    if (!strategy) throw coded("unknown");
-    let request;
-    if (kind === "mock") {
-      const plan = planner.buildPlan(exam, today());
-      const dropped = new Set(plan.dropped.map((d) => d.topicId));
-      const mock = plan.days.flatMap((d) => d.tasks).find((t) => t.kind === "mock");
-      request = {
-        key: "mock",
-        topicIds: strategy.topics.filter((t) => !dropped.has(t.id)).map((t) => t.id),
-        count: Math.max(6, Math.min(12, Math.round((mock ? mock.minutes : 30) / 3))),
-        mock: true,
-      };
-    } else {
-      const topic = strategy.topics.find((t) => t.id === topicId);
-      if (!topic) throw coded("unknown");
-      title = topic.title;
-      // A repeated quiz ("t1/q#0" after a weak result, "t1/q~3" as spaced repetition) gets its own new questions.
-      const suffix = taskId ? taskId.slice(`${topicId}/q`.length) : "";
-      const variant = suffix ? Object.keys(exam.quizzes).filter((k) => k === topicId || k.startsWith(topicId + "#") || k.startsWith(topicId + "~")).length : 0;
-      request = {
-        key: suffix ? topicId + suffix : topicId,
-        topicIds: [topicId],
-        count: topic.steps.find((s) => s.kind === "quiz")?.questions || 4,
-        variant,
-      };
-    }
-    let quiz = exam.quizzes[request.key];
-    if (!quiz) {
-      quiz = await job(async (signal) => {
-        await ensureTexts(id, signal);
-        return engine.writeQuiz(exam, request, tracked(id, signal));
-      });
-      store.change(id, (e) => (e.quizzes[request.key] = quiz));
-    }
-    questions = quiz.questions;
+    const task = taskOf(exam, what && what.stepId);
+    if (!task || task.kind !== "quiz") throw coded("unknown");
+    kind = `topic:${task.id}`;
+    const last = store.latestSet(exam, kind);
+    if (last) return shown(exam, last);
+    // Other questions than an earlier set on the same topic asked.
+    const variant = Object.values(exam.sets).filter((x) => !x.final && x.topicIds[0] === task.topicId).length;
+    request = { key: `${kind}#0`, topicIds: [task.topicId], count: task.step.questions || 4, variant, stepId: task.id };
   }
-  if (!questions.length) throw coded("noQuestions");
-  const sessionId = crypto.randomUUID();
-  sessions.set(sessionId, { examId: id, kind, taskId, topicId, answers: {} });
-  return { sessionId, kind, title, questions };
-});
-
-handle("quiz:answer", async (sessionId, questionId, answer) => {
-  const session = sessions.get(sessionId);
-  if (!session) throw coded("unknown");
-  const exam = store.exam(session.examId);
-  const q = questionOf(exam, questionId);
-  // The sample exams carry one prepared correction, so the screenshots need no AI.
-  const result = SAMPLE && q.sampleFeedback ? q.sampleFeedback : await engine.grade(q, answer, tracked(exam.id));
-  const ratio = result.points / q.points;
-  const card = planner.nextCard(exam.cards[q.id], ratio, today());
-  store.change(exam.id, (e) => (e.cards[q.id] = card));
-  session.answers[q.id] = { points: result.points, max: q.points, topicId: q.topicId };
-  return {
-    points: result.points,
-    max: q.points,
-    verdict: ratio >= 0.999 ? "right" : ratio > 0 ? "partly" : "wrong",
-    feedback: result.feedback,
-    correct: result.correct,
-    backInDays: ratio >= 0.999 ? null : planner.diffDays(today(), card.due),
-  };
-});
-
-handle("quiz:finish", (sessionId) => {
-  const session = sessions.get(sessionId);
-  if (!session) throw coded("unknown");
-  sessions.delete(sessionId);
-  const answers = Object.values(session.answers);
-  const points = answers.reduce((sum, a) => sum + a.points, 0);
-  const max = answers.reduce((sum, a) => sum + a.max, 0);
-  const exam = store.change(session.examId, (e) => {
-    // How well each topic went, blended with what was known before.
-    const byTopic = new Map();
-    for (const a of answers) {
-      const t = byTopic.get(a.topicId) || { points: 0, max: 0 };
-      byTopic.set(a.topicId, { points: t.points + a.points, max: t.max + a.max });
-    }
-    for (const [topicId, t] of byTopic) {
-      const ratio = t.max ? t.points / t.max : 0;
-      const old = e.mastery[topicId];
-      e.mastery[topicId] = Math.round((typeof old === "number" ? 0.6 * ratio + 0.4 * old : ratio) * 100) / 100;
-    }
-    const stamp = { date: today(), minutes: Math.max(5, answers.length * 2), at: Date.now() };
-    if (session.kind === "topic" && answers.length) {
-      e.attempts[session.topicId] = (e.attempts[session.topicId] || 0) + 1;
-      const own = `${session.topicId}/q`;
-      const id = session.taskId || (e.done[own] ? null : own);
-      if (id) e.done[id] = stamp;
-    }
-    if (session.kind === "review" && answers.length) e.done["review:" + today()] = stamp;
-    if (session.kind === "mock" && answers.length) e.done.mock = stamp;
-    if (answers.length) e.history.push({ date: today(), kind: session.kind, topicId: session.topicId, points, max });
+  if (SAMPLE) throw coded("sampleOnly");
+  const set = await run(id, "questions", async (signal, say) => {
+    await ensureTexts(id, signal, say);
+    say({ stage: "questions" });
+    return engine.writeQuestions(exam, request, tracked(id, signal));
   });
-  return { exam: store.view(exam), points, max };
+  store.change(id, (e) => (e.sets[set.key] = { ...set, variant: request.variant, stepId: request.stepId || null, createdOn: today(), draft: {}, result: null }));
+  return shown(store.exam(id), store.exam(id).sets[set.key]);
+});
+
+/** What has been typed so far is kept, so leaving the exam loses nothing. */
+handle("set:draft", (id, key, draft) => {
+  store.change(id, (e) => {
+    const set = e.sets[key];
+    if (!set || set.result || !draft || typeof draft !== "object") return;
+    set.draft = Object.fromEntries(set.questions.map((q) => [q.id, draft[q.id]]).filter(([, v]) => (typeof v === "string" && v.length <= 4000) || Number.isInteger(v)));
+  });
+});
+
+/** What goes back on the list for a topic that went badly: its theory again, and exercises not yet done. */
+function againFor(exam, set, topicId, ratio) {
+  const topic = exam.strategy.topics.find((t) => t.id === topicId);
+  const id = `${topicId}/a${exam.again.length + 1}`;
+  const reads = topic.steps.filter((s) => s.kind === "read").map((s, i) => ({ ...s, id: `${id}/r${i}`, minutes: Math.max(3, Math.round(s.minutes / 2)) }));
+  const spare = (set.spare && set.spare[topicId]) || [];
+  const solves = spare.length
+    ? spare.map((x, i) => ({ id: `${id}/s${i}`, kind: "solve", material: x.material, page: x.page, labels: x.labels, minutes: x.minutes, unconfirmed: [] }))
+    : topic.steps.filter((s) => s.kind === "solve").map((s, i) => ({ ...s, id: `${id}/s${i}`, repeat: true }));
+  const quiz = topic.steps.find((s) => s.kind === "quiz");
+  // A topic whose book has no exercises is asked again with new questions.
+  const steps = solves.length || !quiz ? [...reads, ...solves] : [...reads, { ...quiz, id: `${id}/q` }];
+  return { id, topicId, from: set.key, score: ratio, steps };
+}
+
+handle("set:submit", async (id, key, typed) => {
+  const before = store.exam(id);
+  const set = before.sets[key];
+  if (!set || set.result || !typed || typeof typed !== "object") throw coded("unknown");
+  // Kept first: if marking fails, what was typed is still there.
+  store.change(id, (e) => (e.sets[key].draft = typed));
+  const marks = SAMPLE ? require("./src/sample").marks(set, typed) : await run(id, "marks", (signal) => engine.mark(set.questions, typed, tracked(id, signal)));
+  const points = Object.values(marks).reduce((sum, m) => sum + m.points, 0);
+  const max = Object.values(marks).reduce((sum, m) => sum + m.max, 0) || 1;
+  const byTopic = new Map();
+  for (const q of set.questions) {
+    const t = byTopic.get(q.topicId) || { points: 0, max: 0 };
+    byTopic.set(q.topicId, { points: t.points + marks[q.id].points, max: t.max + marks[q.id].max });
+  }
+  // Under 60% of a topic's points: that topic comes back.
+  const weak = [...byTopic].filter(([, t]) => t.max && t.points / t.max < 0.6).map(([topicId]) => topicId);
+  const result = { date: today(), at: Date.now(), typed, marks, points, max, grade: planner.gradeFor(before.scale, points / max), weak, topics: Object.fromEntries(byTopic) };
+  store.change(id, (e) => {
+    e.sets[key].result = result;
+    e.sets[key].draft = {};
+    e.results.push({ date: result.date, final: Boolean(set.final), points, max, grade: result.grade });
+    if (set.stepId) e.done[set.stepId] = { date: today(), minutes: Math.max(5, set.questions.length * 2), at: Date.now() };
+    for (const topicId of weak) {
+      // At most twice per topic: after that it is the person's call, not the list's.
+      if (e.again.filter((a) => a.topicId === topicId).length >= 2) continue;
+      const t = byTopic.get(topicId);
+      const again = againFor(e, set, topicId, t.points / t.max);
+      if (again.steps.length) e.again.push(again);
+    }
+  });
+  const exam = store.exam(id);
+  return { exam: store.view(exam), set: shown(exam, exam.sets[key]) };
 });

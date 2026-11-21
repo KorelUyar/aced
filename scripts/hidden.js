@@ -9,6 +9,8 @@ function quiet() {
   app.dock?.hide();
   // Keys typed in by a test stay in memory: nothing is put into the keychain.
   process.env.SPURT_KEYS = "memory";
+  // The interface follows the Mac's language; a test says which one it expects.
+  process.env.SPURT_LANG = process.env.SPURT_LANG || "en";
   // An error in the main process would otherwise put a dialog on the screen and wait for a click.
   process.on("uncaughtException", (err) => {
     console.log("FAIL uncaught:", err && err.stack ? err.stack.split("\n").slice(0, 6).join("\n") : err);

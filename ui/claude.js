@@ -5,13 +5,13 @@ import { html, useState, useEffect } from "./bits.js";
 import { t, errorText, errorCode, longDate } from "./i18n.js";
 
 const api = window.spurt;
-const NEEDS_SETTINGS = ["noProvider", "noKey", "badKey", "noCredit", "noModel", "noServer", "badAddress", "insecureAddress"];
+const NEEDS_SETTINGS = ["noProvider", "noKey", "badKey", "noCredit", "noModel", "noServer", "badAddress", "insecureAddress", "badAddressText", "usageLimit"];
 
 /**
  * The state of Claude Code, with what to do about it. `onSignedIn` is called when the person
  * has become signed in while this was on screen.
  */
-export function ClaudeState({ onSignedIn }) {
+export function ClaudeState({ onSignedIn, toSettings }) {
   const [state, setState] = useState(null);
   const [waiting, setWaiting] = useState(false);
   const [problem, setProblem] = useState(null);
@@ -55,7 +55,9 @@ export function ClaudeState({ onSignedIn }) {
   if (!state) text = t("cc_checking");
   else if (!state.installed) {
     text = t("cc_missing");
+    // Without Claude Code there are two ways on: get it, or take the AI from somewhere else.
     actions = html`<button class="btn primary" id="ccGet" onClick=${() => api.claudeSetup()}>${t("cc_get")}</button>
+      ${toSettings && html`<button class="btn second" id="ccOther" onClick=${toSettings}>${t("cc_other")}</button>`}
       <button class="btn plain" onClick=${check}>${t("cc_again")}</button>`;
   } else if (waiting) {
     text = t("cc_waiting");
@@ -80,12 +82,12 @@ export function ClaudeState({ onSignedIn }) {
  */
 export function Problem({ error, onRetry, toSettings }) {
   const code = errorCode(error);
-  if (code === "signIn" || code === "noClaudeCode") return html`<div class="problem-box"><${ClaudeState} onSignedIn=${onRetry} /></div>`;
+  if (code === "signIn" || code === "noClaudeCode") return html`<div class="problem-box"><${ClaudeState} onSignedIn=${onRetry} toSettings=${toSettings} /></div>`;
   return html`<div class="problem-box" role="alert">
     <p class="problem">${errorText(error)}</p>
     <div class="row-start">
       ${NEEDS_SETTINGS.includes(code) && toSettings && html`<button class="btn primary" onClick=${toSettings}>${t("openSettings")}</button>`}
-      ${onRetry && !NEEDS_SETTINGS.includes(code) && html`<button class="btn second" id="retry" onClick=${onRetry}>${t("tryAgain")}</button>`}
+      ${onRetry && (!NEEDS_SETTINGS.includes(code) || code === "usageLimit" || !toSettings) && html`<button class="btn second" id="retry" onClick=${onRetry}>${t("tryAgain")}</button>`}
     </div>
   </div>`;
 }

@@ -15,15 +15,17 @@ function helper() {
 
 const available = () => Boolean(helper());
 
+const cancelled = () => Object.assign(new Error("cancelled"), { code: "cancelled" });
+
 /**
- * Resolves to the text of every page, in order. The helper is stopped when `signal` fires, or
- * when it has printed nothing for three minutes.
+ * Runs the helper and hands every line it prints to `onStep`, as an object. The helper says
+ * where it stands at least every two seconds, also while macOS is busy; it is stopped when
+ * `signal` fires, or when it has printed nothing for three minutes.
  */
-function read(file, onProgress, signal) {
+function run(args, onStep, signal) {
   return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(Object.assign(new Error("cancelled"), { code: "cancelled" }));
-    const child = spawn(helper(), [file], { stdio: ["ignore", "pipe", "ignore"] });
-    const pages = [];
+    if (signal?.aborted) return reject(cancelled());
+    const child = spawn(helper(), args, { stdio: ["ignore", "pipe", "ignore"] });
     let rest = "";
     let stopped = null;
     let watchdog;
@@ -45,23 +47,67 @@ function read(file, onProgress, signal) {
       rest = lines.pop();
       for (const line of lines) {
         try {
-          const { page, total, text } = JSON.parse(line);
-          pages[page - 1] = text;
-          onProgress?.(page, total);
+          onStep(JSON.parse(line));
         } catch {
           // not a line of ours
         }
       }
     });
-    child.on("error", reject);
-    child.on("close", (code) => {
+    const done = () => {
       clearTimeout(watchdog);
       signal?.removeEventListener("abort", onAbort);
-      if (stopped === "cancelled") return reject(Object.assign(new Error("cancelled"), { code: "cancelled" }));
-      if (stopped || code !== 0 || !pages.length) return reject(new Error("ocr"));
-      resolve(Array.from(pages, (p) => p || ""));
+    };
+    child.on("error", (err) => {
+      done();
+      reject(err);
+    });
+    child.on("close", (code) => {
+      done();
+      if (stopped === "cancelled") return reject(cancelled());
+      if (stopped || code !== 0) return reject(new Error("ocr"));
+      resolve();
     });
   });
 }
 
-module.exports = { available, read };
+/**
+ * Resolves to the text of every page, in order.
+ *
+ * `onProgress(done, total, state)` is called at once with done = 0, before anything is read,
+ * and then after every page. `state` says which recogniser reads the file. It is decided once,
+ * before the first page, and holds for the whole file: "accurate", or "fast" (the weaker one)
+ * on a Mac where the accurate one cannot be used. Until then it is undefined, or "preparing"
+ * while macOS gets the accurate one ready: that takes about a minute the first time the helper
+ * runs, and again after an update of the app or of macOS (see `prepare`).
+ */
+async function read(file, onProgress, signal) {
+  const pages = [];
+  let state;
+  await run(
+    [file],
+    (step) => {
+      if (step.preparing) state = "preparing";
+      if (step.recogniser) state = step.recogniser;
+      if (typeof step.text === "string") pages[step.page - 1] = step.text;
+      onProgress?.(step.page, step.total, state);
+    },
+    signal,
+  );
+  if (!pages.length) throw new Error("ocr");
+  return Array.from(pages, (p) => p || "");
+}
+
+/**
+ * Gets the recogniser ready without reading a file, so that the minute macOS needs the first
+ * time is not spent while somebody waits for a book. Can run in the background after the app
+ * has started; when everything is ready it takes a fraction of a second. Resolves to the
+ * recogniser files will be read with: "accurate" or "fast" (null without the helper).
+ */
+async function prepare(signal) {
+  if (!available()) return null;
+  let recogniser = null;
+  await run(["--prepare"], (step) => (recogniser = step.recogniser || recogniser), signal);
+  return recogniser;
+}
+
+module.exports = { available, read, prepare };

@@ -28,12 +28,21 @@ for (const font of fs.readdirSync(path.join(katex, "fonts"))) {
 }
 console.log("vendored", "ui/vendor/katex");
 
-// pdf.js draws the book inside the app: its module, its worker and the standard fonts.
+// pdf.js draws the book inside the app: its module, its worker and the standard fonts. Books
+// without text need more: the decoders for the pictures in scanned books (JPEG 2000, JBIG2 and
+// fax coding; each as WebAssembly and as plain JavaScript, which is what runs where WebAssembly
+// may not), colour profiles, and the character maps of East Asian fonts. Each folder brings
+// its own licence files.
 const pdfjs = path.join(root, "node_modules/pdfjs-dist");
 const pdfTarget = path.join(root, "ui/vendor/pdfjs");
-fs.mkdirSync(path.join(pdfTarget, "standard_fonts"), { recursive: true });
-fs.copyFileSync(path.join(pdfjs, "build/pdf.min.mjs"), path.join(pdfTarget, "pdf.min.mjs"));
-fs.copyFileSync(path.join(pdfjs, "build/pdf.worker.min.mjs"), path.join(pdfTarget, "pdf.worker.min.mjs"));
+fs.rmSync(pdfTarget, { recursive: true, force: true }); // nothing of an older pdf.js stays behind
+fs.mkdirSync(pdfTarget, { recursive: true });
+for (const file of ["pdf.min.mjs", "pdf.worker.min.mjs"]) fs.copyFileSync(path.join(pdfjs, "build", file), path.join(pdfTarget, file));
 fs.copyFileSync(path.join(pdfjs, "LICENSE"), path.join(pdfTarget, "LICENSE.txt"));
-for (const font of fs.readdirSync(path.join(pdfjs, "standard_fonts"))) fs.copyFileSync(path.join(pdfjs, "standard_fonts", font), path.join(pdfTarget, "standard_fonts", font));
+// quickjs is the part of pdf.js that runs scripts found in a PDF. The app never does that, so it is left out.
+const wanted = { standard_fonts: () => true, cmaps: () => true, iccs: () => true, wasm: (name) => !/quickjs/i.test(name) };
+for (const [folder, keep] of Object.entries(wanted)) {
+  fs.mkdirSync(path.join(pdfTarget, folder));
+  for (const name of fs.readdirSync(path.join(pdfjs, folder))) if (keep(name)) fs.copyFileSync(path.join(pdfjs, folder, name), path.join(pdfTarget, folder, name));
+}
 console.log("vendored", "ui/vendor/pdfjs");

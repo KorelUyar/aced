@@ -15,25 +15,25 @@ const root = path.join(__dirname, "..");
 const url = (...parts) => pathToFileURL(path.join(...parts)).href;
 
 const ROWS = [
-  ["Light, English (the default). The sample exams are German, so everything the AI writes is German.", [
+  ["One exam on one screen, with a real book (OpenStax College Algebra 2e, CC BY 4.0). Dark.", [
+    ["exam-dark", "The plan, with the book beside it"],
+    ["formulas-dark", "The formula sheet, each formula with its page"],
+    ["helper-dark", "The helper, over the plan; the book stays"],
+  ]],
+  ["The same, light", [
+    ["exam-light", "The plan, with the book beside it"],
+    ["formulas-light", "The formula sheet"],
+    ["result-light", "The final exam, marked: results only"],
+  ]],
+  ["Around it (the sample exams are German, so everything the AI wrote is German)", [
     ["home-light", "Home"],
-    ["new-grade-light", "New exam, question 4 of 5: target grade"],
-    ["material-light", "Material: the book, the objectives, then the strategy"],
+    ["final-light", "The final exam: type only the result"],
+    ["setup-light", "Material and settings of an exam"],
   ]],
   ["", [
-    ["today-light", "Today: the one next thing to do"],
-    ["strategy-light", "Strategy: what matters most, with pages and exercises"],
-    ["quiz-light", "Quiz: a written answer, corrected"],
-  ]],
-  ["", [
-    ["plan-light", "Plan: day by day"],
-    ["practice-light", "Practice: quiz a topic, review, mock exam"],
-    ["settings-light", "Settings: where the AI comes from"],
-  ]],
-  ["Dark, switched to German", [
-    ["home-de-dark", "Home"],
-    ["today-de-dark", "Heute"],
-    ["strategy-de-dark", "Strategie"],
+    ["new-grade-dark", "New exam, question 4 of 5: target grade"],
+    ["settings-dark", "Settings: where the AI comes from"],
+    ["plan-de-dark", "Switched to German"],
   ]],
 ];
 
