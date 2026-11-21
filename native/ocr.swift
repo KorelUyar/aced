@@ -99,8 +99,13 @@ func read(_ image: CGImage) -> String {
     return recognise(image, level: .fast) ?? ""
 }
 
-// For developers: SPURT_OCR_DEBUG=<folder> also saves each page's picture there.
+// Only in a developer build (swiftc -D DEBUG): SPURT_OCR_DEBUG=<folder> also saves each page's
+// picture there. The helper that ships cannot be told to write files anywhere.
+#if DEBUG
 let debugFolder = ProcessInfo.processInfo.environment["SPURT_OCR_DEBUG"]
+#else
+let debugFolder: String? = nil
+#endif
 
 for number in first...max(first, last) where number <= total {
     autoreleasepool {

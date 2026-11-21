@@ -6,9 +6,20 @@ const Anthropic = AnthropicSdk.default || AnthropicSdk;
 
 const coded = (code, detail) => Object.assign(new Error(code), { code, detail });
 
-async function complete({ key, baseURL, model, system, material, prompt, schema, maxTokens, effort, signal }) {
+/**
+ * The SDK takes settings from the environment: another server, extra headers, a log level, a
+ * profile. This app sends the person's key to api.anthropic.com and nowhere else, so those are
+ * removed from this process before a client is made. (Claude Code runs as its own process with
+ * the person's shell environment and is not affected.)
+ */
+function ignoreEnvironment() {
+  for (const name of Object.keys(process.env)) if (name.startsWith("ANTHROPIC_")) delete process.env[name];
+}
+
+async function complete({ key, baseURL, model, system, material, prompt, schema, maxTokens, effort, cache, signal }) {
   if (!key) throw coded("noKey");
-  const client = new Anthropic({ apiKey: key, ...(baseURL ? { baseURL } : {}), maxRetries: 2 });
+  ignoreEnvironment();
+  const client = new Anthropic({ apiKey: key, authToken: null, baseURL: baseURL || "https://api.anthropic.com", maxRetries: 2 });
   const fallback = REFUSAL_FALLBACK.has(model);
   const body = {
     model,
@@ -18,9 +29,9 @@ async function complete({ key, baseURL, model, system, material, prompt, schema,
       {
         role: "user",
         content: [
-          // The material is the long, stable part: cached, so a second question about the
-          // same pages (another quiz, a retry) is billed at a fraction.
-          ...(material ? [{ type: "text", text: material, cache_control: { type: "ephemeral" } }] : []),
+          // Where the same pages will be asked about again soon (quizzes on a topic), the material
+          // is marked for caching: writing it costs a quarter more once, reading it a fraction.
+          ...(material ? [{ type: "text", text: material, ...(cache ? { cache_control: { type: "ephemeral" } } : {}) }] : []),
           { type: "text", text: prompt },
         ],
       },
@@ -49,9 +60,10 @@ async function complete({ key, baseURL, model, system, material, prompt, schema,
     usage: {
       input: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0),
       cached: u.cache_read_input_tokens || 0,
+      written: u.cache_creation_input_tokens || 0,
       output: u.output_tokens || 0,
     },
   };
 }
 
-module.exports = { complete };
+module.exports = { complete, ignoreEnvironment };

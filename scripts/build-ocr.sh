@@ -1,6 +1,7 @@
 #!/bin/zsh
 # Builds the text recognition helper (native/ocr.swift) for Apple Silicon and Intel Macs,
 # as one file: build/bin/spurt-ocr. Needs Xcode's command line tools.
+# (A developer build that can also save the page pictures: add -D DEBUG to the swiftc line.)
 set -e
 cd "$(dirname "$0")/.."
 mkdir -p build/bin

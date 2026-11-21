@@ -26,7 +26,9 @@ function hashFile(file) {
 
 const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const pdfPath = (hash) => path.join(dir("library"), hash + ".pdf");
-const textPath = (hash) => path.join(dir("cache"), "text-" + hash + ".json");
+// (Not "cache": Chromium keeps its own "Cache" folder in the same place, and on a Mac the two
+// names are the same folder. What is in here must not vanish when the browser cache is cleared.)
+const textPath = (hash) => path.join(dir("texts"), hash + ".json");
 
 function readText(hash) {
   try {
@@ -41,18 +43,36 @@ function writeJson(file, value) {
   fs.renameSync(file + ".tmp", file);
 }
 
-/** Reads a PDF in a separate process. Resolves to { pages: [text], outline: [{title, page, depth}] }. */
-function readPdf(file, onProgress) {
+const coded = (code) => Object.assign(new Error(code), { code });
+
+/**
+ * Reads a PDF in a separate process. Resolves to { pages: [text], outline: [{title, page, depth}] }.
+ * The process is stopped when `signal` fires, or when it has not reported anything for two
+ * minutes (a damaged file can keep a reader busy for ever).
+ */
+function readPdf(file, onProgress, signal) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(coded("cancelled"));
     const child = utilityProcess.fork(path.join(__dirname, "pdf-worker.js"), [], { stdio: "ignore" });
     let settled = false;
+    let watchdog;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
+      clearTimeout(watchdog);
+      signal?.removeEventListener("abort", onAbort);
       child.kill();
       fn(value);
     };
+    const onAbort = () => finish(reject, coded("cancelled"));
+    const alive = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => finish(reject, new Error("pdf: no progress")), 120000);
+    };
+    signal?.addEventListener("abort", onAbort);
+    alive();
     child.on("message", (m) => {
+      alive();
       if (m.type === "progress") onProgress?.(m.done, m.total);
       else if (m.type === "done") finish(resolve, { pages: m.pages, outline: m.outline });
       else finish(reject, new Error("pdf: " + m.message));
@@ -99,20 +119,21 @@ function isScan(pages) {
 }
 
 /** Adds a file to the library and reads its text. Returns what the store keeps about it. */
-async function add(file, onProgress) {
+async function add(file, onProgress, signal) {
   const ext = path.extname(file).toLowerCase();
   const title = path.basename(file, path.extname(file)).replace(/[_]+/g, " ").trim();
   if (ext === ".pdf") {
     const hash = await hashFile(file);
     let data = readText(hash);
     if (!data) {
-      data = await readPdf(file, (done, total) => onProgress?.(done, total, "read"));
+      data = await readPdf(file, (done, total) => onProgress?.(done, total, "read"), signal);
       // No text in it: a scan, or letters drawn as shapes. Read the pages with text recognition.
       if (isScan(data.pages) && ocr.available()) {
         try {
-          const pages = await ocr.read(file, (done, total) => onProgress?.(done, total, "recognise"));
+          const pages = await ocr.read(file, (done, total) => onProgress?.(done, total, "recognise"), signal);
           if (!isScan(pages)) data = { pages, outline: data.outline, recognised: true };
-        } catch {
+        } catch (err) {
+          if (err.code === "cancelled") throw err;
           // recognition failed: the file stays what it is, a PDF without text
         }
       }
@@ -136,6 +157,16 @@ async function add(file, onProgress) {
   throw new Error("unsupported");
 }
 
+/**
+ * Makes sure the text of a PDF that was added earlier is still there, and reads it again from
+ * the copy in the library if it is not.
+ */
+async function ensureText(material, onProgress, signal) {
+  if (material.type !== "pdf" || readText(material.hash) || !fs.existsSync(pdfPath(material.hash))) return false;
+  await add(pdfPath(material.hash), onProgress, signal);
+  return true;
+}
+
 /** Pasted text (learning objectives, notes) is kept the same way, as one "page". */
 function addText(text, title) {
   const clean = String(text).replace(/\r\n?/g, "\n").trim().slice(0, 400000);
@@ -146,7 +177,7 @@ function addText(text, title) {
 }
 
 // AI answers are kept by the hash of everything that went into the question.
-const aiPath = (key) => path.join(dir("cache"), "ai-" + key + ".json");
+const aiPath = (key) => path.join(dir("answers"), key + ".json");
 function cached(key) {
   try {
     return JSON.parse(fs.readFileSync(aiPath(key), "utf8"));
@@ -156,4 +187,19 @@ function cached(key) {
 }
 const remember = (key, value) => writeJson(aiPath(key), value);
 
-module.exports = { init, add, addText, readText, pdfPath, printedOffset, sha, cached, remember };
+/**
+ * Deletes what no exam uses any more: copies of PDFs, the text read from them, and kept
+ * answers. `hashes` and `answers` are the ones still in use.
+ */
+function prune({ hashes, answers }) {
+  const sweep = (folder, keep) => {
+    for (const name of fs.readdirSync(dir(folder))) {
+      if (!keep.has(name.replace(/\.(pdf|json)$/, ""))) fs.rmSync(path.join(dir(folder), name), { force: true });
+    }
+  };
+  sweep("library", hashes);
+  sweep("texts", hashes);
+  sweep("answers", answers);
+}
+
+module.exports = { init, add, addText, ensureText, readText, pdfPath, printedOffset, sha, cached, remember, prune };

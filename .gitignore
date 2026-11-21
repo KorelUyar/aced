@@ -3,3 +3,8 @@ dist/
 build/bin/
 .DS_Store
 .env
+# Books and anything made from them never belong in the repository: scripts/e2e.js writes
+# copies of the PDF, screenshots of its pages and saved exams into its output folder.
+*.pdf
+e2e-*/
+/out/

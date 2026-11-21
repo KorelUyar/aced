@@ -8,6 +8,7 @@ const { PROVIDERS, price } = require("./models");
 const anthropic = require("./anthropic");
 const openai = require("./openai");
 const claudeCode = require("./claude-code");
+const { allowedAddress } = require("../address");
 
 const coded = (code, detail) => Object.assign(new Error(code), { code, detail });
 
@@ -64,6 +65,7 @@ function call(c, request) {
       baseURL: override("SPURT_OPENROUTER_BASE_URL") || "https://openrouter.ai/api/v1",
     });
   }
+  if (!allowedAddress(c.baseURL)) throw coded(c.baseURL ? "insecureAddress" : "noServer");
   return openai.complete({ ...request, flavour: "plain", key: secrets.get("openai"), baseURL: c.baseURL });
 }
 
@@ -72,11 +74,12 @@ function call(c, request) {
  * instructions); `prompt` is the task. Resolves to the checked JSON.
  * `onUsage({input, cached, output, cost?})` is called for every request that was really sent.
  */
-async function ask({ name, system, material = "", prompt, schema, maxTokens = 16000, effort = "medium" }, { signal, onUsage } = {}) {
+async function ask({ name, system, material = "", prompt, schema, maxTokens = 32000, effort = "medium", cache = false }, { signal, onUsage, onKey } = {}) {
   await secrets.ready();
   const c = config();
   if (!c.provider) throw coded("noProvider");
   const key = files.sha(JSON.stringify([c.provider, c.model, system, material, prompt, schema]));
+  onKey?.(key); // lets the caller note which kept answers belong to which exam
   const hit = files.cached(key);
   if (hit) return hit;
 
@@ -92,6 +95,7 @@ async function ask({ name, system, material = "", prompt, schema, maxTokens = 16
       schemaName: name,
       maxTokens,
       effort,
+      cache,
       signal,
     });
     onUsage?.(usage);
@@ -119,7 +123,7 @@ async function test() {
     prompt: 'Answer with {"ok": true}.',
     schema,
     schemaName: "ping",
-    maxTokens: 2000,
+    maxTokens: 8000,
     effort: "low",
   });
   return validate(schema, parse(text)).ok === true;

@@ -75,7 +75,7 @@ app.whenReady().then(async () => {
       await until(`document.querySelectorAll('.materials li').length === 1`);
       e = saved().exams[0];
       assert.equal(e.materials[0].kind, "objectives");
-      assert.ok(fs.readdirSync(path.join(userData, "cache")).some((f) => f.startsWith("text-")), "the pasted text is kept");
+      assert.equal(fs.readdirSync(path.join(userData, "texts")).length, 1, "the pasted text is kept");
       // Objectives alone are not enough: the app says what is missing instead of starting.
       await click("#workOut");
       await until(`!!document.querySelector('.estimate')`);
@@ -94,11 +94,25 @@ app.whenReady().then(async () => {
       const pdf = saved().exams[0].materials.find((m) => m.type === "pdf");
       assert.deepEqual([pdf.kind, pdf.pages, pdf.scanned], ["book", 2, false], "the PDF's text was read, page by page");
       assert.ok(pdf.chars > 800 && fs.existsSync(path.join(userData, "library", pdf.hash + ".pdf")), "the book is kept in the app's folder");
+      // If the text read from the PDF is lost, it is read again from the copy in the library.
+      fs.rmSync(path.join(userData, "texts", pdf.hash + ".json"));
+      await click("#workOut");
+      await until(`!!document.querySelector('.estimate')`, 20000);
+      assert.ok(fs.existsSync(path.join(userData, "texts", pdf.hash + ".json")), "lost text is read again");
+      await click(".estimate .btn.plain");
       // Now only the AI is missing, and the app says so.
       await click("#workOut");
       await until(`!!document.querySelector('.estimate')`);
       assert.match(await text(".estimate"), /where the AI comes from/i);
       await click(".estimate .btn.plain");
+      // The key for "another server" belongs to its address, and plain http is refused for other computers.
+      await js(`window.spurt.setSettings({ ai: { provider: 'openai', baseURL: 'https://one.example/v1' } })`);
+      await js(`window.spurt.setKey('openai', 'a-test-key')`);
+      assert.equal(await js(`window.spurt.state().then((s) => s.ai.keys.openai)`), true);
+      await js(`window.spurt.setSettings({ ai: { provider: 'openai', baseURL: 'https://two.example/v1' } })`);
+      assert.equal(await js(`window.spurt.state().then((s) => s.ai.keys.openai)`), false, "a new address forgets the old key");
+      assert.equal(await js(`window.spurt.setSettings({ ai: { provider: 'openai', baseURL: 'http://two.example/v1' } }).then(() => 'accepted', (e) => e.message)`), "insecureAddress");
+      await js(`window.spurt.setSettings({ ai: { provider: null } })`);
       // An error from the main process arrives as a sentence, not as a code: a server that is not there.
       await click(".bar-btn.square");
       await click(".ai .pace:nth-child(4)");
@@ -124,6 +138,7 @@ app.whenReady().then(async () => {
       await click("#deleteYes");
       await until(`!!document.querySelector('.empty')`);
       assert.equal(saved().exams.length, 0);
+      assert.deepEqual([fs.readdirSync(path.join(userData, "library")), fs.readdirSync(path.join(userData, "texts"))], [[], []], "deleting the exam deletes its book and the text read from it");
       console.log("ok: created, filled (pasted objectives and a PDF), edited and deleted an exam from an empty start");
     } else {
       await until(`document.querySelectorAll('.exam-card').length === 3`);
@@ -172,7 +187,8 @@ app.whenReady().then(async () => {
     }
     assert.deepEqual(errors, [], "no errors in the page");
   } catch (e) {
-    console.log("FAIL", e.message, errors.join(" | "));
+    const toast = await js(`(document.querySelector('.toast')?.textContent || '') + ' || ' + (document.querySelector('.analysis')?.innerText || 'no analysis section') + ' || ' + (document.querySelector('.drop strong')?.textContent || '')`).catch(() => "");
+    console.log("FAIL", e.message, errors.join(" | "), toast ? "| the app said: " + toast : "");
     process.exitCode = 1;
   }
   app.quit();

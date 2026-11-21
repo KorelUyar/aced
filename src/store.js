@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const planner = require("./planner");
+const { allowedAddress } = require("./address");
 
 const DEFAULT_SETTINGS = { lang: "en", appearance: "system", ai: { provider: null, models: {}, baseURL: "" } };
 
@@ -45,7 +46,12 @@ function setSettings(patch) {
     const { provider, model, baseURL } = patch.ai;
     if (provider === null || ["claudeCode", "anthropic", "openrouter", "openai"].includes(provider)) next.ai.provider = provider;
     if (typeof model === "string" && next.ai.provider) next.ai.models[next.ai.provider] = model.trim().slice(0, 200);
-    if (typeof baseURL === "string") next.ai.baseURL = baseURL.trim().slice(0, 500);
+    if (typeof baseURL === "string") {
+      const address = baseURL.trim().slice(0, 500);
+      // https anywhere; plain http only for a server on this computer (see address.js).
+      if (address && !allowedAddress(address)) throw Object.assign(new Error("insecureAddress"), { code: "insecureAddress" });
+      next.ai.baseURL = address;
+    }
   }
   data.settings = next;
   save();
@@ -162,6 +168,7 @@ function addUsage(id, usage) {
   exam.usage = exam.usage || { input: 0, cached: 0, output: 0, cost: 0 };
   exam.usage.input += usage.input || 0;
   exam.usage.cached += usage.cached || 0;
+  exam.usage.written = (exam.usage.written || 0) + (usage.written || 0);
   exam.usage.output += usage.output || 0;
   exam.usage.cost += usage.cost || 0;
   save();
@@ -184,6 +191,25 @@ function view(exam, today = planner.todayIso()) {
   };
 }
 
+/** What the exams still use on disk: the files of their material and the answers kept for them. */
+function references() {
+  return {
+    hashes: new Set(data.exams.flatMap((e) => e.materials.map((m) => m.hash))),
+    answers: new Set(data.exams.flatMap((e) => e.answers || [])),
+  };
+}
+
+/** Notes that a kept answer belongs to an exam, so it can be deleted with it. */
+function addAnswer(id, key) {
+  const exam = data.exams.find((e) => e.id === id);
+  if (!exam) return;
+  exam.answers = exam.answers || [];
+  if (!exam.answers.includes(key)) {
+    exam.answers.push(key);
+    save();
+  }
+}
+
 const exams = () => data.exams.map((e) => view(e));
 const exam = (id) => find(id);
 
@@ -203,4 +229,6 @@ module.exports = {
   removeMaterial,
   setStrategy,
   addUsage,
+  addAnswer,
+  references,
 };

@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "@fontsource-variable/archivo": "^5.2.5",
-    "electron": "45.2.1",
+    "electron": "45.4.1",
     "electron-builder": "26.15.3",
     "htm": "3.1.1",
     "katex": "^0.19.1"
@@ -71,12 +71,25 @@
       "runAsNode": false,
       "enableNodeOptionsEnvironmentVariable": false,
       "enableNodeCliInspectArguments": false,
-      "onlyLoadAppFromAsar": true
+      "onlyLoadAppFromAsar": true,
+      "enableEmbeddedAsarIntegrityValidation": true
     },
     "extraResources": [
       {
         "from": "build/bin/spurt-ocr",
         "to": "spurt-ocr"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "node_modules/electron/dist/LICENSE",
+        "to": "LICENSE.electron.txt"
+      },
+      {
+        "from": "node_modules/electron/dist/LICENSES.chromium.html",
+        "to": "LICENSES.chromium.html"
       }
     ]
   }

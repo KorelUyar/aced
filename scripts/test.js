@@ -16,6 +16,8 @@ const path = require("path");
 
 app.dock?.hide();
 app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "spurt-test-")));
+// A helper window is opened and closed along the way (to make a PDF); that must not end the run.
+app.on("window-all-closed", () => {});
 
 let checks = 0;
 const ok = (value, message) => {
@@ -185,6 +187,10 @@ function referenceChecks() {
   same(checkExercise(source, 2, "2"), { page: 2, state: "confirmed" });
   same(checkExercise(source, 2, "5"), { page: 3, state: "moved" }, "an exercise cited one page off is put on the right page");
   same(checkExercise(source, 1, "9"), { page: 1, state: "unconfirmed" });
+  // The model gave the printed page number (12) instead of the page's place in the file (22).
+  const book = { data: { pages: Array.from({ length: 30 }, (_, i) => (i === 21 ? "5.1 Section exercises 12\n6. Rewrite in vertex form.\n7. Find the vertex." : `Running text of page ${i + 1 - 10}.`)) } };
+  same(checkExercise(book, 12, "7", 10), { page: 22, state: "moved" }, "a printed page number is turned into the page of the file");
+  same(checkExercise(book, 12, "7"), { page: 12, state: "unconfirmed" });
 }
 
 async function providerChecks() {
@@ -224,10 +230,19 @@ async function providerChecks() {
   same(sent.body.output_config.format, { type: "json_schema", schema: SCHEMA }, "structured output is requested");
   same(sent.body.fallbacks, "default", "refusal fallback is on");
   ok(String(sent.headers["anthropic-beta"]).includes("server-side-fallback-2026-07-01"));
-  same(sent.body.messages[0].content[0].cache_control, { type: "ephemeral" }, "the material is marked for caching");
+  ok(!("cache_control" in sent.body.messages[0].content[0]), "a one-off question does not pay for writing the cache");
+  await ai.ask(request("Asked again soon", { cache: true }));
+  same(seen.at(-1).body.messages[0].content[0].cache_control, { type: "ephemeral" }, "material that will be asked about again is marked for caching");
   ok(sent.body.messages[0].content[0].text.includes("two and three") && sent.body.stream === true);
   ok(!("thinking" in sent.body) && !("temperature" in sent.body), "no parameters the current models reject");
-  same(usage, [{ input: 140, cached: 0, output: 12 }]);
+  same(usage, [{ input: 140, cached: 0, written: 40, output: 12 }]);
+  const { cost } = require("../src/ai/models");
+  same(Math.round(cost([4, 20, 0.2], { input: 1000, cached: 400, written: 300, output: 100 }) * 1e6), 4780, "plain, written and cached input each have their price");
+  // Settings for the SDK in the environment must not reach the request.
+  Object.assign(process.env, { ANTHROPIC_CUSTOM_HEADERS: "X-Injected: yes", ANTHROPIC_BASE_URL: "http://127.0.0.1:9", ANTHROPIC_LOG: "debug" });
+  same(await ai.ask(request("Environment case")), { answer: 5 }, "another server named in the environment is ignored");
+  ok(!("x-injected" in seen.at(-1).headers) && !Object.keys(process.env).some((k) => k.startsWith("ANTHROPIC_")), "no header from the environment is sent");
+  same(seen.at(-1).body.max_tokens, 32000, "room for a model that thinks before it answers");
   const before = seen.length;
   same(await ai.ask(request("What is two plus three?")), { answer: 5 });
   same(seen.length, before, "the same question is answered from disk, not asked again");
@@ -254,6 +269,10 @@ async function providerChecks() {
     calls.push({ url: req.url, headers: req.headers, body });
     if (req.headers.authorization !== "Bearer sk-or-test") return json(res, 401, { error: { message: "No auth credentials found", code: 401 } });
     if (style === "broke") return json(res, 402, { error: { message: "Insufficient credits", code: 402 } });
+    if (style === "flagged") return json(res, 403, { error: { message: "Your input was flagged by moderation", code: 403 } });
+    // No provider of the model takes structured output: OpenRouter says 404 (or 503) until the request is simpler.
+    if (style === "no-endpoint" && body.response_format?.type === "json_schema") return json(res, 404, { error: { message: "No endpoints found that support the requested parameters", code: 404 } });
+    if (style === "no-endpoint" && body.response_format) return json(res, 503, { error: { message: "No instances available", code: 503 } });
     if (style === "long") return json(res, 200, { choices: [{ finish_reason: "length", message: { content: '{"answer":' } }] });
     if (style === "stream") {
       // The answer in pieces, the way a real server streams it, with a keep-alive comment in between.
@@ -295,6 +314,18 @@ async function providerChecks() {
   same(usage, [{ input: 80, cached: 0, output: 6, cost: 0.0003 }]);
   style = "stream-error";
   await failsWith(ai.ask(request("Error in the stream")), "rateLimit");
+  ok(!("max_tokens" in or.body), "the length of the answer is left to the model");
+  style = "flagged";
+  try {
+    await ai.ask(request("Flagged case"));
+    assert.fail("a 403 must not pass");
+  } catch (err) {
+    same([err.code, /flagged by moderation/.test(err.detail)], ["provider", true], "a 403 from OpenRouter is shown with its own words, not as a wrong key");
+  }
+  style = "no-endpoint";
+  const beforeFallback = calls.length;
+  same(await ai.ask(request("No provider takes the schema")), { answer: 5 }, "404 and 503 lead to the simpler request");
+  same(calls.length - beforeFallback, 3);
   style = "broke";
   await failsWith(ai.ask(request("No credit case")), "noCredit");
   style = "long";
@@ -331,6 +362,43 @@ async function providerChecks() {
   lost.close();
   store.setSettings({ ai: { provider: "openai", model: "local-model", baseURL: "http://127.0.0.1:9/v1" } });
   await failsWith(ai.ask(request("Nobody home")), "offline");
+
+  // ---- the address of "another server", and what belongs to it
+  const { allowedAddress, origin } = require("../src/address");
+  same(["https://api.example.com/v1", "http://localhost:11434/v1", "http://127.0.0.1:1234/v1", "http://[::1]:8080/v1"].map(allowedAddress), [true, true, true, true]);
+  same(["http://example.com/v1", "http://192.168.1.20:11434/v1", "ftp://localhost/v1", "localhost:11434", ""].map(allowedAddress), [false, false, false, false, false], "plain http only on this computer");
+  same(origin("https://a.example/v1") === origin("https://a.example/other"), true);
+  try {
+    store.setSettings({ ai: { provider: "openai", baseURL: "http://example.com/v1" } });
+    assert.fail("plain http to another computer must be refused");
+  } catch (err) {
+    same(err.code, "insecureAddress");
+  }
+  const { connectionError } = require("../src/ai/openai");
+  same(connectionError(Object.assign(new TypeError("fetch failed"), { cause: { code: "UND_ERR_HEADERS_TIMEOUT" } })).code, "slow", "a server that stays silent is not called a missing connection");
+  same(connectionError(new TypeError("fetch failed")).code, "offline");
+
+  // ---- files: nothing is read once cancelled, and what no exam uses is deleted
+  const { BrowserWindow } = require("electron");
+  const printer = new BrowserWindow({ show: false });
+  await printer.loadURL("data:text/html," + encodeURIComponent("<h1>Chapter 1</h1><p>" + "Some text to read. ".repeat(40) + "</p>"));
+  const pdfFile = path.join(dir, "small.pdf");
+  fs.writeFileSync(pdfFile, await printer.webContents.printToPDF({}));
+  printer.destroy();
+  const gone = new AbortController();
+  gone.abort();
+  await failsWith(files.add(pdfFile, null, gone.signal), "cancelled");
+  ok(!fs.existsSync(path.join(dir, "library")) || !fs.readdirSync(path.join(dir, "library")).length, "a cancelled file is not kept");
+  const item = await files.add(pdfFile);
+  same([item.pages, item.scanned, item.chars > 500], [1, false, true], "and read when it is not cancelled");
+  fs.rmSync(path.join(dir, "library"), { recursive: true });
+  fs.rmSync(path.join(dir, "texts"), { recursive: true });
+  for (const [folder, name] of [["library", "aaa.pdf"], ["library", "bbb.pdf"], ["texts", "aaa.json"], ["texts", "bbb.json"], ["answers", "k1.json"], ["answers", "k2.json"]]) {
+    fs.mkdirSync(path.join(dir, folder), { recursive: true });
+    fs.writeFileSync(path.join(dir, folder, name), "x");
+  }
+  files.prune({ hashes: new Set(["aaa"]), answers: new Set(["k1"]) });
+  same(["library", "texts", "answers"].map((f) => fs.readdirSync(path.join(dir, f)).filter((n) => /^(aaa|bbb|k1|k2)\./.test(n)).join()), ["aaa.pdf", "aaa.json", "k1.json"], "files no exam uses are deleted");
 
   // ---- keys never reach the settings file or the window
   const settingsFile = fs.readFileSync(path.join(dir, "spurt.json"), "utf8");

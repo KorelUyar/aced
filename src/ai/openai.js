@@ -36,7 +36,14 @@ async function readStream(res) {
   return { error, usage, choices: [{ finish_reason: finish, message: { content, refusal: refusal || null } }] };
 }
 
-async function post(url, key, body, signal, extraHeaders) {
+/** Node's fetch closes a connection on which nothing arrives for five minutes: say so, instead of "no connection". */
+function connectionError(err) {
+  if (err && err.name === "AbortError") return coded("cancelled");
+  const cause = err && err.cause && err.cause.code;
+  return cause === "UND_ERR_HEADERS_TIMEOUT" || cause === "UND_ERR_BODY_TIMEOUT" ? coded("slow") : coded("offline");
+}
+
+async function post(url, key, body, signal, extraHeaders, openrouter) {
   let res;
   try {
     res = await fetch(url, {
@@ -47,8 +54,7 @@ async function post(url, key, body, signal, extraHeaders) {
       signal,
     });
   } catch (err) {
-    if (err.name === "AbortError") throw coded("cancelled");
-    throw coded("offline");
+    throw connectionError(err);
   }
   let json = null;
   let text = "";
@@ -59,18 +65,21 @@ async function post(url, key, body, signal, extraHeaders) {
       json = JSON.parse(text);
     }
   } catch (err) {
-    if (err.name === "AbortError") throw coded("cancelled");
-    // not JSON, or the connection broke: handled below
+    if (err instanceof SyntaxError) json = null; // not JSON: handled below
+    else throw connectionError(err);
   }
   if (!res.ok || json?.error) {
     const message = String(json?.error?.message || text || res.statusText).slice(0, 300);
     const status = res.ok ? Number(json?.error?.code) || 0 : res.status;
-    if (status === 401 || status === 403) throw coded("badKey");
-    if (status === 402) throw coded("noCredit");
-    if (status === 429) throw coded("rateLimit");
+    const fail = (code, detail) => Object.assign(coded(code, detail), { status });
+    // OpenRouter also answers 403 when a request was flagged or a spending limit is reached:
+    // that is not a wrong key, and its own message says what it is.
+    if (status === 401 || (status === 403 && !openrouter)) throw fail("badKey");
+    if (status === 402) throw fail("noCredit");
+    if (status === 429) throw fail("rateLimit");
     // 404 is either a model the server does not have or an address that leads nowhere.
-    if (status === 404) throw /model/i.test(message) ? coded("noModel", body.model) : coded("badAddress");
-    throw Object.assign(coded("provider", `${status || ""} ${message}`.trim()), { status });
+    if (status === 404) throw /model|endpoint|provider/i.test(message) ? fail("noModel", body.model) : fail("badAddress");
+    throw fail("provider", `${status || ""} ${message}`.trim());
   }
   if (!json) throw coded("provider", "The server did not answer with JSON.");
   return json;
@@ -80,7 +89,7 @@ async function post(url, key, body, signal, extraHeaders) {
  * `flavour` is "openrouter" (prompt caching markers, usage with cost, only providers that can
  * do structured output) or "plain" (nothing beyond the common format).
  */
-async function complete({ key, baseURL, flavour, model, system, material, prompt, schema, schemaName, maxTokens, signal }) {
+async function complete({ key, baseURL, flavour, model, system, material, prompt, schema, schemaName, signal }) {
   if (!baseURL) throw coded("noServer");
   if (!model) throw coded("noModel", "");
   const openrouter = flavour === "openrouter";
@@ -93,9 +102,10 @@ async function complete({ key, baseURL, flavour, model, system, material, prompt
           { type: "text", text: prompt },
         ]
       : (material ? material + "\n\n" : "") + prompt;
+  // No limit on the length of the answer is sent: every model has its own, and one that thinks
+  // before it answers needs room that a number chosen here could take away.
   const base = {
     model,
-    max_tokens: maxTokens,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -118,14 +128,16 @@ async function complete({ key, baseURL, flavour, model, system, material, prompt
     { ...inWords(base), ...counted, response_format: { type: "json_object" } },
     inWords(base),
   ];
+  // 400/422: this server does not take that response_format. With OpenRouter, 404 or 503 can
+  // mean the same: no provider of this model supports it. Then the next, simpler way is tried.
+  const nextTry = openrouter ? [400, 404, 422, 503] : [400, 422];
   let json;
   for (let i = 0; i < tries.length; i++) {
     try {
-      json = await post(url, key, tries[i], signal, headers);
+      json = await post(url, key, tries[i], signal, headers, openrouter);
       break;
     } catch (err) {
-      // 400/422: this server does not take that response_format. Try the next, simpler way.
-      if (err.code === "provider" && (err.status === 400 || err.status === 422) && i < tries.length - 1) continue;
+      if (nextTry.includes(err.status) && i < tries.length - 1) continue;
       throw err;
     }
   }
@@ -147,4 +159,4 @@ async function complete({ key, baseURL, flavour, model, system, material, prompt
   };
 }
 
-module.exports = { complete };
+module.exports = { complete, connectionError };

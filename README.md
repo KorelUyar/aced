@@ -39,7 +39,9 @@ The interface is English or German. What the AI writes follows the language of y
 ## Your data and the AI
 
 Spurt has no server, no account, no telemetry and no update check. Exams, plans and results are
-in one file in the app's folder on your Mac; your PDFs are copied next to it.
+in one file in the app's folder on your Mac; your PDFs are copied next to it. Deleting an exam
+also deletes its copies of the PDFs, the text read from them and the answers kept for it,
+unless another exam uses them.
 
 The AI is one you bring:
 
@@ -60,20 +62,26 @@ What leaves your Mac, and where to:
   tools switched off, so it can only read the text it is given and answer.
 - **With OpenRouter:** requests carry the app's name (`X-Title: Spurt`), and the price for the
   estimate comes from OpenRouter's public model list.
+- **With "another server":** the address must start with `https://`; plain `http://` is only
+  accepted for a server on your own computer. Its key is forgotten when you change the address.
 - **Keys** are stored through the Mac's keychain and are used only in the app's main process,
   never in the window.
 
 Before a large run you see an estimate of tokens and, where the price is known, cost. Every
 answer is kept on disk, so nothing is asked twice.
 
-A real run on a 1073-page textbook (finding the pages, the strategy, one quiz and its
-corrections) used about 43,000 tokens in and 8,000 out.
+Real runs on a 1073-page textbook: finding the pages and working out the strategy took 17,000
+to 31,000 tokens in and about 3,000 out (13 to 19 cents with Claude Opus 5.5 on the Anthropic
+API). With a quiz, a mock exam and their corrections, the whole exam came to about 54,000
+tokens in and 11,000 out, about 45 cents. Asking again about the same pages is cheaper:
+Anthropic bills pages it has just seen at about a tenth.
 
-**How far each provider is tested.** Claude Code on this Mac is the one the app was built and
-run with, on whole books. The key-based ones are new: they are tested against stand-ins for
-each service's format, "another server" also against a real Ollama, and the real Anthropic and
-OpenRouter services only as far as refusing a wrong key. If one of them misbehaves for you,
-please [open an issue](https://github.com/KorelUyar/spurt/issues).
+**How far each provider is tested.** Claude Code on this Mac and the Anthropic API have both
+run the whole path for real, on whole books: strategy, quizzes, corrections and a mock exam; on
+the Anthropic API each of the four models offered has answered. "Another server" has run
+against a real Ollama with a small model. OpenRouter is the least tested: against a stand-in
+for its format, and the real service only as far as refusing a wrong key. If one of them
+misbehaves for you, please [open an issue](https://github.com/KorelUyar/spurt/issues).
 
 ## What to know
 
@@ -99,7 +107,7 @@ please [open an issue](https://github.com/KorelUyar/spurt/issues).
 macOS 13 or later, Apple Silicon or Intel:
 
 ```sh
-curl -fsSL https://github.com/KorelUyar/spurt/releases/latest/download/install.sh | zsh
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/KorelUyar/spurt/releases/latest/download/install.sh | zsh
 ```
 
 This downloads the latest version, puts it in Applications and opens it. Spurt is not notarised

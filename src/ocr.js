@@ -15,14 +15,32 @@ function helper() {
 
 const available = () => Boolean(helper());
 
-/** Resolves to the text of every page, in order. */
-function read(file, onProgress) {
+/**
+ * Resolves to the text of every page, in order. The helper is stopped when `signal` fires, or
+ * when it has printed nothing for three minutes.
+ */
+function read(file, onProgress, signal) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(Object.assign(new Error("cancelled"), { code: "cancelled" }));
     const child = spawn(helper(), [file], { stdio: ["ignore", "pipe", "ignore"] });
     const pages = [];
     let rest = "";
+    let stopped = null;
+    let watchdog;
+    const stop = (why) => {
+      stopped = why;
+      child.kill();
+    };
+    const alive = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => stop("stuck"), 180000);
+    };
+    const onAbort = () => stop("cancelled");
+    signal?.addEventListener("abort", onAbort);
+    alive();
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
+      alive();
       const lines = (rest + chunk).split("\n");
       rest = lines.pop();
       for (const line of lines) {
@@ -37,7 +55,10 @@ function read(file, onProgress) {
     });
     child.on("error", reject);
     child.on("close", (code) => {
-      if (code !== 0 || !pages.length) return reject(new Error("ocr"));
+      clearTimeout(watchdog);
+      signal?.removeEventListener("abort", onAbort);
+      if (stopped === "cancelled") return reject(Object.assign(new Error("cancelled"), { code: "cancelled" }));
+      if (stopped || code !== 0 || !pages.length) return reject(new Error("ocr"));
       resolve(Array.from(pages, (p) => p || ""));
     });
   });

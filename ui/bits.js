@@ -1,6 +1,6 @@
 // Small shared pieces: the lane, icons, and how numbers are written.
 import { html } from "./vendor/htm-preact.js";
-import { t } from "./i18n.js";
+import { t, lang } from "./i18n.js";
 
 export { html, render, useState, useEffect, useRef } from "./vendor/htm-preact.js";
 
@@ -101,5 +101,6 @@ const MODEL_NAMES = {
 };
 export const modelName = (id) => MODEL_NAMES[id] || id;
 
-export const thousands = (n) => (n >= 10000 ? `${Math.round(n / 1000)},000` : String(Math.round(n / 100) * 100));
-export const money = (usd) => (usd < 0.01 ? "under $0.01" : usd < 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(1)}0`);
+/** A token count, rounded so it reads as the estimate it is: 31,000 or 4,300 (31’000 in German). */
+export const thousands = (n) => new Intl.NumberFormat(lang() === "de" ? "de-CH" : "en-US").format(n >= 10000 ? Math.round(n / 1000) * 1000 : Math.round(n / 100) * 100);
+export const money = (usd) => (usd < 0.01 ? "under $0.01" : `$${usd.toFixed(2)}`);

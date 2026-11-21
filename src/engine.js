@@ -63,19 +63,24 @@ function split(sources) {
 
 // ------------------------------------------------------------ estimate
 
+// Of the pages it may ask for from a large book, a model takes well under half (30% in the
+// real runs so far). The estimate says what to expect and what it can be at most.
+const EXPECTED_PICK = 0.4;
+
 function estimate(exam) {
   const g = gather(exam);
   // Learning objectives alone are not enough: there must be something to read and cite.
   const blocked = g.sources.length ? null : g.scanned.length ? "scanned" : "noMaterial";
   const { whole, large, budget } = split(g.sources);
-  const locateChars = large.length ? large.reduce((sum, s) => sum + outlineBlock(s).length, 0) + g.objectives.length : 0;
-  const strategyChars = whole.reduce((sum, s) => sum + s.m.chars, 0) + (large.length ? budget : 0) + g.objectives.length;
   const calls = large.length ? 2 : 1;
+  const fixed = whole.reduce((sum, s) => sum + s.m.chars, 0) + g.objectives.length + calls * (P.SYSTEM.length + 2500);
+  const locateChars = large.length ? large.reduce((sum, s) => sum + outlineBlock(s).length, 0) + g.objectives.length : 0;
   return {
     blocked,
-    input: tokens(locateChars + strategyChars + calls * (P.SYSTEM.length + 2500)),
+    input: tokens(fixed + locateChars + (large.length ? budget * EXPECTED_PICK : 0)),
+    inputMax: tokens(fixed + locateChars + (large.length ? budget : 0)),
     // The answer itself is small; the model's own thinking is billed as output too.
-    output: 9000 + (large.length ? 2000 : 0),
+    output: large.length ? 5000 : 4000,
     finds: large.length > 0,
     sources: g.sources.length,
     scanned: g.scanned.map((m) => m.title),
@@ -108,21 +113,24 @@ function findLabel(text, label) {
   return new RegExp(`(^|[^0-9A-Za-z])${esc}(?![0-9A-Za-z])`, "i").test(text) ? 1 : 0;
 }
 
-/** Where the exercise really is: the cited page, a neighbour, or nowhere we can see. */
-function checkExercise(source, page, label) {
+/**
+ * Where the exercise really is: the cited page, a neighbour, or nowhere we can see.
+ * A model sometimes gives the number printed on the page instead of the page's place in the
+ * file; `offset` (file page minus printed page) lets that be put right as well.
+ */
+function checkExercise(source, page, label, offset = 0) {
   const text = (p) => source.data.pages[p - 1] || "";
-  const here = findLabel(text(page), label);
-  if (here === 2) return { page, state: "confirmed" };
-  for (const d of [1, -1, 2, -2]) {
-    const p = page + d;
-    if (p >= 1 && p <= source.data.pages.length && findLabel(text(p), label) === 2) return { page: p, state: "moved" };
+  const count = source.data.pages.length;
+  if (findLabel(text(page), label) === 2) return { page, state: "confirmed" };
+  for (const p of [page + 1, page - 1, page + 2, page - 2, ...(offset ? [page + offset, page + offset + 1, page + offset - 1] : [])]) {
+    if (p >= 1 && p <= count && findLabel(text(p), label) === 2) return { page: p, state: "moved" };
   }
   return { page, state: "unconfirmed" };
 }
 
 // ------------------------------------------------------------ strategy
 
-async function analyze(exam, { today, daysLeft, minutesTotal, minutesPerDay }, { onProgress, onUsage, signal } = {}) {
+async function analyze(exam, { today, daysLeft, minutesTotal, minutesPerDay }, { onProgress, onUsage, onKey, signal } = {}) {
   const g = gather(exam);
   if (!g.sources.length) throw coded(g.scanned.length ? "scanned" : "noMaterial");
   const { whole, large, budget } = split(g.sources);
@@ -139,10 +147,10 @@ async function analyze(exam, { today, daysLeft, minutesTotal, minutesPerDay }, {
         material: material(g.objectives, large.map(outlineBlock).join("\n\n")),
         prompt: P.locateTask({ exam, pageBudget }),
         schema: P.LOCATE,
-        maxTokens: 8000,
+        maxTokens: 16000,
         effort: "medium",
       },
-      { signal, onUsage },
+      { signal, onUsage, onKey },
     );
     let room = budget;
     for (const r of found.ranges) {
@@ -171,10 +179,10 @@ async function analyze(exam, { today, daysLeft, minutesTotal, minutesPerDay }, {
       material: material(g.objectives, pagesBlock(g.sources, selection)),
       prompt: P.strategyTask({ exam, daysLeft, minutesTotal, minutesPerDay }),
       schema: P.STRATEGY,
-      maxTokens: 32000,
+      maxTokens: 64000,
       effort: "high",
     },
-    { signal, onUsage },
+    { signal, onUsage, onKey },
   );
 
   onProgress?.({ stage: "check" });
@@ -200,7 +208,7 @@ async function analyze(exam, { today, daysLeft, minutesTotal, minutesPerDay }, {
         continue;
       }
       checks.exercises++;
-      const found = checkExercise(s, e.page, e.label);
+      const found = checkExercise(s, e.page, e.label, s.m.offset);
       checks[found.state]++;
       const key = s.m.id + ":" + found.page;
       if (!solve.has(key)) solve.set(key, { kind: "solve", material: s.m.id, page: found.page, labels: [], minutes: 0, unconfirmed: [] });
@@ -281,7 +289,7 @@ function topicPages(exam, topics, sources, extraKinds = []) {
   return out;
 }
 
-async function writeQuiz(exam, { key, topicIds, count, mock = false, variant = 0 }, { onUsage, signal } = {}) {
+async function writeQuiz(exam, { key, topicIds, count, mock = false, variant = 0 }, { onUsage, onKey, signal } = {}) {
   const g = gather(exam);
   const topics = exam.strategy.topics.filter((t) => topicIds.includes(t.id));
   if (!topics.length) throw coded("badOutput", "no topic");
@@ -295,10 +303,12 @@ async function writeQuiz(exam, { key, topicIds, count, mock = false, variant = 0
       material: material("", pagesBlock(g.sources, selection)),
       prompt: P.quizTask({ topics: names, count, mock, hasOldExam }) + (variant ? `\nThis is set number ${variant + 1} for the same material: ask about other aspects than a first set would.` : ""),
       schema: P.QUESTIONS,
-      maxTokens: 24000,
+      maxTokens: 48000,
       effort: "medium",
+      // Another quiz on the same pages is likely (repetition, a weak result): worth caching.
+      cache: !mock,
     },
-    { signal, onUsage },
+    { signal, onUsage, onKey },
   );
   const bySource = new Map(g.sources.map((s) => [s.n, s]));
   const questions = raw.questions.map((q, i) => {
@@ -328,7 +338,7 @@ async function writeQuiz(exam, { key, topicIds, count, mock = false, variant = 0
 }
 
 /** Corrects one answer. Multiple choice is checked here; written answers go to the model. */
-async function grade(question, answer, { onUsage, signal } = {}) {
+async function grade(question, answer, { onUsage, onKey, signal } = {}) {
   if (question.type === "choice") {
     const right = answer === question.correct;
     return { points: right ? question.points : 0, feedback: question.explain, correct: right ? "" : question.choices[question.correct] };
@@ -339,10 +349,10 @@ async function grade(question, answer, { onUsage, signal } = {}) {
       system: P.SYSTEM,
       prompt: P.gradeTask({ question, answer: String(answer).slice(0, 6000) }),
       schema: P.GRADE,
-      maxTokens: 6000,
+      maxTokens: 16000,
       effort: "medium",
     },
-    { signal, onUsage },
+    { signal, onUsage, onKey },
   );
   const points = clamp(raw.points, 0, question.points);
   return { points, feedback: raw.feedback.trim(), correct: points < question.points ? raw.correct_answer.trim() : "" };

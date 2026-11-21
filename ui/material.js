@@ -79,7 +79,9 @@ export function Material({ exam, app }) {
         <strong>${reading ? t(progress.phase === "recognise" ? "recognising" : "reading", progress.title, progress.done, progress.total) : t("dropHere")}</strong>
         ${!reading && html`<p>${t("dropHint")}</p>`}
       </div>
-      <button class="btn second" disabled=${reading} onClick=${() => api.chooseMaterial(exam.id).then(added, app.fail)}>${t("chooseFiles")}</button>
+      ${reading
+        ? html`<button class="btn second" id="cancelRead" onClick=${() => api.cancel()}>${t("cancel")}</button>`
+        : html`<button class="btn second" onClick=${() => api.chooseMaterial(exam.id).then(added, app.fail)}>${t("chooseFiles")}</button>`}
     </section>
     ${problems.map((p) => html`<p class="problem" role="alert">${t("problem_" + p.code, p.title)}</p>`)}
 
@@ -183,11 +185,11 @@ function Estimate({ est, exam, onStart, onCancel, app }) {
   return html`<div class="estimate view">
     <h3>${t("estTitle")}</h3>
     <p>
-      ${t("estTokens", thousands(est.input), thousands(est.output))}${" "}
+      ${t("estTokens", thousands(est.input), thousands(est.output))}${est.inputMax > est.input * 1.2 ? " " + t("estTokensMax", thousands(est.inputMax)) : ""}${" "}
       ${est.provider === "claudeCode"
         ? t("estSubscription", modelName(est.model))
         : est.cost != null
-          ? t("estCost", money(est.cost), modelName(est.model))
+          ? t("estCost", money(est.cost), modelName(est.model), est.costMax > est.cost * 1.2 ? money(est.costMax) : "")
           : t("estUnknown", modelName(est.model))}
     </p>
     ${est.finds && html`<p>${t("estFinds")}</p>`}
