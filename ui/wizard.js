@@ -24,7 +24,7 @@ function Stepper({ value, min, max, unit, onChange }) {
   </div>`;
 }
 
-export function Wizard({ draft: given, step: startAt, onCancel, onCreate }) {
+export function Wizard({ draft: given, step: startAt, editing, onCancel, onDone }) {
   const [step, setStep] = useState(startAt || 1);
   const [d, setD] = useState({
     name: "",
@@ -51,7 +51,7 @@ export function Wizard({ draft: given, step: startAt, onCancel, onCreate }) {
   const go = () => {
     if (!valid) return;
     if (step < STEPS) return setStep(step + 1);
-    onCreate({
+    onDone({
       name: d.name,
       date,
       time: d.timeMode === "perDay" ? { mode: "perDay", minutes: d.perDay } : { mode: "total", minutes: d.totalHours * 60 },
@@ -182,7 +182,7 @@ export function Wizard({ draft: given, step: startAt, onCancel, onCreate }) {
       ${step === 1
         ? html`<button class="btn plain" onClick=${onCancel}>${t("cancel")}</button>`
         : html`<button class="btn plain" onClick=${() => setStep(step - 1)}>${t("back")}</button>`}
-      <button class="btn primary big" disabled=${!valid} onClick=${go}>${step === STEPS ? t("create") : t("next")}</button>
+      <button class="btn primary big" disabled=${!valid} onClick=${go}>${step === STEPS ? t(editing ? "save" : "create") : t("next")}</button>
     </div>
   </main>`;
 }

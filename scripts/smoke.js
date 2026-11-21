@@ -1,7 +1,7 @@
 // Clicks through the real app in a hidden window and checks what happens:
 //
-//   node_modules/.bin/electron scripts/smoke.js           empty start: create an exam, check it is saved
-//   node_modules/.bin/electron scripts/smoke.js sample    sample exams: finish today's tasks and a quiz
+//   node_modules/.bin/electron scripts/smoke.js           empty start: create an exam, add objectives, edit, delete
+//   node_modules/.bin/electron scripts/smoke.js sample    sample exams: strategy, plan, today's tasks, a quiz, settings
 const { app } = require("electron");
 const assert = require("assert");
 const fs = require("fs");
@@ -41,6 +41,7 @@ app.whenReady().then(async () => {
       Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set.call(el, ${JSON.stringify(text)});
       el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
   const text = (selector) => js(`document.querySelector(${JSON.stringify(selector)})?.textContent`);
+  const saved = () => JSON.parse(fs.readFileSync(path.join(userData, "spurt.json"), "utf8"));
   const go = ".wizard-foot .btn.primary";
 
   try {
@@ -59,15 +60,35 @@ app.whenReady().then(async () => {
       await click(go); // pace
       await click(".pace:nth-child(3)");
       await click(go);
-      await until(`!!document.querySelector('.exam-head')`);
+      // A new exam lands on Material, ready for the book and the objectives.
+      await until(`!!document.querySelector('.drop.first')`);
       assert.equal(await text(".exam-head h1"), "Chemie: Säuren und Basen");
-      const saved = JSON.parse(fs.readFileSync(path.join(userData, "spurt.json"), "utf8"));
-      assert.equal(saved.exams.length, 1);
-      const e = saved.exams[0];
+      let e = saved().exams[0];
       assert.deepEqual([e.scale, e.target, e.pace, e.time.mode, e.time.minutes], ["de", 2, "efficient", "perDay", 30]);
-      await click(".bar-btn"); // back to the exams
-      await until(`document.querySelectorAll('.exam-card').length === 1`);
-      console.log("ok: created an exam from an empty start, saved to spurt.json");
+      await click("#paste");
+      await type(".paste textarea", "Ich kann den pH-Wert einer starken Säure berechnen.\nIch kann eine Neutralisation aufstellen.");
+      await click("#addObjectives");
+      await until(`document.querySelectorAll('.materials li').length === 1`);
+      e = saved().exams[0];
+      assert.equal(e.materials[0].kind, "objectives");
+      assert.ok(fs.readdirSync(path.join(userData, "cache")).some((f) => f.startsWith("text-")), "the pasted text is kept");
+      // Without a book and without an AI provider, the app says what is missing instead of starting.
+      await click("#workOut");
+      await until(`!!document.querySelector('.estimate')`);
+      assert.match(await text(".estimate"), /book or other material/i);
+      await click(".estimate .btn");
+      // Edit, then delete.
+      await click(".exam-actions .link");
+      await type(".field", "Chemie: Säuren, Basen, Puffer");
+      for (let i = 0; i < 5; i++) await click(go);
+      await until(`document.querySelector('.exam-head h1')?.textContent === 'Chemie: Säuren, Basen, Puffer'`);
+      assert.equal(saved().exams[0].materials.length, 1, "editing keeps the material");
+      await click(".tabs button:nth-child(5)");
+      await click("#delete");
+      await click("#deleteYes");
+      await until(`!!document.querySelector('.empty')`);
+      assert.equal(saved().exams.length, 0);
+      console.log("ok: created, filled, edited and deleted an exam from an empty start");
     } else {
       await until(`document.querySelectorAll('.exam-card').length === 3`);
       await click(".exam-card");
@@ -75,14 +96,24 @@ app.whenReady().then(async () => {
       await until(`document.querySelectorAll('.topic').length === 4`);
       await click(".dropped > button");
       await until(`document.querySelectorAll('.dropped li').length === 2`);
+      await click(".tabs button:nth-child(3)");
+      await until(`document.querySelectorAll('.day').length === 7`);
+      await click(".tabs button:nth-child(4)");
+      await until(`document.querySelectorAll('.practice li').length >= 5`);
       await click(".tabs button:nth-child(1)");
       await click(".next .btn.plain"); // mark the exercises as done
-      await click(".next .btn.primary"); // the quiz is next: start it
-      await click(".choice:nth-child(2)"); // a wrong choice
+      await until(`/Done for today/.test(document.querySelector('.next h2').textContent)`);
+      await click(".next .btn.second"); // keep going: tomorrow's first task comes into today
+      await until(`!!document.querySelector('.next .btn.plain')`);
+      // A quiz from Practice: one wrong choice, the prepared written correction, one right choice.
+      await click(".tabs button:nth-child(4)");
+      await click(".practice li .btn");
+      await click(".choice:nth-child(2)");
       await click("#check");
       await until(`!!document.querySelector('.feedback.wrong')`);
+      assert.ok(await js(`!!document.querySelector('.q-prompt .katex')`), "formulas are drawn");
       await click("#next");
-      await type("textarea.answer", "(x − 3)² − 4");
+      await type("textarea.answer", "(x − 3)² + 4");
       await click("#check");
       await until(`!!document.querySelector('.feedback.partly')`);
       await click("#next");
@@ -90,12 +121,18 @@ app.whenReady().then(async () => {
       await click("#check");
       await until(`!!document.querySelector('.feedback.right')`);
       await click("#next");
+      await until(`!!document.querySelector('.result')`);
       assert.equal(await text(".result .grade"), "3/5");
       await click(".result .btn");
-      await until(`!!document.querySelector('.next')`);
-      assert.equal(await js(`document.querySelectorAll('.next .btn').length`), 0, "nothing left to do today");
+      // The missed questions are due again later, and the topic now has a measured result.
+      await click(".tabs button:nth-child(4)");
+      await until(`/60%/.test(document.querySelector('.practice li')?.textContent || '')`);
+      // Settings: the AI section is there and choosing a provider sticks.
+      await click(".bar-btn.square");
+      await click(".ai .pace:nth-child(2)");
+      await until(`!!document.querySelector('#key')`);
       assert.ok(!fs.existsSync(path.join(userData, "spurt.json")), "sample data is never written to disk");
-      console.log("ok: strategy, today's tasks and a quiz on the sample exams");
+      console.log("ok: strategy, plan, practice, a quiz and settings on the sample exams");
     }
     assert.deepEqual(errors, [], "no errors in the page");
   } catch (e) {

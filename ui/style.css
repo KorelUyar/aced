@@ -1229,6 +1229,475 @@ mark {
   animation: arrive 0.2s var(--ease);
 }
 
+/* ------------------------------------------------------------ small shared pieces */
+
+.link {
+  color: var(--ink);
+  font-weight: 560;
+  text-decoration: underline;
+  text-decoration-color: var(--edge);
+  text-underline-offset: 3px;
+}
+
+.link:hover {
+  text-decoration-color: var(--ink);
+}
+
+.link.danger {
+  color: var(--wrong);
+}
+
+.mini {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.mini:hover {
+  color: var(--ink);
+  background: var(--field);
+}
+
+.lead {
+  font-size: 17px;
+  max-width: 56ch;
+  margin-bottom: 22px;
+}
+
+.lead.small {
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.problem {
+  margin-top: 12px;
+  color: var(--wrong);
+  max-width: 64ch;
+}
+
+.row-end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.fineprint {
+  margin-top: 30px;
+  padding-top: 18px;
+  box-shadow: inset 0 1px 0 var(--rule);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.fineprint p + p {
+  margin-top: 6px;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2.5px solid var(--field);
+  border-top-color: var(--track);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.running {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink);
+}
+
+.running .btn {
+  margin-left: auto;
+}
+
+.rich {
+  white-space: pre-line;
+}
+
+.math.block {
+  display: block;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.katex {
+  font-size: 1.08em;
+}
+
+/* ------------------------------------------------------------ material */
+
+.drop {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1.5px dashed var(--edge);
+  color: var(--muted);
+}
+
+.drop.first {
+  padding: 34px 26px;
+}
+
+.drop.over {
+  border-color: var(--track);
+  background: var(--sheet);
+}
+
+.drop div {
+  flex: 1;
+}
+
+.drop strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.drop p {
+  margin-top: 2px;
+  font-size: 14px;
+  max-width: 52ch;
+}
+
+.materials {
+  list-style: none;
+  padding: 0;
+  margin-top: 14px;
+}
+
+.materials li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 0;
+  box-shadow: inset 0 -1px 0 var(--rule);
+}
+
+.materials div {
+  flex: 1;
+  min-width: 0;
+}
+
+.materials strong {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.materials span {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.materials .scanned span {
+  color: var(--wrong);
+}
+
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 32px;
+  padding: 0 28px 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--field)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%237a8090' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6.5l4 4 4-4'/%3E%3C/svg%3E")
+    no-repeat right 8px center;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 540;
+  color: var(--ink);
+}
+
+select.field {
+  height: 54px;
+  padding: 0 40px 0 18px;
+  background-color: var(--sheet);
+  background-position: right 16px center;
+  font-size: 18px;
+  font-weight: 420;
+}
+
+.add-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  text-decoration: none;
+}
+
+.paste {
+  margin-top: 6px;
+}
+
+.paste .answer {
+  margin-top: 10px;
+}
+
+.analysis {
+  margin-top: 30px;
+}
+
+.go {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.go p {
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 40ch;
+}
+
+.estimate {
+  padding: 22px 24px 18px;
+  background: var(--sheet);
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+.estimate h3 {
+  font-size: 17px;
+  margin-bottom: 8px;
+}
+
+.estimate p {
+  max-width: 62ch;
+}
+
+.estimate p + p {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.exam-actions {
+  display: flex;
+  gap: 18px;
+}
+
+/* ------------------------------------------------------------ plan and practice */
+
+.days {
+  list-style: none;
+  padding: 0;
+}
+
+.day {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  gap: 4px 20px;
+  padding: 16px 0;
+  box-shadow: inset 0 1px 0 var(--rule);
+}
+
+.day h3 {
+  font-size: 15px;
+  font-weight: 560;
+  font-stretch: 100%;
+  letter-spacing: 0;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.day.now h3,
+.day.exam-day h3 {
+  color: var(--ink);
+  font-weight: 640;
+}
+
+.day ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.day ul li {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  color: var(--ink);
+}
+
+.day small {
+  display: block;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.day .tick {
+  color: var(--right);
+  align-self: center;
+}
+
+.day li.done {
+  color: var(--muted);
+}
+
+.day.exam-day p {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.practice {
+  margin-top: 30px;
+}
+
+.next + .practice {
+  margin-top: 34px;
+}
+
+.practice:first-child {
+  margin-top: 0;
+}
+
+.practice h3 {
+  font-size: 14px;
+  font-weight: 540;
+  font-stretch: 100%;
+  letter-spacing: 0;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.practice ul {
+  list-style: none;
+  padding: 0;
+}
+
+.practice li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 0;
+  box-shadow: inset 0 -1px 0 var(--rule);
+}
+
+.practice li div {
+  flex: 1;
+  min-width: 0;
+}
+
+.practice li strong {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.practice li div span {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.practice .lane {
+  max-width: 240px;
+  margin: 9px 9px 7px 0;
+}
+
+.practice .lane::after {
+  display: none;
+}
+
+.practice.history li {
+  padding: 9px 0;
+}
+
+/* ------------------------------------------------------------ strategy details */
+
+.strategy-head .budget strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink);
+  font-weight: 560;
+}
+
+.steps dd small {
+  display: block;
+  font-size: 13.5px;
+  color: var(--partly);
+}
+
+.steps .mini {
+  margin: -4px 0 -4px 4px;
+}
+
+.covers ul {
+  margin-top: 6px;
+  padding-left: 18px;
+}
+
+.covers li + li {
+  margin-top: 2px;
+}
+
+/* ------------------------------------------------------------ settings: AI */
+
+.ai {
+  margin-top: 14px;
+  padding-top: 28px;
+  box-shadow: inset 0 1px 0 var(--rule);
+}
+
+.ai .note {
+  margin: 10px 0 20px;
+}
+
+.ai-fields {
+  display: grid;
+  gap: 16px;
+  margin-top: 22px;
+  max-width: 560px;
+}
+
+.ai-fields label > span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 540;
+  color: var(--muted);
+}
+
+.ai-fields .field {
+  height: 46px;
+  font-size: 16px;
+}
+
+.ai-fields select.field {
+  width: 100%;
+}
+
+.with-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.with-button .field {
+  flex: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

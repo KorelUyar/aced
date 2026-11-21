@@ -8,6 +8,8 @@ const ICONS = {
   back: html`<path d="M10 3.5L5.5 8l4.5 4.5" />`,
   down: html`<path d="M3.5 6l4.5 4.5L12.5 6" />`,
   plus: html`<path d="M8 3.5v9M3.5 8h9" />`,
+  open: html`<path d="M6.5 3.5h-3v9h9v-3M9 3.5h3.5V7M12.5 3.5L7.5 8.5" />`,
+  drop: html`<path d="M8 2.5v8M4.8 7.3L8 10.5l3.2-3.2M3 13.5h10" />`,
   minus: html`<path d="M3.5 8h9" />`,
   check: html`<path d="M3.5 8.5l3 3 6-7" />`,
   x: html`<path d="M4 4l8 8M12 4l-8 8" />`,
@@ -70,11 +72,26 @@ export function grade(scale, value) {
   return scale === "pct" ? `${Math.round(value)}%` : Number(value).toFixed(1);
 }
 
-/** Where a step sends the person: "chapter 4.2, p. 88–91" or "p. 92, exercises 4, 5 and 7". */
-export function where(step) {
-  if (step.kind === "read") return `${t("chapter", step.chapter)}, ${t("pages", step.from, step.to)}`;
-  if (step.kind === "solve") return `${t("page", step.page)}, ${t("exercises", step.numbers)}`;
-  return t("questions", step.questions);
+export const materialOf = (exam, id) => exam.materials.find((m) => m.id === id);
+
+/** The number printed on a page of the book, which may differ from its position in the file. */
+export function printed(material, page) {
+  const n = page - ((material && material.offset) || 0);
+  return n > 0 ? n : page;
 }
 
+/** Where a step sends the person: "4.2 Scheitelpunktform, p. 88–91" or "p. 92, exercises 4, 5 and 7". */
+export function where(step, exam) {
+  const m = materialOf(exam, step.material);
+  if (step.kind === "read") return `${step.chapter ? step.chapter + ", " : ""}${t("pages", printed(m, step.from), printed(m, step.to))}`;
+  if (step.kind === "solve") return `${t("page", printed(m, step.page))}, ${t("exercises", step.labels)}`;
+  return step.questions ? t("questions", step.questions) : "";
+}
+
+/** The page of the file to open for a step, or null when there is nothing to open. */
 export const firstPage = (step) => (step.kind === "read" ? step.from : step.kind === "solve" ? step.page : null);
+
+export const canOpen = (exam, step) => firstPage(step) !== null && materialOf(exam, step.material)?.type === "pdf";
+
+export const thousands = (n) => (n >= 10000 ? `${Math.round(n / 1000)},000` : String(Math.round(n / 100) * 100));
+export const money = (usd) => (usd < 0.01 ? "under $0.01" : usd < 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(1)}0`);
