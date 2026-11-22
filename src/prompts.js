@@ -155,6 +155,7 @@ const TASKS = obj({
       solution: list(str),
       compute: list(str),
       book_answer: str,
+      answer_page: int,
       minutes: int,
     }),
   ),
@@ -182,7 +183,7 @@ For each exercise, one entry:
 - "hint": one sentence that helps with the first step, without giving the result.
 - "solution": the worked solution in 2 to 6 short steps, each a line with LaTeX.
 - "compute": for "number" and "numbers": one plain arithmetic expression per result value, without variables, that gives it (e.g. "(8+sqrt(16))/4"). Only numbers, + - * / ^, brackets and sqrt. Empty for the other types.
-- "book_answer": the result as the book prints it, if the material shows the book's own answer to this exercise (an answer key, solutions at the end); else empty.
+- "book_answer": the book's own answer to this exercise, copied exactly as printed (an answer key, solutions at the end), only the answer to this one exercise; else empty. "answer_page": the page it is printed on (from its marker); 0 when there is none.
 - "minutes": realistic minutes to solve it on paper.
 Work every result out carefully, step by step. A wrong result is the worst mistake this app can make.`;
 }

@@ -17,8 +17,8 @@
   "scripts": {
     "start": "electron .",
     "sample": "electron . --sample",
-    "test": "electron scripts/test.js && electron scripts/test-ocr.js && electron scripts/test-book.js && electron scripts/test-formats.js && electron scripts/test-share.js && electron scripts/test-link.js && electron scripts/test-learn.js",
-    "smoke": "electron scripts/smoke.js && electron scripts/smoke.js sample && electron scripts/smoke.js damaged && electron scripts/smoke-formats.js && electron scripts/smoke-share.js && electron scripts/smoke-06.js",
+    "test": "node scripts/suites.js test",
+    "smoke": "node scripts/suites.js smoke",
     "checks": "electron scripts/checks.js",
     "shots": "electron scripts/shots.js docs/shots light && electron scripts/shots.js docs/shots dark && electron scripts/shots-share.js docs/shots light && electron scripts/shots-share.js docs/shots dark && electron scripts/shots-share.js docs/shots light friend && electron scripts/shots-share.js docs/shots dark friend && electron scripts/shots-learn.js docs/shots light && electron scripts/shots-learn.js docs/shots dark && electron scripts/sheet.js docs/shots",
     "icon": "electron scripts/icon.js",

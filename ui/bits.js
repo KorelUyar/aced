@@ -53,7 +53,7 @@ export function RunNote({ run, onCancel, brief }) {
   const seconds = Math.max(0, Math.round((Date.now() - run.startedAt) / 1000));
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
   const text =
-    run.stage === "summaries" || run.stage === "tasks"
+    run.stage === "summaries" || run.stage === "tasks" || run.stage === "confirm"
       ? t("stage_" + run.stage, (run.done || 0) + 1, run.total || 1)
       : run.stage !== "read"
       ? t("stage_" + run.stage)

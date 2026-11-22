@@ -1,7 +1,8 @@
 // A small, safe reader for maths typed as a result ("2x^2 - 4x + 1", "(x-2)^2 - 3", "sqrt(2)/2"):
 // its own tokenizer and parser, never eval or new Function. Two expressions are the same when they
-// give the same value at a few random points: "x^2-4x+1" and "(x-2)^2-3" are equal, "x^2+4x+1"
-// is not.
+// give the same value at many points, small and large, positive and negative: "x^2-4x+1" and
+// "(x-2)^2-3" are equal, "x^2+4x+1" is not. When too few points can be compared (a root or a
+// logarithm defined only far out), the answer is "cannot tell", never "different".
 
 const FUNCTIONS = {
   sqrt: Math.sqrt,
@@ -14,11 +15,14 @@ const FUNCTIONS = {
   exp: Math.exp,
 };
 const CONSTANTS = { pi: Math.PI, π: Math.PI, e: Math.E };
+const FRACTIONS = { "½": "(1/2)", "⅓": "(1/3)", "⅔": "(2/3)", "¼": "(1/4)", "¾": "(3/4)", "⅕": "(1/5)", "⅙": "(1/6)", "⅛": "(1/8)" };
 const MOST = 400; // characters: a result, not an essay
 
 /** Tokens: numbers, names, operators and brackets. Returns null for anything else. */
 function tokens(text) {
-  const src = String(text)
+  let src = String(text)
+    .toLowerCase()
+    .replace(/[½⅓⅔¼¾⅕⅙⅛]/g, (f) => FRACTIONS[f])
     .replace(/[−–]/g, "-")
     .replace(/[·×]/g, "*")
     .replace(/÷/g, "/")
@@ -32,6 +36,8 @@ function tokens(text) {
     .replace(/\\pi/g, "pi")
     .replace(/[{}]/g, (b) => (b === "{" ? "(" : ")"))
     .replace(/\$/g, "");
+  // |x| is abs(x), from the inside out.
+  for (let k = 0; k < 10 && /\|[^|]+\|/.test(src); k++) src = src.replace(/\|([^|]+)\|/, "abs($1)");
   if (src.length > MOST) return null;
   const out = [];
   let i = 0;
@@ -119,13 +125,22 @@ function parse(list) {
     if (take("^")) return ["^", base, unary()];
     return base;
   };
+  // A function's argument: a bracket on its own (so sin(x)^2 is the square of sin x), else what follows.
+  const argument = () => (peek() && peek().t === "(" ? atom() : power());
   const atom = () => {
     const tok = list[i++];
     if (!tok) throw new Error("end");
     if (tok.t === "num") return ["num", tok.v];
     if (tok.t === "name") return ["var", tok.v];
     if (tok.t === "const") return ["num", CONSTANTS[tok.v]];
-    if (tok.t === "fn") return ["fn", tok.v, power()];
+    if (tok.t === "fn") {
+      // sin^2 x and sin²x: the square of sin x.
+      if (take("^")) {
+        const exponent = unary();
+        return ["^", ["fn", tok.v, argument()], exponent];
+      }
+      return ["fn", tok.v, argument()];
+    }
     if (tok.t === "(") {
       const inner = sum();
       if (!take(")")) throw new Error("bracket");
@@ -182,30 +197,64 @@ function read(text) {
   }
 }
 
+// Where the points are taken from, in turn: around zero, small and large, positive and negative.
+const RANGES = [
+  [-3, 3],
+  [0.5, 10],
+  [-10, -0.5],
+  [10, 1000],
+  [-1000, -10],
+  [0.01, 1],
+];
+
 /**
- * Whether `typed` is the same expression as `expected`: the same value at eight random points,
- * within a millionth. Variables are the letters in either; a point where the expected value is
- * not a number (division by zero, a root of a negative) is skipped.
+ * Whether `typed` is the same expression as `expected`: true (the same value at twelve points,
+ * within a millionth), false (a point where they differ, or where only the expected one has a
+ * value), or null: it cannot tell (an expression that cannot be read, or too few points where
+ * the expected one has a value). Variables are the letters in either.
  */
-function same(typed, expected) {
+function compare(typed, expected) {
   const a = read(typed);
   const b = read(expected);
-  if (!a || !b) return false;
+  if (!a || !b) return null;
   const names = [...new Set([...namesOf(a), ...namesOf(b)])];
-  if (names.length > 4) return false;
+  if (names.length > 10) return null;
   let compared = 0;
   // A fixed sequence of points: the same answer is always judged the same way.
   let seed = 7;
-  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 6 - 3;
-  for (let k = 0; k < 40 && compared < 8; k++) {
-    const vars = Object.fromEntries(names.map((n) => [n, Math.round(random() * 1000) / 1000 || 0.37]));
+  const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let k = 0; k < 120 && compared < 12; k++) {
+    const [lo, hi] = RANGES[k % RANGES.length];
+    const vars = Object.fromEntries(names.map((n) => [n, Math.round((lo + random() * (hi - lo)) * 1000) / 1000 || 0.37]));
     const x = evaluate(b, vars);
     if (!Number.isFinite(x)) continue;
     const y = evaluate(a, vars);
     if (!Number.isFinite(y) || Math.abs(x - y) > 1e-6 * Math.max(1, Math.abs(x))) return false;
     compared++;
   }
-  return compared >= 4;
+  return compared >= 4 ? true : null;
+}
+
+/** The same expression? Only a sure yes is true. */
+const same = (typed, expected) => compare(typed, expected) === true;
+
+/**
+ * Other ways to read what was typed, where the writing allows more than one: "1/2x" may be
+ * 1/(2x), "e^2x" may be e^(2x), "2 x 3" may be 2 · 3. Each as text with brackets.
+ */
+function alternatives(text) {
+  const src = String(text || "").split("=").pop().trim();
+  const out = new Set();
+  // a/bx: the rest of the term below the line.
+  const below = src.replace(/\/\s*([0-9.,]+\s*[a-zA-Z(][a-zA-Z0-9^()]*)/, (m, rest) => `/(${rest})`);
+  if (below !== src) out.add(below);
+  // e^2x: the whole term in the exponent.
+  const up = src.replace(/\^\s*([0-9.,]+\s*[a-zA-Z(][a-zA-Z0-9()]*)/, (m, rest) => `^(${rest})`);
+  if (up !== src) out.add(up);
+  // 2 x 3: "x" as "times".
+  const times = src.replace(/(\d)\s+[x×]\s+(\d)/g, "$1*$2");
+  if (times !== src) out.add(times);
+  return [...out];
 }
 
 /** The value of a typed expression without variables ("3/4 + 1/8", "sqrt(2)/2"), or NaN. */
@@ -215,4 +264,4 @@ function value(text) {
   return evaluate(tree, {});
 }
 
-module.exports = { same, value, read };
+module.exports = { same, compare, alternatives, value, read };

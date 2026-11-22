@@ -41,6 +41,30 @@ app.whenReady().then(async () => {
     const engine = require("../src/engine");
     const share = require("../src/share");
 
+    // ---- the book's printed answer: whole values for the right quantity, whole choices (F1)
+    const B = (o) => engine.bookAgrees({ tolerance: 0, ...o });
+    ok(!B({ type: "choice", choices: ["wahr", "unwahr"], correct: 0, bookAnswer: "unwahr" }) && B({ type: "choice", choices: ["wahr", "unwahr"], correct: 0, bookAnswer: "wahr" }), "wahr is not confirmed by unwahr");
+    ok(!B({ type: "choice", choices: ["gerade", "ungerade"], correct: 0, bookAnswer: "ungerade" }) && !B({ type: "choice", choices: ["2", "12"], correct: 0, bookAnswer: "12" }), "gerade is not ungerade, 2 is not 12");
+    ok(B({ type: "choice", choices: ["2", "12"], correct: 1, bookAnswer: "b)" }), "a choice's letter confirms it");
+    ok(!B({ type: "number", value: 7, bookAnswer: "x = 4; y = 7" }) && !B({ type: "number", value: 4, bookAnswer: "x = 4; y = 7" }), "an answer with two values confirms neither");
+    ok(!B({ type: "number", value: 25, bookAnswer: "A = 5 cm², U = 25 cm" }), "an area of 25 is not confirmed by U = 25");
+    ok(B({ type: "number", value: 5, bookAnswer: "9. A = 5 cm²" }) && B({ type: "numbers", values: [0.5, -2], bookAnswer: "x = 1/2 or x = −2" }), "a clear answer confirms");
+    const answerPage = { data: { pages: ["Answers\n1. (2, −3)   2. (−3, −5)"] } };
+    ok(engine.printedOn(answerPage, 1, "(2, -3)") && !engine.printedOn(answerPage, 1, "(2, 3)") && !engine.printedOn(answerPage, 2, "(2, -3)"), "the book's answer counts only where it is printed, on the page named");
+
+    // ---- expressions: points small and large; too few is "cannot tell", never "different" (F2)
+    for (const e of ["sqrt(x-5)", "ln(x-4)", "a+b+c+d+f", "x^20", "exp(10x)"]) same(expr.compare(e, e), true, `${e} is the same as itself`);
+    ok(expr.compare("sqrt(x-6)", "sqrt(x-5)") === false, "sqrt(x-6) is not sqrt(x-5)");
+    ok(expr.compare("sqrt(x-5000)", "sqrt(x-5000)") === null && tasks.isRight({ type: "expression", expression: "sqrt(x-5000)" }, "sqrt(x-5000)") === null, "too few points: cannot tell, never wrong");
+
+    // ---- notations a teacher accepts, and answers that hedge (F3)
+    for (const [typed, expected] of [["sin²x", "sin(x)^2"], ["sin^2(x)", "sin(x)^2"], ["|x|", "abs(x)"], ["½x", "x/2"], ["X+1", "x+1"], ["1/2x", "x/2"]]) ok(tasks.isRight({ type: "expression", expression: expected }, typed) === true, `${typed} is ${expected}`);
+    for (const typed of ["P(2/-3)", "(2/\u22123)"]) ok(tasks.isRight({ type: "numbers", values: [2, -3], ordered: true }, typed) === true, `a point written ${typed}`);
+    for (const typed of ["4 oder 5", "±4", "3 bis 5", "1, 2, 3, 4, 5"]) same(tasks.check({ type: "number", value: 4 }, typed), { verdict: "ask", one: true }, `${typed}: one result, please`);
+    same(tasks.check({ type: "expression", expression: "1/(2x)" }, "1/2x"), { verdict: "ask", suggest: "1/(2x)" }, "1/2x for 1/(2x): a question back, not wrong");
+    same(tasks.check({ type: "expression", expression: "e^(2x)" }, "e^2x"), { verdict: "ask", suggest: "e^(2x)" }, "e^2x for e^(2x): a question back");
+    same(tasks.check({ type: "number", value: 6 }, "2 x 3"), { verdict: "ask", suggest: "2*3" }, "2 x 3 for 6: a question back");
+
     // ---- typed results: every usual way to write a point, a decimal comma, the real minus sign
     const point = { type: "numbers", values: [2, -3], ordered: true, tolerance: 0 };
     for (const typed of ["2; -3", "2|-3", "(2|-3)", "S(2|-3)", "S(2 | -3)", "2; −3", "(2 | −3)", "S(2|−3)", "2 ; - 3"]) ok(tasks.isRight(point, typed), `a point written as ${JSON.stringify(typed)}`);
@@ -121,6 +145,9 @@ app.whenReady().then(async () => {
     r = tasks.answer(unsure, "t1/s0/1", "7", "2026-11-22");
     same([r.right, r.sure, unsure.taskResults["t1/s0/1"].wrong || 0, unsure.again.length], [false, false, 0, 0], "an unconfirmed solution never marks a result wrong");
     same(tasks.answer(e, "constructor", "1", "2026-11-22"), null, "an id that is no task is nothing");
+    const own = exam([learnt]);
+    tasks.answer(own, "t1/s0/1", "2", "2026-11-22");
+    ok(tasks.overrule(own, "t1/s0/1", "2026-11-22") && own.taskResults["t1/s0/1"].right && !own.again.length, "My result was right: it counts, and it does not come back");
 
     // ---- summary and tasks travel in the shared file, checked on the way in
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "aced-test-learn-"));
@@ -150,6 +177,34 @@ app.whenReady().then(async () => {
     const big = hostile.tasks[2];
     same([big.prompt.length, big.figure, big.solution.length, big.minutes], [2000, { top: 0, bottom: 1 }, 12, 5], "everything else is cut to size");
     same(hostile.summary.core.length, 8, "at most eight points in a summary (shown as text, never as HTML)");
+    // ---- a confirmed flag never comes from a file; the book's answer is checked on this Mac
+    const flagged = plain;
+    flagged.strategy.topics[0].tasks = [{ ...task("t1/s0/1", "t1/s0"), checked: "book", bookAnswer: "1", answerPage: 3 }];
+    fs.writeFileSync(file, share.zipOf([["aced.json", Buffer.from(JSON.stringify(flagged))]]));
+    same(share.unpack(file, root).strategy.topics[0].tasks[0].checked, "none", "a file cannot say its solutions are confirmed");
+    const pages = ["", "", "Answers\n1. 1   2. 7"];
+    const local = { strategy: { topics: [{ id: "t1", steps: [], tasks: [{ ...task("t1/s0/1", "t1/s0"), checked: "none", bookAnswer: "1", answerPage: 3 }] }] }, materials: [{ id: "m1", hash: "h", type: "pdf", pages: 3 }] };
+    const filesMod = require("../src/files");
+    const realRead = filesMod.readText;
+    filesMod.readText = () => ({ pages });
+    try {
+      engine.recheckLocal(local);
+      same(local.strategy.topics[0].tasks[0].checked, "book", "with the same book on this Mac, its printed answer confirms the solution");
+      local.strategy.topics[0].tasks[0] = { ...local.strategy.topics[0].tasks[0], checked: "none", bookAnswer: "4" };
+      engine.recheckLocal(local);
+      same(local.strategy.topics[0].tasks[0].checked, "none", "an answer that is not printed there confirms nothing");
+      local.materials[0].missing = true;
+      local.strategy.topics[0].tasks[0] = { ...local.strategy.topics[0].tasks[0], bookAnswer: "1" };
+      engine.recheckLocal(local);
+      same(local.strategy.topics[0].tasks[0].checked, "none", "without the book on this Mac, nothing is confirmed");
+    } finally {
+      filesMod.readText = realRead;
+    }
+
+    // ---- a book that stays home goes along only when the plan uses it
+    const unused = { ...sent, materials: [...sent.materials, { id: "m9", kind: "book", type: "pdf", title: "Tagebuch Privat", pages: 3, hash: "b".repeat(64) }] };
+    const sentDoc = JSON.parse(require("../src/formats/zip").open((fs.writeFileSync(file, share.pack(unused, { chosen: [], appVersion: "0.6.0", pdfOf: () => null, textOf: () => null })), file)).read("aced.json").toString("utf8"));
+    ok(sentDoc.materials.some((m) => m.id === "m1") && !sentDoc.materials.some((m) => m.id === "m9") && !JSON.stringify(sentDoc).includes("Tagebuch"), "an unticked file the plan does not use sends nothing, not even its name");
     fs.rmSync(root, { recursive: true, force: true });
   } catch (err) {
     failed++;

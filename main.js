@@ -974,6 +974,8 @@ async function importShared(paths, { signal } = {}) {
     try {
       // Opening it costs nothing: the text came along, and the AI reads only when asked to.
       last = await share.importExam(file, { store, files, lang: store.settings().lang, today: today_(), signal, already: askAlready });
+      // The solutions that came along count as confirmed only once this Mac has checked them.
+      store.change(last, (e) => engine.recheckLocal(e));
     } catch (err) {
       if (err.code === "cancelled") break;
       problems.push({ title: path.basename(file), code: err.code === "newer" ? "aceNewer" : err.code === "tooLarge" ? "tooLarge" : "aceDamaged", detail: err.detail || "" });
@@ -1063,13 +1065,16 @@ handle("material:supply", async (id, materialId, paths) => {
     file = r.filePaths[0];
   }
   return run(id, "read", async (signal, say) => {
-    const { edition, item, expect } = await share.supplyBook(id, materialId, file, {
+    const supplied = await share.supplyBook(id, materialId, file, {
       store,
       files,
       lang: store.settings().lang,
       signal,
       onProgress: (done, total, phase, state) => say({ stage: "read", phase, state, title: wanted.title, done, total }),
     });
+    const { edition, item, expect } = supplied;
+    // With the person's own copy, the book's printed answers can be checked on this Mac.
+    if (edition !== "other") store.change(id, (e) => engine.recheckLocal(e));
     readPictures(id);
     return { exam: view(id), problems: edition === "other" ? [{ title: item.title, code: "otherEdition", detail: `${item.pages}|${expect.pages}` }] : [] };
   });
@@ -1328,6 +1333,44 @@ handle("page:picture", async (id, materialId, page) => {
   }
 });
 
+/** "My result was right" for a task: the person's judgement counts, as in the final exam. */
+handle("task:overrule", (id, taskId) => {
+  if (typeof taskId !== "string") throw coded("unknown");
+  let done = false;
+  const exam = store.change(id, (e) => (done = tasks.overrule(e, taskId, today())));
+  if (!done) throw coded("unknown");
+  return decorate(store.view(exam));
+});
+
+/**
+ * Checks the solutions that are not confirmed yet (those of a shared exam), with the AI: the
+ * exercises solved a second time from their text alone. One request per topic.
+ */
+handle("tasks:confirm", async (id) => {
+  const exam = store.exam(id);
+  const topics = exam.strategy ? exam.strategy.topics.filter((t) => (t.tasks || []).some((x) => x.checked === "none" && x.type !== "paper")).map((t) => t.id) : [];
+  if (topics.length) {
+    await run(id, "confirm", async (signal, say) => {
+      let done = 0;
+      for (const topicId of topics) {
+        say({ stage: "confirm", done, total: topics.length });
+        const t = store.exam(id).strategy.topics.find((x) => x.id === topicId);
+        const open = structuredClone((t.tasks || []).filter((x) => x.checked === "none" && x.type !== "paper"));
+        await engine.confirmTasks(open, tracked(id, signal));
+        store.change(id, (e) => {
+          const topic = e.strategy.topics.find((x) => x.id === topicId);
+          for (const x of open) {
+            const at = (topic.tasks || []).findIndex((y) => y.id === x.id);
+            if (at >= 0 && x.checked !== "none") topic.tasks[at].checked = x.checked;
+          }
+        });
+        done++;
+      }
+    });
+  }
+  return view(id);
+});
+
 /** A typed result for a task: { right, exam }. Only the result is typed, never the working. */
 handle("task:check", (id, taskId, typed) => {
   if (typeof taskId !== "string") throw coded("unknown");
@@ -1335,7 +1378,7 @@ handle("task:check", (id, taskId, typed) => {
   let out = null;
   const exam = store.change(id, (e) => (out = tasks.answer(e, taskId, value, today())));
   if (!out) throw coded("unknown");
-  return { right: out.right, sure: out.sure, exam: decorate(store.view(exam)) };
+  return { right: out.right, sure: out.sure, verdict: out.verdict, suggest: out.suggest || null, one: Boolean(out.one), exam: decorate(store.view(exam)) };
 });
 
 // ------------------------------------------------ the final exam, and questions on a topic

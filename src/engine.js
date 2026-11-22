@@ -500,8 +500,10 @@ async function writeTasks(exam, topicId, { onUsage, onKey, signal } = {}) {
       form: line(r.form, 120),
       hint: line(r.hint, 600),
       solution: (r.solution || []).map((x) => line(x, 600)).filter(Boolean).slice(0, 8),
-      compute: (r.compute || []).map((x) => line(x, 200)),
+      compute: (r.compute || []).map((x) => line(x, 200)).slice(0, 10),
       bookAnswer: line(r.book_answer, 300),
+      // The book's answer counts only where it is really printed: on the page named, in this book.
+      answerPage: r.book_answer && printedOn(src, r.answer_page, r.book_answer) ? r.answer_page : 0,
       minutes: clamp(r.minutes || 5, 1, 60),
     });
   }
@@ -514,7 +516,55 @@ async function writeTasks(exam, topicId, { onUsage, onKey, signal } = {}) {
       if (err.code === "cancelled") throw err;
     }
   }
-  // The check, before anyone sees a result: the book's own answer, a second solving, the numbers.
+  return confirmTasks(tasks, { signal, onUsage, onKey });
+}
+
+/**
+ * The solutions of tasks that came with a shared exam, checked again on this Mac without an AI:
+ * a book's own answer counts where this Mac has the same book and the answer is printed on the
+ * page named. Everything else stays "not confirmed" until the person asks for the check.
+ */
+function recheckLocal(exam) {
+  const g = gather(exam);
+  let changed = 0;
+  for (const t of (exam.strategy && exam.strategy.topics) || []) {
+    for (const x of t.tasks || []) {
+      if (x.checked !== "none" || !x.bookAnswer || !x.answerPage) continue;
+      const src = g.sources.find((s) => s.m.id === x.material);
+      if (!src || src.m.missing || src.m.edition === "other") continue;
+      if (printedOn(src, x.answerPage, x.bookAnswer) && bookAgrees(x)) {
+        x.checked = "book";
+        changed++;
+      }
+    }
+  }
+  return changed;
+}
+
+/** Text as it can be compared with a page: letters and digits only, minus signs alike, no LaTeX. */
+const flat = (t) =>
+  String(t || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\\(d?frac|tfrac)\{([^{}]*)\}\{([^{}]*)\}/g, "$2/$3")
+    .replace(/\\[a-z]+/g, "")
+    .replace(/[−–]/g, "-")
+    .replace(/[^\p{L}\p{N}/.,-]+/gu, "");
+
+/** Is this answer printed on that page of that book (its text, as read on this Mac)? */
+function printedOn(src, page, answer) {
+  const text = src && Number.isInteger(page) && page >= 1 && page <= src.data.pages.length ? src.data.pages[page - 1] : "";
+  const want = flat(answer).replace(/^\(?[0-9a-z]{1,4}[.)]/, "");
+  return want.length >= 1 && flat(text).includes(want);
+}
+
+/**
+ * Checks the results of tasks before anyone sees them, and sets `checked` on each: "book" (the
+ * book's own answer, printed on the page named, gives the same result), "twice" (a second solving
+ * from the task's text alone agrees, and numbers work out the same on this Mac) or "none". One
+ * request, for the second solving.
+ */
+async function confirmTasks(tasks, { signal, onUsage, onKey } = {}) {
   const typed = tasks.filter((x) => x.type !== "paper");
   let again = [];
   if (typed.length) {
@@ -538,10 +588,8 @@ async function writeTasks(exam, topicId, { onUsage, onKey, signal } = {}) {
       computed && x.compute.length === computed.length
         ? x.compute.map((c) => expr.value(c)).every((v, k) => Number.isFinite(v) && Math.abs(v - computed[k]) <= Math.max(x.tolerance, Math.abs(computed[k]) * 1e-6, 1e-9))
         : !computed;
-    const book = x.bookAnswer && bookAgrees(x);
+    const book = x.bookAnswer && x.answerPage && bookAgrees(x);
     x.checked = x.type === "paper" ? "none" : book ? "book" : second && second.sure !== false && agree(x, second) && sums ? "twice" : "none";
-    delete x.compute;
-    delete x.bookAnswer;
   }
   return tasks;
 }
@@ -565,13 +613,54 @@ function bandOf(lines, label, labels) {
   return bottom - top >= 0.06 ? { top, bottom } : { top: 0, bottom: 1 };
 }
 
-/** Does the book's printed answer give this task's result? */
+/** The numbers in a printed answer, in order ("x = 1/2 or x = −2" gives 0.5 and −2). */
+function numbersIn(text) {
+  const out = [];
+  const re = /(^|[^0-9.,])([-−]?\s?\d+(?:[.,]\d+)?)(?:\s*\/\s*(\d+(?:[.,]\d+)?))?/g;
+  for (let m; (m = re.exec(text)); ) {
+    const a = Number(m[2].replace(/[−\s]/g, (c) => (c === "−" ? "-" : "")).replace(",", "."));
+    const b = m[3] ? Number(m[3].replace(",", ".")) : 1;
+    if (Number.isFinite(a) && Number.isFinite(b) && b !== 0) out.push(a / b);
+  }
+  return out;
+}
+
+/**
+ * Does the book's printed answer give this task's result, without any doubt? Only when the answer
+ * names exactly the values asked for (one number for one, all of them for several), the whole
+ * choice, or the same expression. An answer with more in it ("A = 5 cm², U = 25 cm") is not clear
+ * enough: then the second solving decides.
+ */
 function bookAgrees(x) {
-  const text = x.bookAnswer;
-  if (x.type === "number") return answers.numberRight(text, x.value, x.tolerance);
-  if (x.type === "numbers") return x.ordered ? answers.numbersInOrder(text, x.values, x.tolerance) : answers.numbersRight(text, x.values, x.tolerance);
-  if (x.type === "expression") return expr.same(text, x.expression);
-  if (x.type === "choice") return tidy(text).includes(tidy(x.choices[x.correct] || "\u0000"));
+  const text = String(x.bookAnswer || "").replace(/^\s*\(?[0-9a-z]{1,4}[.)]\s+/i, "");
+  const near = (a, b) => Math.abs(a - b) <= Math.max(x.tolerance || 0, Math.abs(b) * 1e-6, 1e-9);
+  if (x.type === "number") {
+    // "x = 4; y = 7": the value of the quantity the task's own answer names, or nothing.
+    const pairs = [...text.matchAll(/([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*([-−]?\s?\d+(?:[.,]\d+)?(?:\s*\/\s*\d+(?:[.,]\d+)?)?)/g)];
+    if (pairs.length > 1) {
+      const name = (/([a-zA-Z][a-zA-Z0-9_]*)\s*=/.exec(String(x.answer || "").replace(/[$\\]/g, "")) || [])[1];
+      const pair = name && pairs.find((p) => p[1] === name);
+      const value = pair ? numbersIn(pair[2]) : [];
+      return value.length === 1 && near(value[0], x.value);
+    }
+    const values = numbersIn(text);
+    return values.length === 1 && near(values[0], x.value);
+  }
+  if (x.type === "numbers") {
+    const values = numbersIn(text);
+    if (values.length !== x.values.length) return false;
+    if (x.ordered) return x.values.every((v, i) => near(values[i], v));
+    const a = [...values].sort((p, q) => p - q);
+    return [...x.values].sort((p, q) => p - q).every((v, i) => near(a[i], v));
+  }
+  if (x.type === "expression") return expr.compare(text, x.expression) === true;
+  if (x.type === "choice") {
+    const said = flat(text).replace(/[).]+$/, "");
+    const right = flat(x.choices[x.correct] || "");
+    const letter = String.fromCharCode(97 + x.correct);
+    const others = x.choices.filter((c, k) => k !== x.correct).map(flat);
+    return Boolean(right) && (said === right || said === letter || said === String(x.correct + 1)) && !others.includes(said);
+  }
   return false;
 }
 
@@ -886,4 +975,4 @@ async function help(exam, question, { earlier = [], now = "" } = {}, { onUsage, 
   };
 }
 
-module.exports = { estimate, analyze, writeSummary, writeTasks, agree, bookAgrees, bandOf, writeQuestions, mark, writeFormulas, help, findLabel, checkExercise, gather };
+module.exports = { estimate, analyze, writeSummary, writeTasks, confirmTasks, recheckLocal, printedOn, agree, bookAgrees, bandOf, writeQuestions, mark, writeFormulas, help, findLabel, checkExercise, gather };

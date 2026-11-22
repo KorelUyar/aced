@@ -47,6 +47,7 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
   const [practice, setPractice] = useState(null); // the solve step whose tasks are open in the app
   const grid = useRef(null);
   const asked = useRef(false);
+  const unconfirmed = s.topics.filter((x) => (x.tasks || []).some((k) => k.checked === "none" && k.type !== "paper")).length;
   const lacking = s.topics.filter((x) => !x.summary).length + s.topics.filter((x) => x.tasks === undefined && x.steps.some((st) => st.kind === "solve")).length * 2;
 
   const show = (materialId, page) => {
@@ -135,6 +136,13 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
           <p>${t("sharedNote", longDate(exam.shared.on, "short"))}${exam.materials.some((m) => m.missing) ? " " + t("sharedAddBooks", exam.materials.filter((m) => m.missing).map((m) => m.title)) : ""}</p>
           ${exam.materials.some((m) => m.missing) &&
           html`<div class="row-start"><button class="btn second" id="addCopy" disabled=${Boolean(run)} onClick=${() => supply(exam.materials.find((m) => m.missing).id)}>${t("addYourCopy")}</button></div>`}
+        </div>`}
+        ${exam.shared &&
+        !run &&
+        unconfirmed > 0 &&
+        html`<div class="plan-note" role="note">
+          <p>${t("solutionsShared")}</p>
+          <div class="row-start"><button class="btn second" id="confirmTasks" onClick=${() => api.confirmTasks(exam.id).then(app.putExam, (err) => errorCode(err) !== "cancelled" && app.fail(err))}>${t("confirmTasks", unconfirmed)}</button></div>
         </div>`}
         ${exam.shared &&
         lacking > 0 &&
@@ -332,9 +340,10 @@ function Tasks({ exam, task: step, show, close, app }) {
     setBusy(true);
     api
       .checkTask(exam.id, task.id, value)
-      .then(({ right, sure, exam: next }) => {
+      .then(({ verdict, suggest, one, exam: next }) => {
         app.putExam(next);
-        mark({ verdict: right ? "right" : sure ? "wrong" : "unsure" });
+        // When the app cannot tell, the solution is shown and the person judges.
+        mark({ verdict, suggest, one, ...(verdict === "unsure" ? { solution: true } : {}) });
       }, app.fail)
       .finally(() => setBusy(false));
   };
@@ -383,7 +392,10 @@ function Tasks({ exam, task: step, show, close, app }) {
       ${task.type !== "choice" && html`<p class="task-form muted">${task.form || t("taskForm_" + (task.type === "numbers" && task.ordered ? "point" : task.type))}</p>`}
       ${state.verdict === "right" && html`<p class="verdict right" role="status"><${Icon} name="check" size=${14} /> ${t("taskRight")}</p>`}
       ${state.verdict === "wrong" && html`<p class="verdict wrong" role="status">${t("taskWrong")}</p>`}
-      ${state.verdict === "unsure" && html`<p class="verdict unsure" role="status">${t("taskUnsure")}</p>`}
+      ${state.verdict === "unsure" && html`<p class="verdict unsure" role="status">${t(task.checked === "none" ? "taskUnsure" : "taskCantTell")}</p>`}
+      ${state.verdict === "ask" && html`<p class="verdict unsure" role="status">${state.one ? t("taskAskOne") : html`${t("taskAsk")} <${Rich} text=${"$" + state.suggest + "$"} />? ${t("taskAskBrackets")}`}</p>`}
+      ${(state.verdict === "wrong" || state.verdict === "unsure") &&
+      html`<div class="row-start"><button class="btn plain" id="taskOwnRight" onClick=${() => api.overruleTask(exam.id, task.id).then((next) => (app.putExam(next), mark({ verdict: "right" })), app.fail)}>${t("ownRight")}</button></div>`}
       <div class="task-actions">
         <button class="btn primary" id="checkTask" disabled=${!filled || busy} onClick=${check}>${t("checkResult")}</button>
         ${task.hint && !state.hint && html`<button class="btn plain" id="taskHint" onClick=${() => mark({ hint: true })}>${t("hint")}</button>`}

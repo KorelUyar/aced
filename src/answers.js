@@ -240,6 +240,8 @@ function pieces(typed, count) {
     ways.push(cut(text, new RegExp(words.source + "|\\s+/\\s+", "i")));
     ways.push(cut(text, new RegExp(words.source + "|,\\s+|\\s+/\\s+", "i")));
     ways.push(cut(text, new RegExp(words.source + "|,|\\s+", "i")));
+    // A point written the Swiss way: P(2/-3).
+    if (count === 2) ways.push(cut(text, new RegExp(words.source + "|/", "i")));
     ways.push(cut(text, new RegExp(words.source + "|\\s+", "i")));
   }
   return ways.filter((w) => w.length === count);

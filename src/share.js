@@ -75,7 +75,7 @@ const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== und
  * The Aced file of an exam, as a Buffer. `chosen`: the ids of the material to send with it.
  * `pdfOf(material)` / `textOf(material)` give a material's PDF (Buffer) or its pages of text.
  */
-const TASK_FIELDS = ["id", "step", "material", "page", "label", "prompt", "figure", "type", "value", "values", "ordered", "tolerance", "unit", "choices", "correct", "expression", "answer", "form", "hint", "solution", "checked", "variant", "minutes"];
+const TASK_FIELDS = ["id", "step", "material", "page", "label", "prompt", "figure", "type", "value", "values", "ordered", "tolerance", "unit", "choices", "correct", "expression", "answer", "form", "hint", "solution", "compute", "bookAnswer", "answerPage", "variant", "minutes"];
 
 /** Is this material a book (the one kind whose name goes along even when it stays home)? */
 const isBook = (m) => m.kind === "book" && m.from !== "pictures";
@@ -84,12 +84,19 @@ function pack(exam, { chosen = [], appVersion = "", pdfOf, textOf, probeOf, shar
   const wanted = new Set(chosen);
   const entries = [];
   const materials = [];
+  // The material the plan points at: a book that stays home is named only when the plan uses it.
+  const used = new Set();
+  for (const t of (exam.strategy && exam.strategy.topics) || []) {
+    for (const st of t.steps) if (st.material) used.add(st.material);
+    for (const p of (t.summary && t.summary.pages) || []) used.add(p.material);
+    for (const x of t.tasks || []) used.add(x.material);
+  }
   exam.materials.forEach((m, i) => {
     const ticked = wanted.has(m.id) && !m.missing;
     // Material that stays home sends nothing at all, not even its name. A book is the one
     // exception: its title, page count and fingerprint, so the friend can add their own copy
     // (and Aced can tell whether it is the same edition).
-    if (!ticked && !isBook(m)) return;
+    if (!ticked && !(isBook(m) && used.has(m.id))) return;
     const out = isBook(m)
       ? { ...pick(m, ["id", "kind", "title", "pages"]), hash: m.missing ? m.expect && m.expect.hash : m.hash, probe: m.missing ? m.expect && m.expect.probe : probeOf && probeOf(m) }
       : pick(m, ["id", "kind", "type", "title", "pages", "from", "format", "offset"]);
@@ -270,7 +277,11 @@ function cleanLearning(t, steps, ids) {
         form: str(x.form, 120),
         hint: str(x.hint, 600),
         solution: texts(x.solution, 12, 600),
-        checked: ["book", "twice", "none"].includes(x.checked) ? x.checked : "none",
+        // Never taken from a file: a solution counts as confirmed only once this Mac has checked it.
+        checked: "none",
+        compute: texts(x.compute, 10, 200),
+        bookAnswer: str(x.bookAnswer, 300),
+        answerPage: int(x.answerPage, 0, 100000, 0),
         variant: x.variant === true,
         minutes: int(x.minutes, 1, 60, 5),
       };
