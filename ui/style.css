@@ -1491,6 +1491,193 @@ select.field {
   }
 }
 
+/* ---- 0.6: writing in the book (ui/ink.js). The layer is as wide as the page and square, in
+   the page's own units; the page is white paper in both themes, so the ink is the same in both. */
+.book {
+  position: relative;
+}
+
+.ink {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  aspect-ratio: 1;
+  container-type: inline-size;
+  pointer-events: none;
+}
+
+.ink svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ink-hl {
+  mix-blend-mode: multiply;
+}
+
+.ink-notes {
+  position: absolute;
+  inset: 0;
+}
+
+.ink-note {
+  position: absolute;
+  max-width: 46cqw;
+  padding: 0.5cqw 0.9cqw;
+  border-radius: 0.8cqw;
+  background: #fff4b8;
+  box-shadow: 0 0.15cqw 0.6cqw rgb(60 45 0 / 0.22);
+  color: #2a2410;
+  font: 500 2.1cqw/1.3 var(--sans);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+textarea.ink-note {
+  width: 30cqw;
+  min-height: 0;
+  border: 0;
+  resize: none;
+  overflow: hidden;
+  outline: 0.25cqw solid #e0b000;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.book-page[data-ink="text"] .ink-note,
+.book-page[data-ink="eraser"] .ink-note {
+  pointer-events: auto;
+}
+
+.book-page[data-ink="pen"] .leaf,
+.book-page[data-ink="hl"] .leaf {
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.book-page[data-ink="text"] .leaf {
+  cursor: text;
+}
+
+.book-page[data-ink="eraser"] .leaf {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22'%3E%3Ccircle cx='11' cy='11' r='9' fill='white' fill-opacity='.6' stroke='%2314161b' stroke-width='1.5'/%3E%3C/svg%3E") 11 11, crosshair;
+  touch-action: none;
+}
+
+.ink-toggle.on {
+  color: var(--btn-ink);
+  background: var(--btn);
+}
+
+.ink-toggle.on:hover {
+  color: var(--btn-ink);
+  background: var(--btn);
+  opacity: 0.86;
+}
+
+/* the tools, floating over the foot of the pages */
+.ink-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 18px;
+  background: var(--sheet);
+  box-shadow: 0 12px 34px -12px rgb(0 0 0 / 0.45), 0 0 0 1px var(--rule);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.ink-tool {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: var(--text);
+}
+
+.ink-tool:hover:not(:disabled) {
+  background: var(--field);
+  color: var(--ink);
+}
+
+.ink-tool[aria-pressed="true"] {
+  background: var(--btn);
+  color: var(--btn-ink);
+}
+
+.ink-tool:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.ink-sep {
+  width: 1px;
+  height: 22px;
+  margin: 0 5px;
+  background: var(--rule);
+}
+
+.ink-colour {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 38px;
+}
+
+.ink-colour i {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+  transition: transform 0.12s var(--ease);
+}
+
+.ink-colour[aria-pressed="true"] i {
+  box-shadow: 0 0 0 2px var(--sheet), 0 0 0 4px var(--ink);
+}
+
+.ink-colour:hover i {
+  transform: scale(1.1);
+}
+
+.ink-done {
+  height: 38px;
+  margin-left: 6px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: var(--field);
+  color: var(--ink);
+  font-weight: 620;
+}
+
+.ink-done:hover {
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+@container (max-width: 460px) {
+  .ink-colour {
+    width: 24px;
+  }
+
+  .ink-tool {
+    width: 32px;
+  }
+}
+
 /* ---- book panel (end) */
 
 /* the head of the plan */
@@ -2924,6 +3111,334 @@ select.field {
   flex: none;
   margin-top: 2px;
   color: var(--right);
+}
+
+/* ---- 0.6: Aced's own share window (ui/share.js). One click per way; the link first. */
+.share.share-win {
+  width: min(780px, 100%);
+  padding: 26px 30px 22px;
+  border-radius: 24px;
+  margin-top: 4vh;
+}
+
+.sw-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.sw-head h2 {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.sw-lead {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.sw-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--field);
+}
+
+.sw-close:hover {
+  color: var(--ink);
+}
+
+svg.glyph {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sw-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--field);
+  color: var(--ink);
+}
+
+.sw-badge.small {
+  width: 38px;
+  height: 38px;
+}
+
+.sw-badge .spinner {
+  width: 20px;
+  height: 20px;
+}
+
+/* the link: the one wide, ink-coloured way */
+.sw-link {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 16px 20px;
+  border-radius: 18px;
+  background: var(--btn);
+  color: var(--btn-ink);
+  text-align: left;
+  transition: opacity 0.15s, transform 0.12s var(--ease);
+}
+
+button.sw-link:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+button.sw-link:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.sw-link .sw-badge {
+  background: color-mix(in srgb, var(--btn-ink) 14%, transparent);
+  color: var(--btn-ink);
+}
+
+.sw-link-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sw-link-text strong {
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.sw-link-text small {
+  font-size: 13.5px;
+  opacity: 0.78;
+}
+
+/* the link, made: shown and copied */
+.sw-link.done {
+  background: var(--sheet);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+.sw-link.done .sw-badge {
+  background: var(--right-soft);
+  color: var(--right);
+}
+
+.sw-link.done strong {
+  color: var(--ink);
+}
+
+.sw-url {
+  width: 100%;
+  margin: 4px 0 2px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--field);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  user-select: text;
+}
+
+.sw-link.done small {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.sw-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.no-link .sw-grid {
+  margin-top: 0;
+}
+
+.sw-tile {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 9px;
+  min-height: 116px;
+  padding: 18px 8px 14px;
+  border-radius: 18px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  color: var(--ink);
+  text-align: center;
+  transition: box-shadow 0.15s, transform 0.12s var(--ease), opacity 0.15s;
+}
+
+.sw-tile:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+.sw-tile:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.sw-tile strong {
+  font-size: 15px;
+  font-weight: 620;
+  line-height: 1.2;
+}
+
+.sw-tile small {
+  margin-top: -4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.sw-tile.missing .sw-badge {
+  opacity: 0.5;
+}
+
+.sw-tile.missing strong {
+  color: var(--muted);
+}
+
+.sw-tile:disabled,
+.sw-page:disabled,
+.sw-link:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sw-problem {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--wrong-soft);
+  color: var(--wrong);
+  font-size: 14px;
+}
+
+.sw-along {
+  margin-top: 16px;
+  font-size: 14px;
+}
+
+.sw-along > p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  color: var(--text);
+}
+
+.sw-along .share-material {
+  margin-top: 10px;
+}
+
+.sw-pages {
+  margin-top: 20px;
+  padding-top: 18px;
+  box-shadow: inset 0 1px 0 var(--rule);
+}
+
+.sw-pages h3 {
+  font-size: 14px;
+  font-weight: 620;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.sw-pages-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.sw-page {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 15px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  text-align: left;
+  transition: box-shadow 0.15s;
+}
+
+.sw-page:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+.sw-page > span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.sw-page strong {
+  color: var(--ink);
+  font-weight: 620;
+}
+
+.sw-page small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sw-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.sw-never {
+  display: flex;
+  gap: 8px;
+  max-width: 62ch;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.sw-never .glyph {
+  margin-top: 1px;
+  color: var(--right);
+}
+
+.sw-foot .btn.plain {
+  flex: none;
+  gap: 6px;
+  color: var(--ink);
+}
+
+@media (max-width: 860px) {
+  .sw-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .sw-grid,
+  .sw-pages-row {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 /* ---- A shared exam on the friend's Mac */

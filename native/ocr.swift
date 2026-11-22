@@ -16,6 +16,13 @@
 //       a small picture with one line of print, to find out whether an AI can see
 //   aced-ocr --clean <file.pdf> <out.pdf>
 //       a copy to share: every page drawn anew, without the file's information and metadata
+//   aced-ocr --can-share
+//       which ways to send a file this Mac has set up: {"airdrop":true,"messages":false,"mail":true}
+//   aced-ocr --share <airdrop|messages|mail> <file> [subject] [text]
+//       hands the file to AirDrop, Messages or Mail (NSSharingService): prints {"opened":true} once
+//       their window is up (or {"missing":true}), and {"done":"shared"|"cancelled"|"failed"} at the end
+//   aced-ocr --copy-file <file>
+//       puts the file on the clipboard the way the Finder does, to paste into WhatsApp, Mail …
 //
 // Prints one line of JSON per step, as it goes. For reading a PDF:
 //   {"page":0,"total":90}                           at once: the file is open, nothing is read yet
@@ -23,6 +30,7 @@
 //   {"page":0,"total":90,"recogniser":"accurate"}   which recogniser reads this file: "accurate" or "fast"
 //   {"page":1,"total":90,"text":"..."}              then every page
 // A line without "text" only says where the work stands.
+import AppKit
 import CoreText
 import Foundation
 import ImageIO
@@ -349,6 +357,82 @@ func readPdf(_ doc: PDFDocument?, first: Int, last: Int) {
     }
 }
 
+// ------------------------------------------------------------ sending a file (Aced's share window)
+
+/// The ways to send a file that the share window offers, by the names macOS knows them by.
+let sendWays: [String: NSSharingService.Name] = ["airdrop": .sendViaAirDrop, "messages": .composeMessage, "mail": .composeEmail]
+
+/// A way that this Mac has, and that takes the file (a way that is not set up is not offered by macOS).
+func sendService(_ way: String, _ items: [Any]) -> NSSharingService? {
+    guard let name = sendWays[way], let service = NSSharingService(named: name), service.canPerform(withItems: items) else { return nil }
+    return service
+}
+
+func canShare() {
+    _ = NSApplication.shared
+    let probe = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aced-probe-\(getpid()).aced")
+    FileManager.default.createFile(atPath: probe.path, contents: Data("aced".utf8))
+    defer { try? FileManager.default.removeItem(at: probe) }
+    var out: [String: Any] = [:]
+    for way in sendWays.keys { out[way] = sendService(way, [probe]) != nil }
+    say(out)
+}
+
+/// Runs as a small app without a Dock icon while AirDrop, Messages or Mail shows its window.
+final class Sender: NSObject, NSApplicationDelegate, NSSharingServiceDelegate {
+    let service: NSSharingService
+    let items: [Any]
+    init(_ service: NSSharingService, _ items: [Any]) {
+        self.service = service
+        self.items = items
+    }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        service.delegate = self
+        NSApp.activate(ignoringOtherApps: true)
+        service.perform(withItems: items)
+        // (macOS shows AirDrop and Messages over the whole screen, dimmed, in front of every app)
+        say(["opened": true])
+        // Nobody answers for a quarter of an hour: the helper ends; macOS keeps what it was given.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 900) { exit(0) }
+    }
+    func sharingService(_ sharingService: NSSharingService, didShareItems items: [Any]) {
+        say(["done": "shared"])
+        exit(0)
+    }
+    func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: Error) {
+        let e = error as NSError
+        say(["done": e.domain == NSCocoaErrorDomain && e.code == NSUserCancelledError ? "cancelled" : "failed"])
+        exit(0)
+    }
+}
+
+func share(_ way: String, _ file: String, subject: String?, text: String?) {
+    let url = URL(fileURLWithPath: file)
+    guard FileManager.default.isReadableFile(atPath: url.path) else { fail("cannot read the file") }
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    // Mail takes a subject and a line of text with the file; AirDrop and Messages only the file.
+    var items: [Any] = [url]
+    if way == "mail", let text = text, !text.isEmpty { items.insert(text, at: 0) }
+    guard let service = sendService(way, items) else {
+        say(["missing": true])
+        exit(0)
+    }
+    if way == "mail", let subject = subject { service.subject = subject }
+    let sender = Sender(service, items)
+    app.delegate = sender
+    app.run()
+}
+
+func copyFile(_ file: String) {
+    let url = URL(fileURLWithPath: file)
+    guard FileManager.default.isReadableFile(atPath: url.path) else { fail("cannot read the file") }
+    let board = NSPasteboard.general
+    board.clearContents()
+    guard board.writeObjects([url as NSURL]) else { fail("cannot write to the clipboard") }
+    say(["copied": true])
+}
+
 // ------------------------------------------------------------ what was asked for
 
 let args = Array(CommandLine.arguments.dropFirst())
@@ -363,6 +447,12 @@ case "--render" where args.count >= 4:
     renderPages(args[1], CGFloat(Double(args[2]) ?? 2000), args[3], args.count >= 5 ? Int(args[4]) ?? 1 : 1, args.count >= 6 ? Int(args[5]) ?? Int.max : Int.max)
 case "--clean" where args.count == 3:
     clean(args[1], args[2])
+case "--can-share" where args.count == 1:
+    canShare()
+case "--share" where args.count >= 3 && args.count <= 5 && sendWays[args[1]] != nil:
+    share(args[1], args[2], subject: args.count >= 4 ? args[3] : nil, text: args.count >= 5 ? args[4] : nil)
+case "--copy-file" where args.count == 2:
+    copyFile(args[1])
 case "--sample" where args.count == 2:
     guard let picture = sample(), write(picture, to: args[1], type: .png) else { fail("cannot write the picture") }
     say(["file": args[1]])
@@ -373,5 +463,5 @@ case let file? where !file.hasPrefix("--"):
     let last = min(total, args.count >= 3 ? Int(args[2]) ?? total : total)
     readPdf(doc, first: first, last: last)
 default:
-    fail("usage: aced-ocr <file.pdf> [first] [last] | --prepare | --info <picture>... | --images <out.pdf> <picture>... | --render <file.pdf> <long-side> <folder> [first] [last] | --sample <out.png> | --clean <file.pdf> <out.pdf>")
+    fail("usage: aced-ocr <file.pdf> [first] [last] | --prepare | --info <picture>... | --images <out.pdf> <picture>... | --render <file.pdf> <long-side> <folder> [first] [last] | --sample <out.png> | --clean <file.pdf> <out.pdf> | --can-share | --share <airdrop|messages|mail> <file> [subject] [text] | --copy-file <file>")
 }

@@ -57,8 +57,17 @@ contextBridge.exposeInMainWorld("aced", {
   pasteMaterial: (id) => call("material:paste", id),
   // Dropped data that has no place on disk (a picture dragged out of a browser): its bytes.
   addBytes: (id, items) => call("material:bytes", id, items),
-  // Sharing: the Aced file, the PDF or the web page, through the share menu or saved.
+  // Sharing, from Aced's own window: `options.way` is one of link, airdrop, messages, mail,
+  // copy, save (the Aced file, with the material in `options.materials`), pdf, web or more.
   shareExam: (id, options) => call("share:send", id, options),
+  // Which of AirDrop, Messages and Mail this Mac has set up: { airdrop, messages, mail }.
+  shareServices: () => call("share:services"),
+  // Whether this Aced makes links (it has a share service): true or false.
+  shareLinks: () => call("share:links"),
+  copyText: (text) => call("share:copyText", text),
+  // What the person wrote in a book (ui/ink.js): per page, kept on this Mac only.
+  inkLoad: (hash) => call("ink:load", hash),
+  inkSave: (hash, page, data) => call("ink:save", hash, page, data),
   // The person's own copy of a book a shared exam names: from a drop (File objects), or chosen.
   supplyBook: (id, materialId, files) => {
     const paths = [];
@@ -92,6 +101,8 @@ contextBridge.exposeInMainWorld("aced", {
   onExam: on("exam"),
   // An Aced file was opened from the Finder or the menu: { id, exam, problems }.
   onOpened: on("opened"),
+  // A short word from the app for the person (the code of a sentence in ui/i18n.js), e.g. while a link is fetched.
+  onNotice: on("notice"),
   // Files opened from the Finder that are not Aced files: { token, names }. `addHanded` adds
   // them to the exam on screen (the paths never come through here), or drops them (id null).
   onHanded: on("handed"),

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Aced, option B: an open book whose pages make a tick. -->
+  <defs>
+    <path id="body" d="M 394.93 100 L 629.07 100 C 732.31 100 783.92 100 823.35 120.09 A 184.33 184.33 0 0 1 903.91 200.65 C 924 240.08 924 291.69 924 394.93 L 924 629.07 C 924 732.31 924 783.92 903.91 823.35 A 184.33 184.33 0 0 1 823.35 903.91 C 783.92 924 732.31 924 629.07 924 L 394.93 924 C 291.69 924 240.08 924 200.65 903.91 A 184.33 184.33 0 0 1 120.09 823.35 C 100 783.92 100 732.31 100 629.07 L 100 394.93 C 100 291.69 100 240.08 120.09 200.65 A 184.33 184.33 0 0 1 200.65 120.09 C 240.08 100 291.69 100 394.93 100 Z"/>
+    <clipPath id="tile"><use href="#body"/></clipPath>
+    <linearGradient id="base" gradientUnits="userSpaceOnUse" x1="330" y1="924" x2="694" y2="100">
+      <stop offset="0" stop-color="#C42B08"/>
+      <stop offset="0.48" stop-color="#F0531A"/>
+      <stop offset="1" stop-color="#FF9445"/>
+    </linearGradient>
+    <radialGradient id="pool" gradientUnits="userSpaceOnUse" cx="520" cy="500" r="470">
+      <stop offset="0" stop-color="#FFB36B" stop-opacity="0.5"/>
+      <stop offset="0.45" stop-color="#FFB36B" stop-opacity="0.17"/>
+      <stop offset="1" stop-color="#FFB36B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="deep" gradientUnits="userSpaceOnUse" cx="200" cy="960" r="560">
+      <stop offset="0" stop-color="#8E1A03" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#8E1A03" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.15"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.5"/>
+      <stop offset="0.22" stop-color="#fff" stop-opacity="0.08"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFEEE4"/>
+    </linearGradient>
+    <filter id="drop" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="10" stdDeviation="11" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+    <filter id="lift" x="-40%" y="-40%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#741800" flood-opacity="0.36"/>
+    </filter>
+    
+  </defs>
+  <use href="#body" fill="#B32A07" filter="url(#drop)"/>
+  <g clip-path="url(#tile)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#base)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#deep)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#pool)"/>
+    <g transform="translate(0 -24)" filter="url(#lift)" fill="url(#ink)">
+      <g opacity="1" stroke="url(#ink)" stroke-width="16" stroke-linejoin="round">
+        <path d="M 240 416 C 324 424 378 508 436 574 L 436 760 C 378 694 324 610 240 602 Z"/>
+        <path d="M 468 574 C 514 502 686 300 790 282 L 790 468 C 686 486 514 688 468 760 Z"/>
+      </g>
+      <g opacity="0.72" stroke="url(#ink)" stroke-width="6" stroke-linejoin="round">
+        <path d="M 240 624 C 324 632 378 716 436 782 L 436 792 C 378 726 324 642 240 634 Z"/>
+        <path d="M 468 782 C 514 710 686 508 790 490 L 790 500 C 686 518 514 720 468 792 Z"/>
+      </g>
+      <g opacity="0.45" stroke="url(#ink)" stroke-width="6" stroke-linejoin="round">
+        <path d="M 240 648 C 324 656 378 740 436 806 L 436 814 C 378 748 324 664 240 656 Z"/>
+        <path d="M 468 806 C 514 734 686 532 790 514 L 790 522 C 686 540 514 742 468 814 Z"/>
+      </g>
+    </g>
+    <rect x="100" y="100" width="824" height="824" fill="url(#sheen)"/>
+    <use href="#body" fill="none" stroke="url(#rim)" stroke-width="12"/>
+  </g>
+</svg>

@@ -1,8 +1,9 @@
 // Sharing in the app, in a hidden window, with a fresh profile: the sample exam with a real
-// book, shared through the Share dialog ("Save as…": the Aced file, the PDF and the web page),
+// book, shared through the share window (Save file, PDF and Web page),
 // then the Aced file opened as a double-click in the Finder opens it: a new exam at 0%, the book
 // waiting, and the same book added from "Choose files" taking its place in the panel.
-// The share menu itself (AirDrop, Messages …) is not opened here: it would show on the screen.
+// AirDrop, Messages, Mail and macOS's menu are not opened here: they would show on the screen
+// (scripts/smoke-06.js covers the rest of the window: links, copying, what this Mac has).
 //
 //   node_modules/.bin/electron scripts/smoke-share.js [<folder for pictures>]
 const { app, dialog, BrowserWindow } = require("electron");
@@ -78,26 +79,30 @@ app.whenReady().then(async () => {
     await js(`window.__nav({ name: 'exam', id: ${JSON.stringify(created.id)} })`);
     await until(`!!document.querySelector('.path .step')`);
 
-    // ---- the Share dialog: the book stays out unless ticked; Save as writes each kind
+    // ---- the share window: the book stays out unless ticked; Save file, PDF and Web page
+    // each write their file, from Downloads unless the person chooses another place
     await click("#shareOpen");
-    await until(`!!document.querySelector('.share')`);
+    await until(`!!document.querySelector('.share-win')`);
+    await click("#shareChange");
     assert.equal(await js(`document.querySelector('.share-material input').checked`), false, "the book is not ticked: it stays out");
     const saved = {};
-    for (const [radio, ext] of [[1, "aced"], [2, "pdf"], [3, "html"]]) {
-      if (radio > 1) {
+    for (const [way, ext] of [["save", "aced"], ["pdf", "pdf"], ["web", "html"]]) {
+      if (way !== "save") {
         await click("#shareOpen");
-        await until(`!!document.querySelector('.share')`);
+        await until(`!!document.querySelector('.share-win')`);
       }
-      await js(`document.querySelectorAll('.share-out')[${radio - 1}].click()`);
       const target = path.join(userData, `out.${ext}`);
+      let offered = "";
       dialog.showSaveDialog = async (_w, options) => {
-        assert.ok(!options.defaultPath.includes(userData) || true);
+        offered = options.defaultPath;
         return { canceled: false, filePath: target };
       };
-      await click("#shareSave");
-      await until(`!document.querySelector('.share')`, 60000);
+      await click(`#share-${way}`);
+      await until(`!document.querySelector('.share-win')`, 60000);
+      assert.equal(path.dirname(offered), app.getPath("downloads"), `${way}: offered in Downloads`);
+      assert.equal(path.extname(offered), "." + ext);
       saved[ext] = target;
-      assert.ok(fs.existsSync(target) && fs.statSync(target).size > 1000, `Save as… writes the ${ext}`);
+      assert.ok(fs.existsSync(target) && fs.statSync(target).size > 1000, `${way} writes the ${ext}`);
     }
     assert.equal(fs.readFileSync(saved.pdf).subarray(0, 5).toString(), "%PDF-", "the PDF is a PDF");
     assert.match(fs.readFileSync(saved.html, "utf8"), /<math[\s\S]*Made with Aced · uyarid\.com/, "the web page has its formulas and its line at the foot");
@@ -171,7 +176,7 @@ app.whenReady().then(async () => {
     await sleep(500);
     assert.equal(totals(), all, "a file from the Finder with no exam open is not added anywhere");
     assert.deepEqual(errors, [], "no errors in the page");
-    console.log("ok: the Share dialog (Aced file, PDF, web page), a shared exam opened from the Finder at 0%, its book added by its SHA-256, a damaged file refused, the same file again asked about, other Finder files added to the exam on screen (or a sentence)");
+    console.log("ok: the share window (Save file, PDF, Web page, from Downloads), a shared exam opened from the Finder at 0%, its book added by its SHA-256, a damaged file refused, the same file again asked about, other Finder files added to the exam on screen (or a sentence)");
   } catch (err) {
     console.log("FAIL", err.message, errors.slice(0, 3).join(" | "));
     process.exitCode = 1;

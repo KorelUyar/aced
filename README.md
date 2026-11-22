@@ -16,7 +16,7 @@ exam on everything shows where you stand.
 
 | Share | The web page on a phone | A friend opens it |
 |---|---|---|
-| ![The Share dialog: an Aced file, a PDF or a web page, and which material goes along](docs/shots/share-dialog-light.png) | ![The exam as a web page, on a phone](docs/shots/share-web-phone-light.png) | ![The shared exam at 0%, waiting for the friend's copy of the book](docs/shots/share-friend-light.png) |
+| ![Aced's share window: AirDrop, Messages, Mail, Copy file and Save file, or a PDF or a web page, and which material goes along](docs/shots/share-dialog-light.png) | ![The exam as a web page, on a phone](docs/shots/share-web-phone-light.png) | ![The shared exam at 0%, waiting for the friend's copy of the book](docs/shots/share-friend-light.png) |
 
 More pictures, light and dark: [`docs/shots`](docs/shots) ([all on one sheet](docs/shots/overview.png)).
 The book in the pictures is OpenStax *College Algebra 2e* ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
@@ -30,7 +30,9 @@ answers around it were written by Claude Opus 5.5 through Claude Code in a real 
   p. 255–256", "Solve p. 257: 3, 4, 7"). The next step is marked, a line shows where you are
   done for today, finished topics fold away. A tick is a switch: click again to take it back.
 - **The book beside the plan.** Your book opens inside the app, next to the list. A step jumps to
-  its page. The divider can be dragged, the panel hidden.
+  its page. The divider can be dragged, the panel hidden. You can write in it: pen,
+  highlighter, text notes, eraser and undo, kept per page on your Mac, never in the PDF and
+  never shared.
 - **Formula sheet.** The formulas this exam needs, large, grouped by topic, each with a link to
   the page it comes from. The topic you are on shows its own formulas right in the plan, so
   they are at hand while the panel shows the book. Written once with the strategy and kept.
@@ -46,11 +48,18 @@ answers around it were written by Claude Opus 5.5 through Claude Code in a real 
   badly back on your list, with exercises from the book you have not done yet.
 - **Questions from the AI only where the book has none.** A topic without exercises in the book
   gets a few questions written from your material, and they are labelled as such.
-- **Share an exam with friends.** One button on the exam screen: send the exam as an **Aced
-  file** that opens in your friend's Aced (a double-click is enough), as a **PDF** to read or
-  print, or as a **web page** that opens on any phone or computer, also offline. Then the Mac's
-  own share menu (AirDrop, Messages, Mail …), or "Save as…". Your friend starts at 0%: your
-  ticks, results and answers stay with you. You tick what goes along: your own notes,
+- **Share an exam with friends.** One button on the exam screen opens Aced's own share window,
+  where every way is one click. Five ways send the exam as an **Aced file** that opens in your
+  friend's Aced (a double-click is enough): **AirDrop**, **Messages** and **Mail** open with
+  the file attached, **Copy file** puts it on the clipboard to paste into WhatsApp, Messages or
+  Mail, and **Save file** saves it (in Downloads, unless you choose another place). Below them,
+  the exam as a page to read without Aced: a **PDF** to read or print, or a **web page** that
+  opens on any phone or computer, also offline. The Mac's own share menu comes last ("More…").
+  If AirDrop, Messages or Mail is not set up on your Mac, the window says so. **Copy link**
+  appears only in an Aced that has a share service: then it comes first, and your friend opens
+  the exam from a link (see "What leaves your Mac"); without one, the window has no link. Your
+  friend starts at 0%: your ticks, results and answers stay with you. You tick what goes along
+  ("Change" in the window): your own notes,
   worksheets and screenshots, each with the text your Aced (or your AI) read from it, so
   opening the file reads nothing again and costs nothing. What you don't tick stays home
   entirely. Books stay out by default (they are big, and your friend should use their own
@@ -121,6 +130,12 @@ What leaves your Mac, and where to:
   accepted for a server on your own computer. Its key is forgotten when you change the address.
 - **Keys** are stored through the Mac's keychain and are used only in the app's main process,
   never in the window.
+- **With "Copy link":** Aced makes links only when it has a share service (an Aced without one
+  has no "Copy link", and nothing goes anywhere). Then the Aced file you share is locked on your
+  Mac with a key made for that one link (AES-256-GCM), and only the locked bytes go to that
+  service, which keeps them for 30 days and cannot read them: the key is only in the link,
+  after `#`, the part of an address that browsers never send to a server. Whoever has the link
+  can open the exam. A link that is opened is fetched from that service and nowhere else.
 
 Before a large run you see an estimate of tokens and, where the price is known, cost, and how
 long it usually takes. Reading pictures is not asked first: a page costs about 3,000 tokens in
@@ -180,10 +195,13 @@ them misbehaves for you, please [open an issue](https://github.com/KorelUyar/ace
   checked and cut to size, nothing in it may name a place on your Mac, the text that comes along
   is used only when it fits its PDF page for page, ids that every JavaScript object has
   (`constructor`, `__proto__` …) are refused, and a damaged file or one from a newer Aced gets a
-  sentence instead of an exam. Opening one asks no AI. What never goes into an Aced file, a PDF
-  or a web page: your ticks, results and answers, your AI settings and keys, where your files
-  are (no folders, no paths), material you did not tick, and anything about your Mac or your
-  account. Material you tick goes along with its title (its file name, unless you renamed it).
+  sentence instead of an exam. Opening one asks no AI. A link is checked the same way: Aced takes
+  only links of its own form, fetches only from its own share service whatever the link says,
+  and opens only what unlocks with the link's key, then like a file. What never goes into an
+  Aced file, a link, a PDF or a web page: your ticks, results and answers, your AI settings and
+  keys, what you wrote in the book, where your files are (no folders, no paths), material you
+  did not tick, and anything about your Mac or your account. Material you tick goes along with
+  its title (its file name, unless you renamed it).
   Every PDF in an Aced file is a clean copy, drawn anew: without the document's information
   (author, title, the app that made it), its XMP metadata, attachments and links, and with what
   its photos say about themselves (camera, owner, place, time) blanked. The PDF and the web
@@ -247,14 +265,15 @@ npm run sample   # the app on invented exams, nothing is saved
 
 | | |
 |---|---|
-| `npm test` | planner, results in every notation, page search, store (damaged file, backup, a file from 0.1), reference check, the engine and every key-based provider (pictures included) against a local stand-in server; every file format, made on this Mac, with the hostile kind (a zip bomb, an external entity, scripts and pictures from a server, a picture of 400 megapixels); and sharing: the sample exam sent from one fresh profile and opened in another, and hostile Aced files |
-| `npm run smoke` | clicks through the app in a hidden window: an empty start up to a final exam (with a real file drop), the sample exams, a damaged data file, material handed over without the Finder (a folder, ⌘V of a screenshot, of files and of text, picture data from a browser), and sharing (the Share dialog, an Aced file opened from the Finder, its book added) |
+| `npm test` | planner, results in every notation, page search, store (damaged file, backup, a file from 0.1), reference check, the engine and every key-based provider (pictures included) against a local stand-in server; every file format, made on this Mac, with the hostile kind (a zip bomb, an external entity, scripts and pictures from a server, a picture of 400 megapixels); and sharing: the sample exam sent from one fresh profile and opened in another, and hostile Aced files; links: locking and unlocking, hostile and broken links, the share service's limits and its 30 days, run against a service on this Mac; and what is written in a book, kept and checked |
+| `npm run smoke` | clicks through the app in a hidden window: an empty start up to a final exam (with a real file drop), the sample exams, a damaged data file, material handed over without the Finder (a folder, ⌘V of a screenshot, of files and of text, picture data from a browser), and sharing (the share window's Save file, PDF and web page, an Aced file opened from the Finder, its book added); then the share window without and with a share service, AirDrop, Messages, Mail and Copy file (with the Mac's part stood in for), a link made against a service on this Mac and opened by a friend, hostile and run-out links, and writing in the book with the mouse (zoom, undo, eraser, notes) |
 | `npm run checks` | keyboard only, the wizard's edges, time in total, percent and German scale, reduced motion |
 | `electron scripts/window-check.js` | opens a real window for a few seconds: traffic lights, minimum size, date field |
 | `electron scripts/e2e.js <book.pdf> <objectives.txt> <outDir>` | the whole path for real through Claude Code (costs tokens) |
 | `electron scripts/e2e-formats.js <outDir>` | the same for screenshots, a Word file with formulas and an Excel file: read, planned, the book at the right page, found by the helper (costs tokens) |
 | `electron scripts/wrong-key.js` | asks the real Anthropic and OpenRouter services with a key that is not one |
 | `scripts/fixtures/claude-stub.sh` | a stand-in for the `claude` command with prepared answers, so the tests can play every state (not signed in, expired, usage limit, offline, a slow run) without touching a real login |
+| `node service/server.js` | the share service behind links, on this Mac (its settings are in its first lines; `service/Dockerfile` and `service/aced-share.service` run it on a server). `ACED_LINK_HOST=http://127.0.0.1:8790 npm start` points a run from the source folder at it |
 | `npm run shots` | the pictures in `docs/shots` from the sample exams; with a data folder as third argument to `scripts/shots.js`, the ones with a real book |
 | `npm run dist` | `dist/Aced-macOS.zip`: universal, signed ad hoc |
 
@@ -268,12 +287,18 @@ Where things are:
 - `src/search.js`: finds the pages of a book a question is about.
 - `src/ai/`: the four providers behind one `ask()` that checks the answer against a schema.
 - `src/files.js`, `src/pdf-worker.js`, `src/ocr.js`, `native/ocr.swift`: the library, and reading
-  PDFs. The Swift helper also puts pictures on PDF pages and makes pictures of pages for the AI.
+  PDFs. The Swift helper also puts pictures on PDF pages, makes pictures of pages for the AI, and
+  hands files to AirDrop, Messages, Mail and the clipboard.
 - `src/convert.js`, `src/convert-worker.js`, `src/formats/`, `src/print.js`: every other format to
   a PDF (the readers run in a process of their own; pages are printed with scripts off).
 - `src/see.js`: the AI reading pictures.
 - `src/share.js`, `src/export.js`, `ui/share.js`: sharing: the Aced file (written and read),
-  and the exam as one page (the PDF and the web page).
+  the exam as one page (the PDF and the web page), and the share window.
+- `src/mac-share.js`: AirDrop, Messages, Mail and the clipboard, through the Swift helper.
+- `src/link.js`, `service/`: links: the Aced file locked on the Mac, and the small service that
+  keeps it for 30 days and serves the page a link opens. The service's address is `HOST` in
+  `src/link.js`; empty, there are no links.
+- `ui/ink.js`, `src/ink.js`: writing in the book, and where it is kept.
 - `src/store.js`, `src/secrets.js`: what is kept, and the keys.
 - `ui/`: the interface. Plain HTML, CSS and JavaScript modules, no bundler; Preact with htm,
   KaTeX, pdf.js and the Archivo typeface are vendored in `ui/vendor`. `ui/i18n.js` holds all
