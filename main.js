@@ -16,6 +16,7 @@ const { print } = require("./src/print");
 const ocr = require("./src/ocr");
 const secrets = require("./src/secrets");
 const planner = require("./src/planner");
+const tasks = require("./src/tasks");
 const engine = require("./src/engine");
 const ai = require("./src/ai");
 const models = require("./src/ai/models");
@@ -1033,6 +1034,8 @@ handle("analysis:run", (id, options) =>
     strategy.basis = basisOf(exam);
     store.setStrategy(id, strategy);
     const progress = store.exam(id).previous || { kept: 0, lost: 0 };
+    // A summary for every topic, to learn from instead of reading its pages.
+    await summarise(id, signal, say);
     // The formula sheet belongs to the strategy. If it fails, the strategy still stands; the sheet is asked for again when it is opened.
     try {
       say({ stage: "formulas" });
@@ -1057,6 +1060,48 @@ handle("cancel", (id) => {
 });
 
 // ------------------------------------------------ formula sheet and helper
+
+/**
+ * Writes the summary of every topic that has none yet, one request per topic, each kept as soon
+ * as it is there (a cancel keeps what is done). A topic whose summary fails keeps its pages; the
+ * others go on.
+ */
+async function summarise(id, signal, say) {
+  const todo = store.exam(id).strategy.topics.filter((t) => !t.summary).map((t) => t.id);
+  // An exam with progress (made before Aced 0.6) gets new steps: it shows no less than before
+  // until the next tick, and a topic already begun counts its summary as read.
+  const before = planner.buildPlan(store.exam(id), today());
+  if (before && before.percent > 0 && todo.length) store.change(id, (e) => (e.floor = Math.max(e.floor || 0, before.percent)));
+  let done = 0;
+  for (const topicId of todo) {
+    say({ stage: "summaries", done, total: todo.length });
+    try {
+      const summary = await engine.writeSummary(store.exam(id), topicId, tracked(id, signal));
+      store.change(id, (e) => {
+        const topic = e.strategy && e.strategy.topics.find((t) => t.id === topicId);
+        if (!topic) return;
+        topic.summary = { ...summary, made: today() };
+        if (topic.steps.some((st) => planner.tickOf(e.done, st.id))) e.done[`${topic.id}/sum`] = { date: today(), minutes: 0, at: Date.now(), carried: true };
+      });
+    } catch (err) {
+      if (err.code === "cancelled") throw err;
+    }
+    done++;
+  }
+}
+
+/** Summaries for an exam that has none yet: one made before Aced 0.6, or a shared one. */
+handle("summaries", async (id) => {
+  const exam = store.exam(id);
+  if (!exam.strategy) throw coded("unknown");
+  if (exam.strategy.topics.some((t) => !t.summary)) {
+    await run(id, "summaries", async (signal, say) => {
+      await ensureTexts(id, signal, say);
+      await summarise(id, signal, say);
+    });
+  }
+  return view(id);
+});
 
 handle("formulas", async (id) => {
   const exam = store.exam(id);
@@ -1096,12 +1141,38 @@ handle("task:done", (id, taskId) => {
   const task = taskOf(store.exam(id), taskId);
   // Questions are done by answering them, not by a tick.
   if (!task || task.kind === "quiz") throw coded("unknown");
-  return decorate(store.view(store.change(id, (e) => (e.done[taskId] = { date: today(), minutes: task.minutes, at: Date.now() }))));
+  return decorate(
+    store.view(
+      store.change(id, (e) => {
+        e.done[taskId] = { date: today(), minutes: task.minutes, at: Date.now() };
+        delete e.floor; // from now on the percent is what is done
+      }),
+    ),
+  );
 });
 handle("task:undo", (id, taskId) => {
   const task = taskOf(store.exam(id), taskId);
   if (!task || task.kind === "quiz") throw coded("unknown");
-  return decorate(store.view(store.change(id, (e) => delete e.done[taskId])));
+  return decorate(
+    store.view(
+      store.change(id, (e) => {
+        delete e.done[taskId];
+        delete e.floor;
+      }),
+    ),
+  );
+});
+
+// ------------------------------------------------ the book's exercises as tasks in the app
+
+/** A typed result for a task: { right, exam }. Only the result is typed, never the working. */
+handle("task:check", (id, taskId, typed) => {
+  if (typeof taskId !== "string") throw coded("unknown");
+  const value = Number.isInteger(typed) ? typed : String(typed ?? "").slice(0, 400);
+  let right = null;
+  const exam = store.change(id, (e) => (right = tasks.answer(e, taskId, value, today())));
+  if (right === null) throw coded("unknown");
+  return { right, exam: decorate(store.view(exam)) };
 });
 
 // ------------------------------------------------ the final exam, and questions on a topic
@@ -1214,6 +1285,7 @@ function settle(e, key, result) {
   if (at >= 0) e.results[at] = entry;
   else e.results.push(entry);
   if (first && set.stepId) e.done[set.stepId] = { date: today(), minutes: Math.max(5, set.questions.length * 2), at: Date.now() };
+  delete e.floor;
   // A topic that is no longer weak (a mark was put right) leaves the list again, with its ticks.
   for (const a of e.again.filter((x) => x.from === key && !result.weak.includes(x.topicId))) for (const step of a.steps) delete e.done[step.id];
   e.again = e.again.filter((x) => x.from !== key || result.weak.includes(x.topicId));

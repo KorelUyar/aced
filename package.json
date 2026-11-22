@@ -1,7 +1,7 @@
 {
   "name": "aced",
   "productName": "Aced",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Know exactly what to do before your exam: one list from your own book, with the book beside it",
   "main": "main.js",
   "author": "Korel Uyar",

@@ -259,10 +259,16 @@ function numbersRight(typed, expected, tolerance = 0) {
   });
 }
 
+/** Several numbers in their order: a point "(2 | -3)" is not "(-3 | 2)". */
+function numbersInOrder(typed, expected, tolerance = 0) {
+  if (expected.length === 1) return numberRight(typed, expected[0], tolerance);
+  return pieces(typed, expected.length).some((way) => way.every((piece, i) => numberRight(piece, expected[i], tolerance)));
+}
+
 /** How a number is shown as the expected result: no trailing noise, at most six decimals. */
 function show(value) {
   if (!Number.isFinite(value)) return "";
   return String(Math.round(value * 1e6) / 1e6);
 }
 
-module.exports = { readings, numberRight, numbersRight, show };
+module.exports = { readings, numberRight, numbersRight, numbersInOrder, show };

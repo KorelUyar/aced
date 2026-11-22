@@ -1,0 +1,218 @@
+// A small, safe reader for maths typed as a result ("2x^2 - 4x + 1", "(x-2)^2 - 3", "sqrt(2)/2"):
+// its own tokenizer and parser, never eval or new Function. Two expressions are the same when they
+// give the same value at a few random points: "x^2-4x+1" and "(x-2)^2-3" are equal, "x^2+4x+1"
+// is not.
+
+const FUNCTIONS = {
+  sqrt: Math.sqrt,
+  abs: Math.abs,
+  sin: Math.sin,
+  cos: Math.cos,
+  tan: Math.tan,
+  ln: Math.log,
+  log: Math.log10,
+  exp: Math.exp,
+};
+const CONSTANTS = { pi: Math.PI, π: Math.PI, e: Math.E };
+const MOST = 400; // characters: a result, not an essay
+
+/** Tokens: numbers, names, operators and brackets. Returns null for anything else. */
+function tokens(text) {
+  const src = String(text)
+    .replace(/[−–]/g, "-")
+    .replace(/[·×]/g, "*")
+    .replace(/÷/g, "/")
+    .replace(/²/g, "^2")
+    .replace(/³/g, "^3")
+    .replace(/√/g, "sqrt")
+    .replace(/\\left|\\right/g, "")
+    .replace(/\\cdot|\\times/g, "*")
+    .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "(($1)/($2))")
+    .replace(/\\sqrt\{([^{}]*)\}/g, "sqrt($1)")
+    .replace(/\\pi/g, "pi")
+    .replace(/[{}]/g, (b) => (b === "{" ? "(" : ")"))
+    .replace(/\$/g, "");
+  if (src.length > MOST) return null;
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (/\s/.test(c)) {
+      i++;
+      continue;
+    }
+    const num = /^(\d+(?:[.,]\d+)?|[.,]\d+)/.exec(src.slice(i));
+    if (num) {
+      out.push({ t: "num", v: Number(num[1].replace(",", ".")) });
+      i += num[1].length;
+      continue;
+    }
+    const name = /^[a-zA-Zπ]+/.exec(src.slice(i));
+    if (name) {
+      // "sqrtx" or "2pix": a known function or constant at the start, then single letters.
+      let word = name[0];
+      while (word) {
+        const fn = Object.keys(FUNCTIONS).find((f) => word.startsWith(f));
+        const k = !fn && Object.keys(CONSTANTS).find((f) => word.startsWith(f) && f !== "e");
+        if (fn) {
+          out.push({ t: "fn", v: fn });
+          word = word.slice(fn.length);
+        } else if (k) {
+          out.push({ t: "const", v: k });
+          word = word.slice(k.length);
+        } else {
+          out.push({ t: "name", v: word[0] });
+          word = word.slice(1);
+        }
+      }
+      i += name[0].length;
+      continue;
+    }
+    if ("+-*/^()".includes(c)) {
+      out.push({ t: c });
+      i++;
+      continue;
+    }
+    return null;
+  }
+  return out;
+}
+
+/**
+ * Parses into a tree. Grammar: sum = product (("+"|"-") product)*; product = unary (("*"|"/"|implicit) unary)*;
+ * unary = ("-"|"+") unary | power; power = atom ("^" unary)?; atom = number | name | fn atom | "(" sum ")".
+ */
+function parse(list) {
+  let i = 0;
+  const peek = () => list[i];
+  const take = (t) => (list[i] && list[i].t === t ? list[i++] : null);
+  let depth = 0;
+  const sum = () => {
+    if (++depth > 60) throw new Error("deep");
+    let left = product();
+    for (;;) {
+      if (take("+")) left = ["+", left, product()];
+      else if (take("-")) left = ["-", left, product()];
+      else break;
+    }
+    depth--;
+    return left;
+  };
+  const startsAtom = (tok) => tok && (tok.t === "num" || tok.t === "name" || tok.t === "const" || tok.t === "fn" || tok.t === "(");
+  const product = () => {
+    let left = unary();
+    for (;;) {
+      if (take("*")) left = ["*", left, unary()];
+      else if (take("/")) left = ["/", left, unary()];
+      else if (startsAtom(peek())) left = ["*", left, power()]; // 2x, 3(x+1), (x+1)(x-1)
+      else break;
+    }
+    return left;
+  };
+  const unary = () => {
+    if (take("-")) return ["neg", unary()];
+    if (take("+")) return unary();
+    return power();
+  };
+  const power = () => {
+    const base = atom();
+    if (take("^")) return ["^", base, unary()];
+    return base;
+  };
+  const atom = () => {
+    const tok = list[i++];
+    if (!tok) throw new Error("end");
+    if (tok.t === "num") return ["num", tok.v];
+    if (tok.t === "name") return ["var", tok.v];
+    if (tok.t === "const") return ["num", CONSTANTS[tok.v]];
+    if (tok.t === "fn") return ["fn", tok.v, power()];
+    if (tok.t === "(") {
+      const inner = sum();
+      if (!take(")")) throw new Error("bracket");
+      return inner;
+    }
+    throw new Error("token");
+  };
+  const tree = sum();
+  if (i !== list.length) throw new Error("rest");
+  return tree;
+}
+
+function evaluate(tree, vars) {
+  const [op, a, b] = tree;
+  switch (op) {
+    case "num":
+      return a;
+    case "var":
+      return a === "e" ? Math.E : Object.prototype.hasOwnProperty.call(vars, a) ? vars[a] : NaN;
+    case "neg":
+      return -evaluate(a, vars);
+    case "fn":
+      return FUNCTIONS[a](evaluate(b, vars));
+    case "+":
+      return evaluate(a, vars) + evaluate(b, vars);
+    case "-":
+      return evaluate(a, vars) - evaluate(b, vars);
+    case "*":
+      return evaluate(a, vars) * evaluate(b, vars);
+    case "/":
+      return evaluate(a, vars) / evaluate(b, vars);
+    case "^":
+      return Math.pow(evaluate(a, vars), evaluate(b, vars));
+    default:
+      return NaN;
+  }
+}
+
+const namesOf = (tree, out = new Set()) => {
+  if (tree[0] === "var" && tree[1] !== "e") out.add(tree[1]);
+  for (const x of tree.slice(1)) if (Array.isArray(x)) namesOf(x, out);
+  return out;
+};
+
+/** The tree of a typed expression, or null. "f(x) = …" and "y = …" count as what is after "=". */
+function read(text) {
+  const right = String(text || "").split("=").pop();
+  const list = tokens(right);
+  if (!list || !list.length) return null;
+  try {
+    return parse(list);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether `typed` is the same expression as `expected`: the same value at eight random points,
+ * within a millionth. Variables are the letters in either; a point where the expected value is
+ * not a number (division by zero, a root of a negative) is skipped.
+ */
+function same(typed, expected) {
+  const a = read(typed);
+  const b = read(expected);
+  if (!a || !b) return false;
+  const names = [...new Set([...namesOf(a), ...namesOf(b)])];
+  if (names.length > 4) return false;
+  let compared = 0;
+  // A fixed sequence of points: the same answer is always judged the same way.
+  let seed = 7;
+  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 6 - 3;
+  for (let k = 0; k < 40 && compared < 8; k++) {
+    const vars = Object.fromEntries(names.map((n) => [n, Math.round(random() * 1000) / 1000 || 0.37]));
+    const x = evaluate(b, vars);
+    if (!Number.isFinite(x)) continue;
+    const y = evaluate(a, vars);
+    if (!Number.isFinite(y) || Math.abs(x - y) > 1e-6 * Math.max(1, Math.abs(x))) return false;
+    compared++;
+  }
+  return compared >= 4;
+}
+
+/** The value of a typed expression without variables ("3/4 + 1/8", "sqrt(2)/2"), or NaN. */
+function value(text) {
+  const tree = read(text);
+  if (!tree || namesOf(tree).size) return NaN;
+  return evaluate(tree, {});
+}
+
+module.exports = { same, value, read };

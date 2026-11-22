@@ -324,10 +324,69 @@ async function analyze(exam, { today, daysLeft, minutesTotal, minutesPerDay, sol
   };
 }
 
+// ------------------------------------------------------------ summaries
+
+const SUMMARY_CHARS = 120000; // the pages one topic's summary is written from (about 36k tokens)
+
+/**
+ * The summary of one topic: the core of its pages in brief, one worked example, what to do, and
+ * where the details are. Written from the topic's own pages (what it says to read and the pages
+ * of its exercises) and the learning objectives, nothing else. One request.
+ */
+async function writeSummary(exam, topicId, { onUsage, onKey, signal } = {}) {
+  const s = exam.strategy;
+  const topic = s.topics.find((t) => t.id === topicId);
+  if (!topic) throw coded("unknown");
+  const g = gather(exam);
+  const selection = topicPages(exam, [topic], g.sources, [], SUMMARY_CHARS);
+  if (![...selection.values()].some((pages) => pages.length)) throw coded("noPages");
+  const solve = topic.steps.filter((st) => st.kind === "solve");
+  const exercises = solve
+    .map((st) => {
+      const src = g.sources.find((x) => x.m.id === st.material);
+      return src ? `book ${src.n} page ${st.page}: ${st.labels.join(", ")}` : "";
+    })
+    .filter(Boolean)
+    .join("; ");
+  const raw = await ai.ask(
+    {
+      name: "summary",
+      system: P.SYSTEM,
+      material: material(g.objectives, pagesBlock(g.sources, selection)),
+      prompt: P.summaryTask({ exam, topic, objectives: topic.objectives.map((i) => s.objectives[i]).filter(Boolean), exercises }),
+      schema: P.SUMMARY,
+      maxTokens: 8000,
+      effort: "medium",
+      usable: (v) => (v.core.length ? "" : "no core"),
+    },
+    { signal, onUsage, onKey },
+  );
+  const bySource = new Map(g.sources.map((src) => [src.n, src]));
+  const shown = (n, p) => (selection.get(n) || []).includes(p);
+  const line = (x, max) => String(x || "").replace(/\s+/g, " ").trim().slice(0, max);
+  const ex = raw.example || {};
+  return {
+    core: raw.core.map((x) => line(x, 600)).filter(Boolean).slice(0, 8),
+    example: ex.task && ex.result ? { task: line(ex.task, 600), steps: (ex.steps || []).map((x) => line(x, 400)).filter(Boolean).slice(0, 6), result: line(ex.result, 300) } : null,
+    todo: raw.todo.map((x) => line(x, 300)).filter(Boolean).slice(0, 4),
+    // A page the model was never shown is a guess: it is left out.
+    pages: raw.pages
+      .map((r) => {
+        const src = bySource.get(r.book);
+        const from = Math.min(r.from, r.to);
+        const to = Math.max(r.from, r.to);
+        return src && shown(r.book, from) && shown(r.book, to) ? { material: src.m.id, from, to, what: line(r.what, 120) } : null;
+      })
+      .filter(Boolean)
+      .slice(0, 3),
+    model: ai.config().model,
+  };
+}
+
 // ------------------------------------------------------------ quizzes
 
 /** The pages a topic's quiz is written from: what it tells the student to read and solve. */
-function topicPages(exam, topics, sources, extraKinds = []) {
+function topicPages(exam, topics, sources, extraKinds = [], limit = QUIZ_CHARS) {
   const byId = new Map(sources.map((s) => [s.m.id, s]));
   const selection = new Map();
   const add = (s, p) => {
@@ -347,7 +406,7 @@ function topicPages(exam, topics, sources, extraKinds = []) {
   if (!selection.size) for (const shown of exam.strategy.shown || []) shown.pages.forEach((p) => add(byId.get(shown.material), p));
   for (const s of sources) if (extraKinds.includes(s.m.kind) && s.m.chars <= SMALL_SOURCE) allPages(s).forEach((p) => add(s, p));
   // Keep within the budget, page by page in book order.
-  let room = QUIZ_CHARS;
+  let room = limit;
   const out = new Map();
   for (const s of sources) {
     const pages = [...(selection.get(s.n) || [])].sort((a, b) => a - b).filter((p) => {
@@ -635,4 +694,4 @@ async function help(exam, question, { earlier = [], now = "" } = {}, { onUsage, 
   };
 }
 
-module.exports = { estimate, analyze, writeQuestions, mark, writeFormulas, help, findLabel, checkExercise, gather };
+module.exports = { estimate, analyze, writeSummary, writeQuestions, mark, writeFormulas, help, findLabel, checkExercise, gather };

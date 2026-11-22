@@ -34,11 +34,89 @@ function topic(id, title, share, why, skipCost, objectives, steps, material) {
   };
 }
 
+// What the AI writes per topic since 0.6: the core of its pages, an example, what to do, and
+// where the details are. Invented for the sample, like the book it names.
+const summary = (core, example, todo, pages) => ({ core, example: example && { task: example[0], steps: example[1], result: example[2] }, todo, pages: pages.map(([from, to, what]) => ({ material: "m1", from, to, what })), model: "sample", made: inDays(-1) });
+
+const SUMMARIES = {
+  t1: summary(
+    [
+      "Die Scheitelpunktform lautet $f(x) = a(x - d)^2 + e$. Der Scheitelpunkt ist $S(d \\mid e)$.",
+      "$a$ bestimmt die Form: $a > 0$ öffnet nach oben, $a < 0$ nach unten. Mit $|a| > 1$ ist die Parabel schmaler, mit $|a| < 1$ breiter als die Normalparabel.",
+      "Von der Normalform zur Scheitelpunktform mit quadratischer Ergänzung: $x^2 + px = \\left(x + \\tfrac{p}{2}\\right)^2 - \\left(\\tfrac{p}{2}\\right)^2$.",
+      "Vorsicht beim Vorzeichen: Bei $(x - 3)^2$ liegt der Scheitelpunkt bei $x = 3$, bei $(x + 3)^2$ bei $x = -3$.",
+      "Steht vor $x^2$ eine Zahl, klammere sie zuerst aus: $2x^2 - 8x = 2(x^2 - 4x)$.",
+    ],
+    ["Bringe $f(x) = x^2 - 6x + 5$ in die Scheitelpunktform.", ["$x^2 - 6x = (x - 3)^2 - 9$", "$f(x) = (x - 3)^2 - 9 + 5 = (x - 3)^2 - 4$"], "$S(3 \\mid -4)$, die Parabel ist nach oben geöffnet"],
+    ["Lies die quadratische Ergänzung oben und das Beispiel einmal genau durch.", "Löse die Aufgaben 4, 5 und 7 auf S. 92 und gib jeweils den Scheitelpunkt ein.", "Zeichne die Parabel aus Aufgabe 11 auf S. 93 vom Scheitelpunkt aus."],
+    [[88, 89, "Scheitelpunktform und quadratische Ergänzung"], [90, 91, "Parabeln zeichnen"]],
+  ),
+  t2: summary(
+    [
+      "Nullstellen sind die $x$ mit $f(x) = 0$: Dort schneidet die Parabel die $x$-Achse.",
+      "Für $ax^2 + bx + c = 0$ gilt die Mitternachtsformel $x_{1,2} = \\dfrac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$.",
+      "Bring die Gleichung zuerst auf die Form $ax^2 + bx + c = 0$ und lies $a$, $b$ und $c$ mit ihren Vorzeichen ab.",
+      "Fehlt $c$, geht Ausklammern schneller: $x(ax + b) = 0$ gibt $x_1 = 0$ und $x_2 = -\\tfrac{b}{a}$.",
+    ],
+    ["Löse $2x^2 - 8x + 6 = 0$.", ["$a = 2,\\ b = -8,\\ c = 6$", "$b^2 - 4ac = 64 - 48 = 16$", "$x_{1,2} = \\dfrac{8 \\pm 4}{4}$"], "$x_1 = 3,\\ x_2 = 1$"],
+    ["Schreib die Mitternachtsformel einmal auswendig auf.", "Löse die Aufgaben 2, 3 und 6 auf S. 99.", "Prüfe jede Lösung durch Einsetzen."],
+    [[96, 97, "Die Mitternachtsformel"], [98, 98, "Beispiele"]],
+  ),
+  t3: summary(
+    [
+      "Lies zuerst die Frage: Was gesucht ist, wird dein $x$.",
+      "Übersetze den Text Satz für Satz in eine Gleichung, zum Beispiel Fläche $=$ Länge $\\cdot$ Breite.",
+      "Bring die Gleichung auf $ax^2 + bx + c = 0$ und löse sie mit der Mitternachtsformel.",
+      "Prüfe, welche Lösung zur Aufgabe passt: Negative Längen oder Zeiten fallen weg.",
+    ],
+    ["Ein Rechteck ist 3 cm länger als breit und hat 40 cm² Fläche. Wie breit ist es?", ["$x(x + 3) = 40$", "$x^2 + 3x - 40 = 0$", "$x_1 = 5,\\ x_2 = -8$"], "5 cm breit ($-8$ fällt weg)"],
+    ["Löse Aufgabe 1 auf S. 106 Schritt für Schritt wie im Beispiel.", "Löse Aufgabe 4 und prüfe, welche Lösung passt."],
+    [[104, 105, "So gehst du bei Textaufgaben vor"]],
+  ),
+  t4: summary(
+    ["Die Diskriminante ist $D = b^2 - 4ac$, der Teil unter der Wurzel.", "$D > 0$: zwei Lösungen. $D = 0$: genau eine. $D < 0$: keine reelle Lösung.", "Für die Parabel heisst das: zwei, ein oder kein Schnittpunkt mit der $x$-Achse."],
+    ["Wie viele Lösungen hat $x^2 + 2x + 5 = 0$?", ["$D = 2^2 - 4 \\cdot 1 \\cdot 5 = -16$", "$D < 0$"], "keine reelle Lösung"],
+    ["Löse die Aufgaben 12 und 13 auf S. 100: nur $D$ berechnen und die Anzahl Lösungen angeben."],
+    [[98, 98, "Die Diskriminante"]],
+  ),
+  t5: summary(
+    ["Schnittpunkte findest du durch Gleichsetzen: $f(x) = g(x)$.", "Alles auf eine Seite bringen gibt eine quadratische Gleichung; ihre Lösungen sind die $x$ der Schnittpunkte.", "Die $y$ bekommst du durch Einsetzen in die einfachere Funktion, meist die Gerade.", "Die Diskriminante sagt, wie viele Schnittpunkte es gibt: zwei, einen (die Gerade berührt) oder keinen."],
+    ["Wo schneiden sich $f(x) = x^2$ und $g(x) = x + 2$?", ["$x^2 = x + 2$", "$x^2 - x - 2 = 0$", "$x_1 = 2,\\ x_2 = -1$"], "$S_1(2 \\mid 4)$ und $S_2(-1 \\mid 1)$"],
+    ["Löse die Aufgaben 3 und 5 auf S. 112.", "Gib jeden Schnittpunkt mit $x$ und $y$ an."],
+    [[110, 111, "Parabel und Gerade"]],
+  ),
+  t6: summary(
+    ["Für $x^2 + px + q = 0$ mit den Lösungen $x_1$ und $x_2$ gilt: $x_1 + x_2 = -p$ und $x_1 \\cdot x_2 = q$.", "Damit prüfst du Lösungen oder errätst ganzzahlige Lösungen.", "Das gilt nur, wenn vor $x^2$ eine 1 steht: Teile sonst zuerst durch $a$."],
+    ["Errate die Lösungen von $x^2 - 5x + 6 = 0$.", ["Gesucht: Summe 5, Produkt 6", "$2 + 3 = 5$ und $2 \\cdot 3 = 6$"], "$x_1 = 2,\\ x_2 = 3$"],
+    ["Löse die Aufgaben 2 und 4 auf S. 103 mit Vieta.", "Prüfe die Lösungen durch Einsetzen."],
+    [[101, 102, "Der Satz von Vieta"]],
+  ),
+};
+
+// The book's exercises as tasks in the app since 0.6: the text as printed, the result, a hint and
+// the worked solution. Invented for the sample, like the book.
+const task = (id, step, page, label, prompt, result, hint, solution, minutes = 5) => ({ id, step, material: "m1", page, label, prompt, figure: null, ...result, hint, solution, checked: "book", variant: false, minutes });
+const TASKS = {
+  t1: [
+    task("t1/s0/4", "t1/s0", 92, "4", "Bestimme den Scheitelpunkt der Parabel $f(x) = x^2 - 4x + 1$.", { type: "numbers", values: [2, -3], ordered: true, tolerance: 0, answer: "$S(2 \\mid -3)$" }, "Ergänze quadratisch: $x^2 - 4x = (x - 2)^2 - 4$.", ["$f(x) = (x - 2)^2 - 4 + 1$", "$f(x) = (x - 2)^2 - 3$", "Scheitelpunkt $S(2 \\mid -3)$"]),
+    task("t1/s0/5", "t1/s0", 92, "5", "Bestimme den Scheitelpunkt der Parabel $f(x) = x^2 + 6x + 4$.", { type: "numbers", values: [-3, -5], ordered: true, tolerance: 0, answer: "$S(-3 \\mid -5)$" }, "Die Hälfte von 6 ist 3: $x^2 + 6x = (x + 3)^2 - 9$.", ["$f(x) = (x + 3)^2 - 9 + 4$", "$f(x) = (x + 3)^2 - 5$", "Scheitelpunkt $S(-3 \\mid -5)$"]),
+    task("t1/s0/7", "t1/s0", 92, "7", "Bestimme den Scheitelpunkt der Parabel $f(x) = 2x^2 - 8x + 3$.", { type: "numbers", values: [2, -5], ordered: true, tolerance: 0, answer: "$S(2 \\mid -5)$" }, "Klammere zuerst die 2 aus: $2x^2 - 8x = 2(x^2 - 4x)$.", ["$f(x) = 2(x^2 - 4x) + 3$", "$f(x) = 2\\left((x - 2)^2 - 4\\right) + 3$", "$f(x) = 2(x - 2)^2 - 5$", "Scheitelpunkt $S(2 \\mid -5)$"], 7),
+    task("t1/s1/11", "t1/s1", 93, "11", "Zeichne die Parabel $f(x) = (x - 1)^2 - 2$ in ein Koordinatensystem. Wo schneidet sie die $y$-Achse?", { type: "number", value: -1, tolerance: 0, answer: "$y = -1$" }, "Die $y$-Achse ist $x = 0$: Setze $0$ ein.", ["Scheitelpunkt $S(1 \\mid -2)$, nach oben geöffnet", "$f(0) = (0 - 1)^2 - 2 = 1 - 2$", "Schnittpunkt mit der $y$-Achse: $(0 \\mid -1)$"], 8),
+  ],
+  t2: [
+    task("t2/s0/2", "t2/s0", 99, "2", "Löse die Gleichung $x^2 - 7x + 12 = 0$.", { type: "numbers", values: [3, 4], tolerance: 0, answer: "$x_1 = 3,\\ x_2 = 4$" }, "$a = 1$, $b = -7$, $c = 12$; die Diskriminante ist $49 - 48 = 1$.", ["$x_{1,2} = \\dfrac{7 \\pm \\sqrt{1}}{2}$", "$x_1 = 4,\\ x_2 = 3$"]),
+    task("t2/s0/3", "t2/s0", 99, "3", "Löse die Gleichung $2x^2 + 3x - 2 = 0$.", { type: "numbers", values: [0.5, -2], tolerance: 0.005, answer: "$x_1 = 0.5,\\ x_2 = -2$" }, "$b^2 - 4ac = 9 + 16 = 25$.", ["$x_{1,2} = \\dfrac{-3 \\pm 5}{4}$", "$x_1 = \\tfrac{1}{2},\\ x_2 = -2$"]),
+    task("t2/s0/6", "t2/s0", 99, "6", "Wie viele Lösungen hat $x^2 - 6x + 9 = 0$?", { type: "choice", choices: ["Keine", "Genau eine", "Zwei"], correct: 1, answer: "Genau eine" }, "Berechne die Diskriminante $b^2 - 4ac$.", ["$D = 36 - 36 = 0$", "$D = 0$: genau eine Lösung, $x = 3$"], 3),
+  ],
+};
+
 const empty = () => ({ done: {}, sets: {}, again: [], results: [], usage: { input: 0, cached: 0, output: 0, cost: 0 } });
 const formula = (name, latex, note, page) => ({ name, latex, note, material: "m1", page });
 
 function exams(lang = "en") {
   const list = sampleExams(lang);
+  // The maths exam has its summaries and tasks (ACED_SAMPLE_OLD=1: as an exam from before 0.6).
+  if (!process.env.ACED_SAMPLE_OLD) for (const t of list[0].strategy.topics) Object.assign(t, { summary: SUMMARIES[t.id], tasks: TASKS[t.id] || [] });
   // ACED_SAMPLE_SHARED=1 (pictures of 0.5): the first exam as a friend sees it after opening
   // the Aced file someone shared: no ticks or results, and the book still to be added.
   if (process.env.ACED_SAMPLE_SHARED === "1") {

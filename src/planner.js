@@ -47,15 +47,38 @@ const reaches = (scale, grade, target) => (scale === "de" ? grade <= target : gr
 
 const minutesOf = (steps) => steps.reduce((sum, s) => sum + s.minutes, 0);
 
+const SUMMARY_MINUTES = 3;
+const PAGE_MINUTES = 4; // reading one page that matters, slowly
+
 /**
- * The steps of a topic that go on the list: what to read and which exercises to solve. Only a
- * topic whose book has no exercises gets questions written by the AI instead.
+ * The steps of a topic that go on the list. A topic with a summary starts with it (about three
+ * minutes, instead of its pages). Then, by pace:
+ * - "efficient": the summary, the exercises, then the check (questions on the topic). No reading:
+ *   the pages stay a link in the summary.
+ * - "sprint": the summary and the exercises; questions only where the book has no exercises.
+ * - "thorough": the summary, then only the pages it names as the ones that matter, the exercises
+ *   and the check.
+ * A step that was ticked off stays on the list whatever the pace: done work is never taken away.
+ * A topic without a summary (an exam from before Aced 0.6, until it has one) keeps its steps:
+ * what to read, which exercises to solve, and questions where the book has no exercises.
  */
-function workOf(topic) {
-  const work = topic.steps.filter((s) => s.kind === "read" || s.kind === "solve");
-  if (work.some((s) => s.kind === "solve")) return work;
-  const questions = topic.steps.find((s) => s.kind === "quiz");
-  return questions ? [...work, questions] : work;
+function workOf(topic, pace = "thorough", done = {}) {
+  const ticked = (st) => Boolean(tickOf(done, st.id));
+  const reads = topic.steps.filter((s) => s.kind === "read");
+  const solve = topic.steps.filter((s) => s.kind === "solve");
+  const quiz = topic.steps.find((s) => s.kind === "quiz");
+  if (!topic.summary) return [...reads, ...solve, ...(quiz && !solve.length ? [quiz] : [])];
+  const summary = { id: `${topic.id}/sum`, kind: "summary", minutes: SUMMARY_MINUTES };
+  let reading = reads.filter(ticked);
+  if (pace === "thorough") {
+    const key = topic.summary.pages || [];
+    reading =
+      reading.length || !key.length
+        ? reads
+        : key.map((r, i) => ({ id: `${topic.id}/k${i}`, kind: "read", material: r.material, from: r.from, to: r.to, chapter: r.what || "", minutes: Math.max(3, (r.to - r.from + 1) * PAGE_MINUTES), key: true }));
+  }
+  const check = quiz && (pace !== "sprint" || !solve.length || ticked(quiz)) ? [quiz] : [];
+  return [summary, ...reading, ...solve, ...check];
 }
 
 function buildPlan(exam, today) {
@@ -78,14 +101,14 @@ function buildPlan(exam, today) {
   const totalLeft = left.reduce((a, b) => a + b, 0);
 
   // What stays and what is left out.
-  const density = (t) => t.share / Math.max(5, minutesOf(workOf(t)));
+  const density = (t) => t.share / Math.max(5, minutesOf(workOf(t, exam.pace, done)));
   const need = targetScore(exam.scale, exam.target);
   let room = totalLeft;
   let covered = 0;
   const kept = new Set();
   const dropped = [];
   for (const t of [...s.topics].sort((a, b) => density(b) - density(a))) {
-    const work = workOf(t);
+    const work = workOf(t, exam.pace, done);
     const open = work.filter((st) => !tickOf(done, st.id));
     const remaining = minutesOf(open);
     const started = open.length < work.length;
@@ -118,7 +141,7 @@ function buildPlan(exam, today) {
   });
   const stages = [];
   const ordered = s.topics.map((t, i) => ({ t, i })).filter((x) => kept.has(x.t.id)).sort((a, b) => (a.t.order ?? 9999) - (b.t.order ?? 9999) || a.i - b.i);
-  for (const { t } of ordered) stages.push({ id: t.id, topicId: t.id, title: t.title, again: false, tasks: workOf(t).map((step) => task(t, step, false)) });
+  for (const { t } of ordered) stages.push({ id: t.id, topicId: t.id, title: t.title, again: false, tasks: workOf(t, exam.pace, done).map((step) => task(t, step, false)) });
   for (const a of exam.again || []) {
     const t = byId.get(a.topicId);
     if (t && a.steps.length) stages.push({ id: a.id, topicId: t.id, title: t.title, again: true, score: a.score ?? null, tasks: a.steps.map((step) => task(t, step, true)) });
@@ -141,6 +164,14 @@ function buildPlan(exam, today) {
 
   const open = tasks.filter((t) => !t.done);
   const allMinutes = minutesOf(tasks) || 1;
+  // A step whose tasks are partly right in the app counts for that part.
+  const results = exam.taskResults || {};
+  const ofStep = (t) => (s.topics.find((x) => x.id === t.topicId)?.tasks || []).filter((x) => (t.step.tasks ? t.step.tasks.includes(x.id) : x.step === t.id));
+  const partly = (t) => {
+    const list = t.kind === "solve" ? ofStep(t) : [];
+    return list.length ? (list.filter((x) => (tickOf(results, x.id) || {}).right).length / list.length) * t.minutes : 0;
+  };
+  const openMinutes = open.reduce((sum, t) => sum + t.minutes - partly(t), 0);
   const weight = s.topics.reduce((sum, t) => sum + t.share, 0) || 1;
   const coverage = clamp((weight - dropped.reduce((sum, d) => sum + d.share, 0)) / weight);
   const todayOpen = open.filter((t) => t.today);
@@ -152,7 +183,9 @@ function buildPlan(exam, today) {
     available: totalLeft,
     planned: minutesOf(open),
     // How much of the plan is done, by minutes: a long exercise set counts for more than a short page.
-    percent: tasks.length && !open.length ? 100 : Math.min(99, Math.round(((allMinutes - minutesOf(open)) / allMinutes) * 100)),
+    // An exam from before Aced 0.6 got summaries and other steps: until the next tick, it shows
+    // no less than it did (`floor`), so the new steps never look like lost progress.
+    percent: tasks.length && !open.length ? 100 : Math.min(99, Math.max(exam.floor || 0, Math.round(((allMinutes - openMinutes) / allMinutes) * 100))),
     next: open.length ? open[0].id : null,
     today: { steps: todayOpen.length, minutes: minutesOf(todayOpen), end: todayOpen.length && todayOpen.length < open.length ? todayOpen[todayOpen.length - 1].id : null },
     coverage,

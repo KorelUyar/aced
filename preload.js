@@ -98,8 +98,12 @@ contextBridge.exposeInMainWorld("aced", {
   addHanded: (token, id) => call("files:handed", token, id),
 
   formulas: (id) => call("formulas", id),
+  // The summary of every topic that has none yet (an exam made before Aced 0.6, or a shared one).
+  summaries: (id) => call("summaries", id),
   help: (id, question, context) => call("help", id, question, context),
   taskDone: (id, taskId) => call("task:done", id, taskId),
+  // A result typed for one of the book's exercises in the app: { right, exam }.
+  checkTask: (id, taskId, typed) => call("task:check", id, taskId, typed),
   taskUndo: (id, taskId) => call("task:undo", id, taskId),
   openSet: (id, what) => call("set:open", id, what),
   saveDraft: (id, key, draft) => call("set:draft", id, key, draft),

@@ -72,6 +72,14 @@ const FORMULAS = obj({
 
 const HELP = obj({ answer: str, pages: list(obj({ book: int, page: int, what: str })) });
 
+// What a student needs from a topic's pages, to learn from instead of reading them.
+const SUMMARY = obj({
+  core: list(str),
+  example: obj({ task: str, steps: list(str), result: str }),
+  todo: list(str),
+  pages: list(obj({ book: int, from: int, to: int, what: str })),
+});
+
 const SCALE_WORDS = {
   ch: (g) => `a ${g} on the Swiss scale (1 to 6, 6 is best, 4 is a pass; grade = 1 + 5 x share of points)`,
   de: (g) => `a ${g} on the German scale (1 to 6, 1 is best, 4 is a pass)`,
@@ -110,6 +118,17 @@ From the material, work out what the exam will ask and what the student should d
 Include low-value topics too, with an honest small "share": the app decides what is dropped when time is short, and tells the student.${
     solved ? `\nThe student has already read parts of the book and solved these exercises: ${solved}. Where one of them still belongs in the plan, list it again with the same page and label: the app keeps it ticked off. Do not swap it for a similar exercise without a reason.` : ""
   }`;
+}
+
+function summaryTask({ exam, topic, objectives, exercises }) {
+  return `Task: the summary of one topic, to learn from instead of reading the pages.
+Exam: "${exam.name}". Topic: "${topic.title}".${objectives.length ? `\nThe student must be able to:\n${objectives.map((o) => `- ${o}`).join("\n")}` : ""}
+The material above holds the pages the student would otherwise read for this topic, and the pages of the exercises they will solve${exercises ? ` (${exercises})` : ""}. Write what the student needs from these pages to solve the exercises and the exam questions without reading the pages. Use only the material and the objectives above; add nothing from elsewhere.
+- "core": 4 to 8 short points with the key ideas, rules and formulas, each one or two sentences. Formulas in LaTeX between $ and $. Name a condition or a typical mistake where the pages do.
+- "example": one short worked example like the exercises, with its own numbers (not one of the student's exercises): "task" in one or two sentences, "steps" as 2 to 5 short lines, "result" in one line. If an example would not help for this topic, leave all three empty.
+- "todo": 2 to 4 concrete steps for this topic, in order, each a short sentence that starts with a verb, about the exercises above and the points in "core" (for example "Bring each equation into vertex form before you read off the vertex").
+- "pages": at most 3 page ranges that hold the details, each with what is there in a few words.
+All together it must read in 2 to 3 minutes: at most about 350 words.`;
 }
 
 function questionsTask({ topics, count, final, hasOldExam, variant, planned }) {
@@ -195,4 +214,4 @@ const SEE = obj({ text: str });
 const seeTask = (n, total) =>
   `This is page ${n} of ${total} of one document. Write down everything on it as the rules say. Answer with JSON: {"text": "..."}.`;
 
-module.exports = { SEE_SYSTEM, SEE, seeTask, SYSTEM, LOCATE, STRATEGY, QUESTIONS, GRADE, FORMULAS, HELP, locateTask, strategyTask, questionsTask, gradeTask, formulasTask, helpTask };
+module.exports = { SEE_SYSTEM, SEE, seeTask, SYSTEM, LOCATE, STRATEGY, QUESTIONS, GRADE, FORMULAS, HELP, SUMMARY, locateTask, strategyTask, summaryTask, questionsTask, gradeTask, formulasTask, helpTask };

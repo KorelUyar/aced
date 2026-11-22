@@ -10,8 +10,19 @@ import { Problem } from "./claude.js";
 const api = window.aced;
 export const PANELS = ["book", "formulas"];
 
+/** "p. 88" or "p. 88–91" in a material. */
+const pagesText = (m, from, to) => (from === to ? t("page", printed(m, from)) : t("pages", printed(m, from), printed(m, to)));
+
 /** "Read p. 392–396" or "Solve p. 405: 7, 9, 13": what a step asks for, with its place in the book. */
 function stepText(step, exam) {
+  if (step.kind === "summary") {
+    // Instead of which pages: the topic's own reading.
+    const topic = exam.strategy.topics.find((x) => step.id === x.id + "/sum");
+    const reads = topic ? topic.steps.filter((st) => st.kind === "read") : [];
+    const first = reads[0];
+    const last = reads[reads.length - 1];
+    return [t("doSummary"), first && first.material === last.material ? t("insteadOf", pagesText(materialOf(exam, first.material), first.from, last.to)) : t("summaryShort"), ""];
+  }
   const m = materialOf(exam, step.material);
   if (step.kind === "read") return [t("doRead"), step.from === step.to ? t("page", printed(m, step.from)) : t("pages", printed(m, step.from), printed(m, step.to)), step.chapter];
   if (step.kind === "solve") return [t(step.repeat ? "doSolveAgain" : "doSolve"), `${t("page", printed(m, step.page))}: ${step.labels.join(", ")}`, ""];
@@ -32,8 +43,11 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
   const [busy, setBusy] = useState(null);
   const [opened, setOpened] = useState(() => new Set()); // finished topics the person has unfolded again
   const [sheetError, setSheetError] = useState(null);
+  const [summaries, setSummaries] = useState({}); // topic id -> true (unfolded) or false (folded) by the person
+  const [practice, setPractice] = useState(null); // the solve step whose tasks are open in the app
   const grid = useRef(null);
   const asked = useRef(false);
+  const lacking = s.topics.filter((x) => !x.summary).length;
 
   const show = (materialId, page) => {
     if (!materialOf(exam, materialId) || materialOf(exam, materialId).type !== "pdf") return app.notify(t("noBookHere"));
@@ -60,6 +74,12 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
     setSheetError(null);
     api.formulas(exam.id).then(app.putExam, (err) => errorCode(err) !== "cancelled" && setSheetError(err));
   };
+  // The summary of every topic, for an exam that has none yet (made before Aced 0.6, or shared).
+  const makeSummaries = () => api.summaries(exam.id).then(app.putExam, (err) => errorCode(err) !== "cancelled" && app.fail(err));
+  const openSummary = (topicId) => {
+    setSummaries((old) => ({ ...old, [topicId]: true }));
+    setTimeout(() => grid.current && grid.current.querySelector(`[data-summary="${topicId}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 50);
+  };
   const toSettings = () => app.nav({ name: "settings", id: exam.id, from: { name: "exam", id: exam.id } });
   // The person's own copy of a book this shared exam names: chosen, or dropped on the book panel.
   const supply = (materialId, dropped) =>
@@ -72,12 +92,15 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
     // The step that is up is in view when the exam opens.
     const now = grid.current.querySelector(".step.now");
     if (now) now.scrollIntoView({ block: "nearest" });
-    // An exam from an earlier version has no formula sheet yet. With Claude Code it is written
-    // now, once; with a key it costs money, so the person starts it.
-    if (!exam.formulas && !run && !asked.current && !api.sample && app.ai.provider === "claudeCode") {
-      asked.current = true;
-      writeSheet();
-    }
+    if (run || asked.current || api.sample) return;
+    asked.current = true;
+    // An exam from before Aced 0.6 gets its summaries now, once (a shared one only when the
+    // person starts it: opening a shared file never asks an AI by itself). Then, an exam from an
+    // earlier version without a formula sheet: with Claude Code it is written now, once; with a
+    // key it costs money, so the person starts it.
+    const sheet = () => !exam.formulas && app.ai.provider === "claudeCode" && writeSheet();
+    if (lacking && !exam.shared) makeSummaries().then(sheet);
+    else sheet();
   }, []);
 
   const book = materialOf(exam, at.material) || exam.materials.find((m) => m.type === "pdf");
@@ -112,6 +135,13 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
           <p>${t("sharedNote", longDate(exam.shared.on, "short"))}${exam.materials.some((m) => m.missing) ? " " + t("sharedAddBooks", exam.materials.filter((m) => m.missing).map((m) => m.title)) : ""}</p>
           ${exam.materials.some((m) => m.missing) &&
           html`<div class="row-start"><button class="btn second" id="addCopy" disabled=${Boolean(run)} onClick=${() => supply(exam.materials.find((m) => m.missing).id)}>${t("addYourCopy")}</button></div>`}
+        </div>`}
+        ${exam.shared &&
+        lacking > 0 &&
+        !run &&
+        html`<div class="plan-note" role="note">
+          <p>${t("summariesShared")}</p>
+          <div class="row-start"><button class="btn second" id="makeSummaries" onClick=${makeSummaries}>${t("makeSummaries", lacking)}</button></div>
         </div>`}
         ${(exam.missing || s.stale) &&
         html`<p class="plan-note" role="note">
@@ -151,6 +181,19 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
               </header>
               ${!folded && stage.again && html`<p class="can short">${t("againWhy", Math.round((stage.score || 0) * 100))}</p>`}
               ${!folded &&
+              !stage.again &&
+              topic.summary &&
+              (summaries[topic.id] ?? current) &&
+              html`<${Summary}
+                exam=${exam}
+                topic=${topic}
+                task=${stage.tasks.find((task) => task.kind === "summary")}
+                show=${show}
+                tick=${tick}
+                busy=${busy}
+                fold=${() => setSummaries((old) => ({ ...old, [topic.id]: false }))}
+              />`}
+              ${!folded &&
               must.length > 0 &&
               (current
                 ? html`<div class="can">
@@ -186,7 +229,13 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
                   const questions = task.kind === "quiz";
                   const points = questions && exam.topicSets["topic:" + task.id + "#0"];
                   const gone = step.material && !materialOf(exam, step.material);
-                  const go = () => (questions ? app.nav({ name: "set", id: exam.id, what: { kind: "topic", stepId: task.id } }) : show(step.material, firstPage(step)));
+                  const inApp = step.kind === "solve" && tasksOf(exam, task).length > 0;
+                  const go = () =>
+                    questions
+                      ? app.nav({ name: "set", id: exam.id, what: { kind: "topic", stepId: task.id } })
+                      : step.kind === "summary"
+                        ? openSummary(task.topicId)
+                        : (show(step.material, firstPage(step)), inApp && setPractice(task));
                   const row = html`<li class=${"step" + (task.done ? " done" : "") + (isNext ? " now" : "") + (later ? " later" : "") + (questions ? " asks" : "")} key=${task.id}>
                     ${questions
                       ? html`<span class="mark" aria-hidden="true">${task.done && html`<${Icon} name="check" size=${14} />`}</span>`
@@ -198,6 +247,7 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
                       ${named && html`<small>${named}</small>`}
                       ${questions && html`<small>${points ? t("pointsOf", points.points, points.max) : t("fromAi")}</small>`}
                       ${gone && html`<small>${t("bookGone")}</small>`}
+                      ${inApp && !gone && html`<small>${t("tasksInApp", tasksOf(exam, task).filter((x) => ((exam.taskResults || {})[x.id] || {}).right).length, tasksOf(exam, task).length)}</small>`}
                     </button>
                     <span class="min num">${minutes(task.minutes)}</span>
                   </li>`;
@@ -223,6 +273,7 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
         </p>`}
       </div>
       ${helper && html`<${Helper} exam=${exam} next=${next} show=${show} talk=${talk} ask=${ask} close=${() => setHelper(false)} toSettings=${toSettings} />`}
+      ${practice && !helper && html`<${Tasks} exam=${exam} task=${practice} show=${show} close=${() => setPractice(null)} app=${app} />`}
     </div>
 
     ${panel &&
@@ -237,6 +288,170 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
         ${panel === "formulas" && html`<${Formulas} exam=${exam} run=${run} error=${sheetError} write=${writeSheet} show=${show} toSettings=${toSettings} app=${app} />`}
       </aside>`}
   </main>`;
+}
+
+/** The tasks in the app for a solve step of the plan (`task` is the plan's step). */
+const tasksOf = (exam, task) => {
+  const topic = exam.strategy.topics.find((x) => x.id === task.topicId);
+  return ((topic && topic.tasks) || []).filter((x) => (task.step.tasks ? task.step.tasks.includes(x.id) : x.step === task.id));
+};
+
+/**
+ * The book's exercises of one step, in the app, one at a time: the text as printed with a link to
+ * its page (the book beside it turns there), the result field, "Check", a hint, and the worked
+ * solution. Only the result is typed: the working is done on paper.
+ */
+function Tasks({ exam, task: step, show, close, app }) {
+  const list = tasksOf(exam, step);
+  const results = exam.taskResults || {};
+  const [at, setAt] = useState(() => Math.max(0, list.findIndex((x) => !(results[x.id] || {}).right)));
+  const [typed, setTyped] = useState({});
+  const [seen, setSeen] = useState({}); // id -> { verdict, hint, solution }
+  const [busy, setBusy] = useState(false);
+  const field = useRef(null);
+  const task = list[at];
+  const m = task && materialOf(exam, task.material);
+  const mark = (patch) => setSeen((old) => ({ ...old, [task.id]: { ...(old[task.id] || {}), ...patch } }));
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && close();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  useEffect(() => {
+    if (!task) return;
+    if (m && m.type === "pdf") show(task.material, task.page);
+    field.current && field.current.focus();
+  }, [at]);
+  if (!task) return null;
+  const state = seen[task.id] || {};
+  const value = typed[task.id];
+  const filled = task.type === "choice" ? Number.isInteger(value) : String(value || "").trim() !== "";
+  const check = () => {
+    if (!filled || busy) return;
+    setBusy(true);
+    api
+      .checkTask(exam.id, task.id, value)
+      .then(({ right, exam: next }) => {
+        app.putExam(next);
+        mark({ verdict: right ? "right" : "wrong" });
+      }, app.fail)
+      .finally(() => setBusy(false));
+  };
+  const type = (v) => {
+    setTyped((old) => ({ ...old, [task.id]: v }));
+    if (state.verdict) mark({ verdict: null });
+  };
+  const right = (results[task.id] || {}).right;
+  return html`<section class="drawer tasks view" aria-label=${t("tasksTitle")}>
+    <header class="side-head">
+      <strong>${t("doSolve")} ${t("page", printed(m, task.page))}</strong>
+      <span class="muted num task-count">${t("taskOf", at + 1, list.length)}</span>
+      <button class="mini" aria-label=${t("close")} title=${t("close")} onClick=${close}><${Icon} name="x" size=${14} /></button>
+    </header>
+    <div class="side-body task-body" key=${task.id}>
+      <button class="page-link task-source" onClick=${() => show(task.material, task.page)}>
+        ${task.variant ? t("variantOf", t("page", printed(m, task.page)), task.label) : t("fromBook", t("page", printed(m, task.page)), task.label)}
+      </button>
+      <p class="task-prompt"><${Rich} text=${task.prompt} /></p>
+      ${task.type === "choice"
+        ? html`<div class="choices" role="radiogroup" aria-label=${t("resultLabel")}>
+            ${task.choices.map(
+              (c, k) =>
+                html`<button class="choice" role="radio" aria-checked=${String(value === k)} onClick=${() => type(k)}>
+                  <i class="dot"></i><span><${Rich} text=${c} /></span>
+                </button>`,
+            )}
+          </div>`
+        : html`<label class="result-field">
+            <span>${t(task.type === "numbers" ? "resultsLabel" : "resultLabel")}</span>
+            <input
+              class="field"
+              ref=${field}
+              value=${value || ""}
+              placeholder=${t("taskPlaceholder_" + (task.type === "numbers" && task.ordered ? "point" : task.type))}
+              inputmode=${task.type === "expression" ? "text" : "decimal"}
+              spellcheck=${false}
+              autocomplete="off"
+              maxlength="400"
+              onInput=${(e) => type(e.target.value)}
+              onKeyDown=${(e) => e.key === "Enter" && check()}
+            />
+            ${task.unit && html`<span class="unit">${task.unit}</span>`}
+          </label>`}
+      ${state.verdict === "right" && html`<p class="verdict right" role="status"><${Icon} name="check" size=${14} /> ${t("taskRight")}</p>`}
+      ${state.verdict === "wrong" && html`<p class="verdict wrong" role="status">${t("taskWrong")}</p>`}
+      <div class="task-actions">
+        <button class="btn primary" id="checkTask" disabled=${!filled || busy} onClick=${check}>${t("checkResult")}</button>
+        ${task.hint && !state.hint && html`<button class="btn plain" id="taskHint" onClick=${() => mark({ hint: true })}>${t("hint")}</button>`}
+        ${!state.solution && html`<button class="btn plain" id="showSolution" onClick=${() => mark({ solution: true })}>${t("showSolution")}</button>`}
+      </div>
+      ${state.hint && html`<p class="task-hint"><span class="can-label">${t("hint")}</span><${Rich} text=${task.hint} /></p>`}
+      ${state.solution &&
+      html`<div class="task-solution">
+        <span class="can-label">${t("solution")}</span>
+        <ol>
+          ${task.solution.map((x) => html`<li><${Rich} text=${x} /></li>`)}
+        </ol>
+        <p class="summary-result"><b>${t("resultWord")}</b> <${Rich} text=${task.answer} /></p>
+        ${task.checked === "none" && html`<p class="muted task-unsure">${t("solutionUnsure")}</p>`}
+      </div>`}
+      <footer class="task-nav">
+        <button class="btn plain" disabled=${at === 0} onClick=${() => setAt(at - 1)}>${t("previous")}</button>
+        <span class="task-dots" aria-hidden="true">
+          ${list.map((x, i) => html`<i class=${(i === at ? "at " : "") + ((results[x.id] || {}).right ? "right" : (results[x.id] || {}).wrong ? "wrong" : "")}></i>`)}
+        </span>
+        <button class=${"btn " + (right ? "primary" : "plain")} id="nextTask" disabled=${at === list.length - 1} onClick=${() => setAt(at + 1)}>${t("nextTask")}</button>
+      </footer>
+    </div>
+  </section>`;
+}
+
+/**
+ * The summary of a topic, at its top: the core of its pages in brief, one worked example, what to
+ * do, and where the details are in the book. "Got it" ticks the summary step off.
+ */
+function Summary({ exam, topic, task, show, tick, busy, fold }) {
+  const sm = topic.summary;
+  const pages = sm.pages && sm.pages.length ? sm.pages : topic.steps.filter((st) => st.kind === "read").map((st) => ({ material: st.material, from: st.from, to: st.to, what: st.chapter }));
+  return html`<section class="summary-card" data-summary=${topic.id} aria-label=${t("summaryOf", topic.title)}>
+    <header class="summary-head">
+      <span class="can-label">${t("doSummary")}</span>
+      <small class="muted">${t("summaryRead")}</small>
+      <button class="mini" aria-label=${t("fold")} title=${t("fold")} onClick=${fold}><${Icon} name="x" size=${12} /></button>
+    </header>
+    <ul class="summary-core">
+      ${sm.core.map((x) => html`<li><${Rich} text=${x} /></li>`)}
+    </ul>
+    ${sm.example &&
+    html`<div class="summary-example">
+      <span class="can-label">${t("exampleLabel")}</span>
+      <p><${Rich} text=${sm.example.task} /></p>
+      <ol>
+        ${sm.example.steps.map((x) => html`<li><${Rich} text=${x} /></li>`)}
+      </ol>
+      <p class="summary-result"><b>${t("resultWord")}</b> <${Rich} text=${sm.example.result} /></p>
+    </div>`}
+    ${sm.todo.length > 0 &&
+    html`<div class="summary-todo">
+      <span class="can-label">${t("todoLabel")}</span>
+      <ol>
+        ${sm.todo.map((x) => html`<li><${Rich} text=${x} /></li>`)}
+      </ol>
+    </div>`}
+    <footer class="summary-foot">
+      ${pages.length > 0 &&
+      html`<div class="summary-pages">
+        <span class="muted">${t("detailsInBook")}</span>
+        ${pages.map(
+          (p) =>
+            html`<button class="page-link" onClick=${() => show(p.material, p.from)}>
+              <b>${pagesText(materialOf(exam, p.material), p.from, p.to)}</b> ${p.what}
+            </button>`,
+        )}
+      </div>`}
+      ${task && !task.done && html`<button class="btn second" id="summaryRead" disabled=${busy === task.id} onClick=${() => tick(task)}>${t("gotIt")}</button>`}
+    </footer>
+  </section>`;
 }
 
 /**
