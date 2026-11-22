@@ -53,8 +53,8 @@ const PAGE_MINUTES = 4; // reading one page that matters, slowly
 /**
  * The steps of a topic that go on the list. A topic with a summary starts with it (about three
  * minutes, instead of its pages). Then, by pace:
- * - "efficient": the summary, the exercises, then the check (questions on the topic). No reading:
- *   the pages stay a link in the summary.
+ * - "efficient": the summary, the exercises, then a short check (three questions on the topic).
+ *   No reading: the pages stay a link in the summary.
  * - "sprint": the summary and the exercises; questions only where the book has no exercises.
  * - "thorough": the summary, then only the pages it names as the ones that matter, the exercises
  *   and the check.
@@ -77,7 +77,8 @@ function workOf(topic, pace = "thorough", done = {}) {
         ? reads
         : key.map((r, i) => ({ id: `${topic.id}/k${i}`, kind: "read", material: r.material, from: r.from, to: r.to, chapter: r.what || "", minutes: Math.max(3, (r.to - r.from + 1) * PAGE_MINUTES), key: true }));
   }
-  const check = quiz && (pace !== "sprint" || !solve.length || ticked(quiz)) ? [quiz] : [];
+  const short = pace === "efficient" && solve.length && !ticked(quiz) ? { ...quiz, questions: Math.min(quiz.questions || 4, 3), minutes: 6 } : quiz;
+  const check = quiz && (pace !== "sprint" || !solve.length || ticked(quiz)) ? [short] : [];
   return [summary, ...reading, ...solve, ...check];
 }
 

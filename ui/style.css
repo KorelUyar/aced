@@ -3091,6 +3091,11 @@ select.field {
   color: var(--ink);
 }
 
+.task-form {
+  margin-top: -8px;
+  font-size: 13px;
+}
+
 .task-actions {
   display: flex;
   flex-wrap: wrap;

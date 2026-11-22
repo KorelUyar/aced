@@ -75,6 +75,8 @@ const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== und
  * The Aced file of an exam, as a Buffer. `chosen`: the ids of the material to send with it.
  * `pdfOf(material)` / `textOf(material)` give a material's PDF (Buffer) or its pages of text.
  */
+const TASK_FIELDS = ["id", "step", "material", "page", "label", "prompt", "figure", "type", "value", "values", "ordered", "tolerance", "unit", "choices", "correct", "expression", "answer", "form", "hint", "solution", "checked", "variant", "minutes"];
+
 /** Is this material a book (the one kind whose name goes along even when it stays home)? */
 const isBook = (m) => m.kind === "book" && m.from !== "pictures";
 
@@ -114,10 +116,17 @@ function pack(exam, { chosen = [], appVersion = "", pdfOf, textOf, probeOf, shar
   const s = exam.strategy;
   const strategy = s && {
     ...pick(s, ["createdOn", "approach", "objectives", "objectivesGuessed", "pagesRead"]),
-    topics: s.topics.map((t) => ({
-      ...pick(t, ["id", "title", "share", "why", "skipCost", "objectives", "order"]),
-      steps: t.steps.filter((st) => !st.material || kept.has(st.material)).map((st) => pick(st, ["id", "kind", "material", "from", "to", "chapter", "page", "labels", "minutes", "questions"])),
-    })),
+    topics: s.topics.map((t) => {
+      const steps = t.steps.filter((st) => !st.material || kept.has(st.material));
+      const stepIds = new Set(steps.map((st) => st.id));
+      return {
+        ...pick(t, ["id", "title", "share", "why", "skipCost", "objectives", "order"]),
+        steps: steps.map((st) => pick(st, ["id", "kind", "material", "from", "to", "chapter", "page", "labels", "minutes", "questions"])),
+        // The summary and the book's exercises as tasks: the friend's Aced asks no AI for them.
+        summary: t.summary ? { ...pick(t.summary, ["core", "example", "todo", "model", "made"]), pages: (t.summary.pages || []).filter((p) => kept.has(p.material)) } : undefined,
+        tasks: t.tasks ? t.tasks.filter((x) => stepIds.has(x.step)).map((x) => pick(x, TASK_FIELDS)) : undefined,
+      };
+    }),
   };
   const formulas = exam.formulas ? exam.formulas.map((g) => ({ ...g, formulas: g.formulas.map((f) => (kept.has(f.material) ? f : { ...f, material: undefined, page: undefined })) })) : null;
   // Questions with what is expected, never with what the person typed or how it was marked.
@@ -207,6 +216,70 @@ const list = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
 const day = (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(new Date(v + "T12:00:00").getTime()) ? v : null);
 const KINDS = ["book", "objectives", "slides", "notes", "oldExam"];
 
+/** A topic's summary and tasks from a shared file: every field checked and cut to size. */
+function cleanLearning(t, steps, ids) {
+  const out = {};
+  const texts = (v, n, max) => list(v, n).map((x) => str(x, max).trim()).filter(Boolean);
+  const sm = t.summary && typeof t.summary === "object" ? t.summary : null;
+  if (sm) {
+    const ex = sm.example && typeof sm.example === "object" ? sm.example : null;
+    const core = texts(sm.core, 8, 600);
+    if (core.length)
+      out.summary = {
+        core,
+        example: ex && str(ex.task, 600).trim() && str(ex.result, 300).trim() ? { task: str(ex.task, 600).trim(), steps: texts(ex.steps, 6, 400), result: str(ex.result, 300).trim() } : null,
+        todo: texts(sm.todo, 4, 300),
+        pages: list(sm.pages, 3)
+          .filter((p) => p && typeof p === "object" && ids.has(p.material) && int(p.from, 1, 100000, 0) && int(p.to, 1, 100000, 0))
+          .map((p) => ({ material: p.material, from: Math.min(p.from, p.to), to: Math.max(p.from, p.to), what: str(p.what, 120) })),
+        model: "shared",
+        made: day(sm.made) || undefined,
+      };
+  }
+  const solve = new Set(steps.filter((st) => st.kind === "solve").map((st) => st.id));
+  const seen = new Set();
+  const nums = (v, n) => list(v, n).filter((x) => typeof x === "number" && Number.isFinite(x));
+  const tasks = list(t.tasks, 40)
+    .map((x) => {
+      if (!x || typeof x !== "object" || !id(x.id) || seen.has(x.id) || !solve.has(x.step) || !ids.has(x.material)) return null;
+      const type = ["number", "numbers", "choice", "expression", "paper"].includes(x.type) ? x.type : null;
+      const prompt = str(x.prompt, 2000).trim();
+      if (!type || !prompt) return null;
+      seen.add(x.id);
+      const f = x.figure && typeof x.figure === "object" ? x.figure : null;
+      const top = f ? num(f.top, 0, 1, 0) : 0;
+      const bottom = f ? num(f.bottom, 0, 1, 1) : 1;
+      return {
+        id: x.id,
+        step: x.step,
+        material: x.material,
+        page: int(x.page, 1, 100000, 1),
+        label: str(String(x.label ?? ""), 20).trim(),
+        prompt,
+        figure: f && bottom - top >= 0.05 ? { top, bottom } : null,
+        type,
+        value: num(x.value, -1e15, 1e15, 0),
+        values: nums(x.values, 10),
+        ordered: x.ordered === true,
+        tolerance: num(x.tolerance, 0, 1e9, 0),
+        unit: str(x.unit, 20),
+        choices: texts(x.choices, 6, 300),
+        correct: int(x.correct, -1, 5, -1),
+        expression: str(x.expression, 200),
+        answer: str(x.answer, 300),
+        form: str(x.form, 120),
+        hint: str(x.hint, 600),
+        solution: texts(x.solution, 12, 600),
+        checked: ["book", "twice", "none"].includes(x.checked) ? x.checked : "none",
+        variant: x.variant === true,
+        minutes: int(x.minutes, 1, 60, 5),
+      };
+    })
+    .filter(Boolean);
+  if (tasks.length) out.tasks = tasks;
+  return out;
+}
+
 function cleanStrategy(s, ids) {
   if (!s || typeof s !== "object") return null;
   const topics = list(s.topics, 60)
@@ -230,6 +303,7 @@ function cleanStrategy(s, ids) {
         .filter(Boolean);
       return steps.length
         ? {
+            ...cleanLearning(t, steps, ids),
             id: t.id,
             title: str(t.title, 300) || "—",
             share: num(t.share, 0, 1, 0),

@@ -13,7 +13,8 @@
 //   E2E_PROVIDER=openai E2E_BASE=http://127.0.0.1:11434/v1 E2E_MODEL=<name>   another server instead
 //   E2E_PROVIDER=anthropic E2E_KEY_FILE=<file holding the key>                 the Anthropic API instead;
 //                              the key is read from the file, kept in memory only and never printed
-//   E2E_STOP=strategy          stop once the strategy is there
+//   E2E_STOP=strategy          stop once the strategy is there (with its summaries)
+//   E2E_PACE=efficient         the exam's pace (default sprint)
 //   E2E_RESUME=1               keep the data of the last run (answers already given are on disk)
 //   E2E_ASK="a question"       what the helper is asked (default: where logarithms are explained)
 const { app, dialog } = require("electron");
@@ -94,7 +95,7 @@ app.whenReady().then(async () => {
 
       // ---- the exam and its material
       const date = new Date(Date.now() + 6 * 864e5).toLocaleDateString("sv");
-      const created = await js(`window.aced.createExam({ name: ${JSON.stringify(examName)}, date: ${JSON.stringify(date)}, time: { mode: 'perDay', minutes: 45 }, scale: 'ch', target: 5, pace: 'sprint' })`);
+      const created = await js(`window.aced.createExam({ name: ${JSON.stringify(examName)}, date: ${JSON.stringify(date)}, time: { mode: 'perDay', minutes: 45 }, scale: 'ch', target: 5, pace: ${JSON.stringify(process.env.E2E_PACE || "sprint")} })`);
       await js(`window.dispatchEvent(new Event('focus'))`);
       await sleep(400);
       await js(`window.__nav({ name: 'exam', id: ${JSON.stringify(created.id)} })`);
@@ -121,6 +122,8 @@ app.whenReady().then(async () => {
       const s = exam().strategy;
       log("strategy and formula sheet in", seconds(t0), "| checks", JSON.stringify(s.checks), "| pages read", s.pagesRead, "| topics", s.topics.length);
       for (const t of s.topics) log("  ", t.title, "|", t.steps.map((st) => (st.kind === "read" ? `read ${st.from}-${st.to}` : st.kind === "solve" ? `solve p${st.page}: ${st.labels.join(",")}${st.unconfirmed.length ? " (unconfirmed: " + st.unconfirmed + ")" : ""}` : "")).filter(Boolean).join("; "));
+      for (const t of s.topics) log("   summary of", t.title + ":", t.summary ? `${t.summary.core.length} points, ${t.summary.example ? "an example" : "no example"}, ${t.summary.todo.length} to do, pages ${t.summary.pages.map((p) => p.from + "-" + p.to).join(" ")}` : "NONE");
+      fs.writeFileSync(path.join(out, "summaries.json"), JSON.stringify(s.topics.map((t) => ({ title: t.title, summary: t.summary })), null, 1));
       const f = exam().formulas || [];
       log("formulas:", f.map((g) => g.formulas.length).join("+") || "none", "| with a page:", f.flatMap((g) => g.formulas).filter((x) => x.page).length, "of", f.flatMap((g) => g.formulas).length);
     } else {

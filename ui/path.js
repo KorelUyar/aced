@@ -247,7 +247,8 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
                       ${named && html`<small>${named}</small>`}
                       ${questions && html`<small>${points ? t("pointsOf", points.points, points.max) : t("fromAi")}</small>`}
                       ${gone && html`<small>${t("bookGone")}</small>`}
-                      ${inApp && !gone && html`<small>${t("tasksInApp", tasksOf(exam, task).filter((x) => ((exam.taskResults || {})[x.id] || {}).right).length, tasksOf(exam, task).length)}</small>`}
+                      ${inApp && !gone && !task.done && html`<small>${t("tasksInApp", tasksOf(exam, task).filter((x) => ((exam.taskResults || {})[x.id] || {}).right).length, tasksOf(exam, task).length)}</small>`}
+                      ${inApp && task.done && tasksOf(exam, task).every((x) => ((exam.taskResults || {})[x.id] || {}).right) && html`<small>${t("solvedInApp")}</small>`}
                     </button>
                     <span class="min num">${minutes(task.minutes)}</span>
                   </li>`;
@@ -378,6 +379,7 @@ function Tasks({ exam, task: step, show, close, app }) {
             />
             ${task.unit && html`<span class="unit">${task.unit}</span>`}
           </label>`}
+      ${task.type !== "choice" && html`<p class="task-form muted">${task.form || t("taskForm_" + (task.type === "numbers" && task.ordered ? "point" : task.type))}</p>`}
       ${state.verdict === "right" && html`<p class="verdict right" role="status"><${Icon} name="check" size=${14} /> ${t("taskRight")}</p>`}
       ${state.verdict === "wrong" && html`<p class="verdict wrong" role="status">${t("taskWrong")}</p>`}
       <div class="task-actions">

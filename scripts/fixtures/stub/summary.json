@@ -1,0 +1,27 @@
+{
+ "core": [
+  "A quadratic function in vertex form is $f(x) = a(x - h)^2 + k$; its vertex is $(h, k)$.",
+  "If $a > 0$ the parabola opens upward, if $a < 0$ downward.",
+  "Completing the square turns $x^2 + bx$ into $\\left(x + \\tfrac{b}{2}\\right)^2 - \\left(\\tfrac{b}{2}\\right)^2$."
+ ],
+ "example": {
+  "task": "Write $f(x) = x^2 - 6x + 5$ in vertex form.",
+  "steps": [
+   "$x^2 - 6x = (x - 3)^2 - 9$",
+   "$f(x) = (x - 3)^2 - 4$"
+  ],
+  "result": "vertex $(3, -4)$"
+ },
+ "todo": [
+  "Read the rule for completing the square once.",
+  "Solve the exercises of this topic in the app."
+ ],
+ "pages": [
+  {
+   "book": 1,
+   "from": 1,
+   "to": 1,
+   "what": "vertex form"
+  }
+ ]
+}
