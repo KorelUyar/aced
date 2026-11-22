@@ -1356,7 +1356,7 @@ handle("tasks:confirm", async (id) => {
         say({ stage: "confirm", done, total: topics.length });
         const t = store.exam(id).strategy.topics.find((x) => x.id === topicId);
         const open = structuredClone((t.tasks || []).filter((x) => x.checked === "none" && x.type !== "paper"));
-        await engine.confirmTasks(open, tracked(id, signal));
+        await engine.confirmTasks(open, { exam: store.exam(id), ...tracked(id, signal) });
         store.change(id, (e) => {
           const topic = e.strategy.topics.find((x) => x.id === topicId);
           for (const x of open) {

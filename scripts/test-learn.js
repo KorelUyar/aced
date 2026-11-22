@@ -50,7 +50,26 @@ app.whenReady().then(async () => {
     ok(!B({ type: "number", value: 25, bookAnswer: "A = 5 cm², U = 25 cm" }), "an area of 25 is not confirmed by U = 25");
     ok(B({ type: "number", value: 5, bookAnswer: "9. A = 5 cm²" }) && B({ type: "numbers", values: [0.5, -2], bookAnswer: "x = 1/2 or x = −2" }), "a clear answer confirms");
     const answerPage = { data: { pages: ["Answers\n1. (2, −3)   2. (−3, −5)"] } };
-    ok(engine.printedOn(answerPage, 1, "(2, -3)") && !engine.printedOn(answerPage, 1, "(2, 3)") && !engine.printedOn(answerPage, 2, "(2, -3)"), "the book's answer counts only where it is printed, on the page named");
+    ok(engine.printedOn(answerPage, 1, "(2, -3)", "1") && !engine.printedOn(answerPage, 1, "(2, 3)", "1") && !engine.printedOn(answerPage, 2, "(2, -3)", "1"), "the book's answer counts only where it is printed, on the page named");
+    ok(!engine.printedOn(answerPage, 1, "(-3, -5)", "1") && engine.printedOn(answerPage, 1, "(-3, -5)", "2"), "and only after the exercise's own label");
+    const key = { data: { pages: ["Lösungen zu Kapitel 4\n3. a) x = 14   b) y = 2,5\n4. x = 4   5. wahr"] } };
+    ok(!engine.printedOn(key, 1, "4", "3a") && engine.printedOn(key, 1, "x = 14", "3a"), "4 is not printed where the page says 14");
+    ok(!engine.printedOn(key, 1, "y = 5", "3b") && engine.printedOn(key, 1, "y = 2.5", "3b"), "5 is not 2,5; a decimal comma is a decimal point");
+    ok(!engine.printedOn(key, 1, "Kapitel", "3a") && engine.printedOn(key, 1, "wahr", "5"), "a word in the heading is no exercise's answer");
+    ok(!engine.printedOn(key, 1, "4"), "without the exercise's label, nothing is confirmed");
+    // "Check the solutions" on a task from a file: its book answer counts only from this Mac's own copy.
+    const fromFile = { id: "k1", material: "m1", label: "4", type: "number", value: 4, tolerance: 0, answer: "x = 4", bookAnswer: "x = 4", answerPage: 1 };
+    ok(!engine.bookConfirms(null, fromFile), "with no book on this Mac, a file's book answer confirms nothing");
+    const realReadText = require("../src/files").readText;
+    require("../src/files").readText = () => key.data;
+    try {
+      const withBook = { materials: [{ id: "m1", hash: "h", type: "pdf", pages: 1 }] };
+      ok(engine.bookConfirms(withBook, fromFile), "with the same book here, its printed answer confirms");
+      ok(!engine.bookConfirms(withBook, { ...fromFile, value: 14, answer: "x = 14", bookAnswer: "x = 14" }), "an answer the file claims, which this page does not print for the exercise, confirms nothing");
+      ok(!engine.bookConfirms({ materials: [{ id: "m1", hash: "h", type: "pdf", pages: 1, edition: "other" }] }, fromFile), "another edition confirms nothing");
+    } finally {
+      require("../src/files").readText = realReadText;
+    }
 
     // ---- expressions: points small and large; too few is "cannot tell", never "different" (F2)
     for (const e of ["sqrt(x-5)", "ln(x-4)", "a+b+c+d+f", "x^20", "exp(10x)"]) same(expr.compare(e, e), true, `${e} is the same as itself`);
@@ -184,6 +203,7 @@ app.whenReady().then(async () => {
     same(share.unpack(file, root).strategy.topics[0].tasks[0].checked, "none", "a file cannot say its solutions are confirmed");
     const pages = ["", "", "Answers\n1. 1   2. 7"];
     const local = { strategy: { topics: [{ id: "t1", steps: [], tasks: [{ ...task("t1/s0/1", "t1/s0"), checked: "none", bookAnswer: "1", answerPage: 3 }] }] }, materials: [{ id: "m1", hash: "h", type: "pdf", pages: 3 }] };
+    local.strategy.topics[0].tasks[0].label = "1";
     const filesMod = require("../src/files");
     const realRead = filesMod.readText;
     filesMod.readText = () => ({ pages });

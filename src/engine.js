@@ -503,7 +503,7 @@ async function writeTasks(exam, topicId, { onUsage, onKey, signal } = {}) {
       compute: (r.compute || []).map((x) => line(x, 200)).slice(0, 10),
       bookAnswer: line(r.book_answer, 300),
       // The book's answer counts only where it is really printed: on the page named, in this book.
-      answerPage: r.book_answer && printedOn(src, r.answer_page, r.book_answer) ? r.answer_page : 0,
+      answerPage: r.book_answer && printedOn(src, r.answer_page, r.book_answer, label) ? r.answer_page : 0,
       minutes: clamp(r.minutes || 5, 1, 60),
     });
   }
@@ -516,7 +516,7 @@ async function writeTasks(exam, topicId, { onUsage, onKey, signal } = {}) {
       if (err.code === "cancelled") throw err;
     }
   }
-  return confirmTasks(tasks, { signal, onUsage, onKey });
+  return confirmTasks(tasks, { exam, signal, onUsage, onKey });
 }
 
 /**
@@ -532,7 +532,7 @@ function recheckLocal(exam) {
       if (x.checked !== "none" || !x.bookAnswer || !x.answerPage) continue;
       const src = g.sources.find((s) => s.m.id === x.material);
       if (!src || src.m.missing || src.m.edition === "other") continue;
-      if (printedOn(src, x.answerPage, x.bookAnswer) && bookAgrees(x)) {
+      if (printedOn(src, x.answerPage, x.bookAnswer, x.label) && bookAgrees(x)) {
         x.checked = "book";
         changed++;
       }
@@ -551,11 +551,71 @@ const flat = (t) =>
     .replace(/[−–]/g, "-")
     .replace(/[^\p{L}\p{N}/.,-]+/gu, "");
 
-/** Is this answer printed on that page of that book (its text, as read on this Mac)? */
-function printedOn(src, page, answer) {
+/** A text as tokens to compare: whole numbers (the minus sign and a decimal comma alike), whole words, signs. */
+function tokensOf(t) {
+  const plain = String(t || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\\(d?frac|tfrac)\{([^{}]*)\}\{([^{}]*)\}/g, " $2 / $3 ")
+    .replace(/\\[a-z]+/g, " ")
+    .replace(/[$\\{}]/g, " ")
+    .replace(/[−–]/g, "-")
+    .replace(/-\s+(?=\d)/g, "-");
+  return (plain.match(/-?\d+(?:[.,]\d+)?|\p{L}+|[^\s\p{L}\p{N}]/gu) || []).map((x) => (/^-?\d/.test(x) ? String(Number(x.replace(",", "."))) : x));
+}
+
+/**
+ * Is this answer printed on that page of that book (its text, as read on this Mac), as the
+ * answer to this exercise? It must stand, whole token by whole token ("4" is not "14" or "4.5"),
+ * after the exercise's own label ("3.", "3 a)") and before the next one: a word elsewhere on the
+ * page, in a heading say, does not count.
+ */
+function printedOn(src, page, answer, label) {
   const text = src && Number.isInteger(page) && page >= 1 && page <= src.data.pages.length ? src.data.pages[page - 1] : "";
-  const want = flat(answer).replace(/^\(?[0-9a-z]{1,4}[.)]/, "");
-  return want.length >= 1 && flat(text).includes(want);
+  const want = tokensOf(String(answer || "").replace(/^\s*\(?[0-9a-z]{1,4}[.)]\s+/i, ""));
+  const marks = new Set([".", ")", ":", "("]);
+  const lab = tokensOf(label).filter((x) => !marks.has(x));
+  if (!text || !want.length || !lab.length) return false;
+  const toks = tokensOf(text);
+  const startsLabel = (i) => (/^\d+$/.test(toks[i]) || /^\p{L}$/u.test(toks[i])) && [".", ")"].includes(toks[i + 1]);
+  const after = (j) => {
+    while (marks.has(toks[j] || "")) j++;
+    return j;
+  };
+  for (let i = 0; i < toks.length; i++) {
+    // The exercise's label: its number with its mark ("3."), then each further part ("b)")
+    // later on, before the next exercise's number.
+    if (toks[i] !== lab[0] || !marks.has(toks[i + 1] || "")) continue;
+    let j = after(i + 1);
+    let found = true;
+    for (let k = 1; k < lab.length && found; k++) {
+      let f = j;
+      while (f < toks.length && !(toks[f] === lab[k] && marks.has(toks[f + 1] || "")) && !(f > j && /^\d+$/.test(toks[f]) && [".", ")"].includes(toks[f + 1]))) f++;
+      found = f < toks.length && toks[f] === lab[k];
+      j = after(f + 1);
+    }
+    if (!found) continue;
+    let end = j;
+    while (end < toks.length && !startsLabel(end)) end++;
+    // Brackets do not matter: "(2, −3)" is printed where the page says "2, −3".
+    const part = toks.slice(j, end).filter((x) => x !== "(" && x !== ")");
+    const bare = want.filter((x) => x !== "(" && x !== ")");
+    for (let s = 0; s + bare.length <= part.length; s++) if (bare.length && bare.every((w, n) => part[s + n] === w)) return true;
+  }
+  return false;
+}
+
+/** Is this book here (not waiting for the person's copy, not another edition)? Its source, or null. */
+function ownCopy(exam, x) {
+  if (!exam) return null;
+  const src = gather(exam).sources.find((s) => s.m.id === x.material);
+  return src && !src.m.missing && src.m.edition !== "other" ? src : null;
+}
+
+/** Does this Mac's own copy of the book confirm the task's result with its printed answer? */
+function bookConfirms(exam, x) {
+  const src = x.bookAnswer && x.answerPage ? ownCopy(exam, x) : null;
+  return Boolean(src && printedOn(src, x.answerPage, x.bookAnswer, x.label) && bookAgrees(x));
 }
 
 /**
@@ -564,7 +624,7 @@ function printedOn(src, page, answer) {
  * from the task's text alone agrees, and numbers work out the same on this Mac) or "none". One
  * request, for the second solving.
  */
-async function confirmTasks(tasks, { signal, onUsage, onKey } = {}) {
+async function confirmTasks(tasks, { exam = null, signal, onUsage, onKey } = {}) {
   const typed = tasks.filter((x) => x.type !== "paper");
   let again = [];
   if (typed.length) {
@@ -588,7 +648,8 @@ async function confirmTasks(tasks, { signal, onUsage, onKey } = {}) {
       computed && x.compute.length === computed.length
         ? x.compute.map((c) => expr.value(c)).every((v, k) => Number.isFinite(v) && Math.abs(v - computed[k]) <= Math.max(x.tolerance, Math.abs(computed[k]) * 1e-6, 1e-9))
         : !computed;
-    const book = x.bookAnswer && x.answerPage && bookAgrees(x);
+    // The book's printed answer counts only from this Mac's own copy of the page: never from a file.
+    const book = bookConfirms(exam, x);
     x.checked = x.type === "paper" ? "none" : book ? "book" : second && second.sure !== false && agree(x, second) && sums ? "twice" : "none";
   }
   return tasks;
@@ -975,4 +1036,4 @@ async function help(exam, question, { earlier = [], now = "" } = {}, { onUsage, 
   };
 }
 
-module.exports = { estimate, analyze, writeSummary, writeTasks, confirmTasks, recheckLocal, printedOn, agree, bookAgrees, bandOf, writeQuestions, mark, writeFormulas, help, findLabel, checkExercise, gather };
+module.exports = { estimate, analyze, writeSummary, writeTasks, confirmTasks, recheckLocal, printedOn, bookConfirms, agree, bookAgrees, bandOf, writeQuestions, mark, writeFormulas, help, findLabel, checkExercise, gather };
