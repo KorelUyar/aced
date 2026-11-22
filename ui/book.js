@@ -6,6 +6,7 @@
 import * as pdfjs from "./vendor/pdfjs/pdf.min.mjs";
 import { html, useState, useEffect, useRef, Icon, printed } from "./bits.js";
 import { t } from "./i18n.js";
+import { useInk } from "./ink.js";
 
 const VENDOR = new URL("./vendor/pdfjs/", import.meta.url).href;
 // What pdf.js loads while it reads a book (decoders, character maps, fonts, a colour profile)
@@ -203,6 +204,7 @@ function showPages(box, run, hash, pageCount, tell) {
     put(sheet);
     run.append(el);
     sheets.set(n, sheet);
+    if (tell.mount) tell.mount(el, n); // what the person wrote on it (ui/ink.js)
   }
   function drop(sheet) {
     if (drawing && drawing.n === sheet.n) stop();
@@ -364,7 +366,7 @@ function showPages(box, run, hash, pageCount, tell) {
       const sheet = sheets.get(n);
       if (job.stopped || dead || !sheet) return;
       if (sheet.canvas) sheet.canvas.width = 0;
-      sheet.el.replaceChildren(canvas);
+      sheet.el.replaceChildren(canvas, ...sheet.el.querySelectorAll(":scope > .ink"));
       Object.assign(sheet, { canvas, px: job.px, failed: false });
       sheet.el.dataset.state = "drawn";
       canvas = null;
@@ -517,6 +519,7 @@ function Pages({ material, page, onPage, jump }) {
   const [at, setAt] = useState(want);
   const [zoom, setZoom] = useState(() => zooms.get(material.hash) || 1);
   const [problem, setProblem] = useState(null);
+  const ink = useInk(material.hash, box);
 
   // The page this panel reported last comes back as `page`: that is no request to jump there.
   const told = useRef(null);
@@ -537,6 +540,7 @@ function Pages({ material, page, onPage, jump }) {
       count: setLast,
       problem: setProblem,
       name: (n) => t("page", printed(material, n)),
+      mount: ink.mount,
     });
     return () => pages.current.destroy();
   }, []);
@@ -561,6 +565,7 @@ function Pages({ material, page, onPage, jump }) {
   return html`<section class="book">
     <header class="side-head">
       <strong>${material.title}</strong>
+      ${!problem && ink.toggle}
       ${!problem &&
       html`<span class="zoom">
           <button class="mini" aria-label=${t("bookZoomOut")} disabled=${zoom <= ZOOMS[0]} onClick=${() => step(-1)}><${Icon} name="minus" /></button>
@@ -577,5 +582,6 @@ function Pages({ material, page, onPage, jump }) {
       <div class="book-run" ref=${run}></div>
       ${problem && html`<p class="muted">${problem === "locked" ? t("bookLocked") : problem === "damaged" ? t("bookDamaged") : t("bookFailed")}</p>`}
     </div>
+    ${!problem && ink.bar}
   </section>`;
 }

@@ -11,6 +11,9 @@ const formats = require("./src/formats");
 const convert = require("./src/convert");
 const see = require("./src/see");
 const share = require("./src/share");
+const macShare = require("./src/mac-share");
+const link = require("./src/link");
+const ink = require("./src/ink");
 const { examPage, footerOf } = require("./src/export");
 const { print } = require("./src/print");
 const ocr = require("./src/ocr");
@@ -226,6 +229,7 @@ app.whenReady().then(() => {
   if (isMac && !app.isPackaged && fs.existsSync(devIcon)) app.dock?.setIcon(devIcon);
   const userData = app.getPath("userData");
   files.init(SAMPLE ? fs.mkdtempSync(path.join(os.tmpdir(), "aced-sample-")) : userData);
+  ink.init(userData, { sample: SAMPLE });
   // Test runs from the source folder can keep keys in memory only (ACED_KEYS=memory), so they
   // leave nothing in the keychain. The app people install always stores them.
   secrets.init(userData, { persist: !SAMPLE && !(process.env.ACED_KEYS === "memory" && !app.isPackaged) });
@@ -243,7 +247,15 @@ app.whenReady().then(() => {
   ai.init(() => store.settings());
   // Whatever an earlier run left without an owner goes. Not while the data file is unreadable:
   // then nothing is known to be without an owner.
-  if (!SAMPLE && !store.problem()) files.prune(store.references());
+  if (!SAMPLE && !store.problem()) prune();
+  // Files handed to AirDrop, Messages, Mail or the clipboard, two days ago or more.
+  setTimeout(() => {
+    try {
+      macShare.pruneKept();
+    } catch {
+      // the next start tries again
+    }
+  }, 3000);
   applyAppearance(store.settings().appearance);
   buildMenu();
   createWindow();
@@ -267,6 +279,13 @@ app.on("before-quit", () => {
 });
 
 // ---------------------------------------------------------------- IPC
+
+/** Deletes what no exam uses any more: book copies, texts, kept answers, and what was written in a book. */
+function prune() {
+  const refs = store.references();
+  files.prune(refs);
+  ink.prune(refs.hashes);
+}
 
 const coded = (code, detail) => Object.assign(new Error(code), { code, detail });
 // Only the app's own page, in its own window, may ask for anything.
@@ -334,7 +353,7 @@ handle("state", async () => ({ settings: store.settings(), exams: store.exams().
 // unreadable file is kept under another name either way.
 handle("data:recover", (how) => {
   store.recover(how === "backup" ? "backup" : "empty", systemLang());
-  if (!SAMPLE) files.prune(store.references());
+  if (!SAMPLE) prune();
   buildMenu();
 });
 handle("data:reveal", () => shell.showItemInFolder(path.join(app.getPath("userData"), "aced.json")));
@@ -367,8 +386,8 @@ handle("exam:edit", (id, draft) => decorate(store.view(store.editExam(id, draft)
 handle("exam:delete", (id) => {
   for (const [controller, examId] of jobs) if (examId === id) controller.abort();
   store.deleteExam(id);
-  // Its book copies, the text read from them and the answers kept for it go too, unless another exam uses them.
-  if (!SAMPLE) files.prune(store.references());
+  // Its book copies, the text read from them, the answers kept for it and what was written in its books go too, unless another exam uses them.
+  if (!SAMPLE) prune();
 });
 
 // ------------------------------------------------ material
@@ -820,11 +839,14 @@ const shareFolder = () => {
   return dir;
 };
 
-/** The file to share: an Aced file, a PDF or a web page of the exam, in a folder of its own. Resolves to its path. */
-async function makeShare(id, output, chosen) {
+/**
+ * The file to share: an Aced file, a PDF or a web page of the exam, in a folder of its own
+ * (`dir`, or one deleted when the app quits). Resolves to its path, and the titles of material
+ * that stayed home because no clean copy could be made of it.
+ */
+async function makeShare(id, output, chosen, dir = shareFolder()) {
   const exam = store.exam(id);
   if (!exam.strategy) throw coded("unknown");
-  const dir = shareFolder();
   const lang = store.settings().lang;
   if (output === "aced") {
     const file = path.join(dir, share.fileName(exam.name, "aced"));
@@ -849,25 +871,76 @@ async function makeShare(id, output, chosen) {
   return { file: pdf, left: [] };
 }
 
+// The share service for links (src/link.js). A test run from the source folder may name a
+// service of its own (ACED_LINK_HOST); the installed app only knows its one address.
+const linkHost = () => (!app.isPackaged && process.env.ACED_LINK_HOST) || link.HOST;
+
+/** The ways of Aced's share window (ui/share.js). */
+const WAYS = ["link", "airdrop", "messages", "mail", "copy", "save", "pdf", "web", "more"];
+
 /**
- * Shares an exam: `how` is "menu" (macOS's share menu: AirDrop, Messages, Mail …) or "save"
- * (a place the person chooses). Resolves to { saved: name } or { shown: true } or { cancelled }.
+ * Shares an exam, one way in one go: `options.way` (see WAYS), `options.materials` the ids of
+ * the material that goes along with the Aced file. Resolves to what happened:
+ * { link, expires }, { opened }, { missing } (that way is not set up on this Mac),
+ * { copied }, { saved: name }, { shown } or { cancelled }; with `left` (see makeShare).
  */
 handle("share:send", async (id, options) => {
-  const output = ["aced", "pdf", "web"].includes(options && options.output) ? options.output : "aced";
-  const { file, left } = await makeShare(id, output, options && options.materials);
-  if (options && options.how === "save") {
-    const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath("documents"), path.basename(file)) });
+  const way = WAYS.includes(options && options.way) ? options.way : null;
+  if (!way) throw coded("unknown");
+  const chosen = options.materials;
+  if (way === "link") {
+    if (!link.originOf(linkHost())) throw coded("linkOff");
+    const { file, left } = await makeShare(id, "aced", chosen);
+    const made = await link.make(fs.readFileSync(file), { host: linkHost(), fetch: net.fetch });
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
+    clipboard.writeText(made.url);
+    return { link: made.url, expires: made.expires, left };
+  }
+  if (way === "save" || way === "pdf" || way === "web") {
+    const { file, left } = await makeShare(id, way === "save" ? "aced" : way, chosen);
+    // In Downloads, where a file someone gets usually is: the person may choose another place.
+    const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath("downloads"), path.basename(file)) });
     if (r.canceled || !r.filePath) return { cancelled: true };
     fs.copyFileSync(file, r.filePath);
     return { saved: path.basename(r.filePath), left };
   }
+  // Handed to another app: the file has to outlive Aced (it may be pasted or sent later).
+  const { file, left } = await makeShare(id, "aced", chosen, macShare.keptDir());
+  if (way === "copy") {
+    await macShare.copyFile(file);
+    return { copied: true, left };
+  }
+  if (macShare.WAYS.includes(way)) {
+    const de = store.settings().lang === "de";
+    const name = store.exam(id).name;
+    const r = await macShare.send(way, file, {
+      subject: name,
+      text: de ? `Mein Plan für «${name}», für Aced: Öffne die Datei in Aced (gratis für den Mac: ${brand.home}).` : `My plan for “${name}”, for Aced: open the file in Aced (free for the Mac: ${brand.home}).`,
+    });
+    return r.missing ? { missing: true } : { opened: true, left };
+  }
+  // "More…": macOS's own share menu, for everything else this Mac can send to.
   if (process.platform === "darwin" && ShareMenu) {
     new ShareMenu({ filePaths: [file] }).popup({ window: win });
     return { shown: true, left };
   }
   shell.showItemInFolder(file);
   return { shown: true, left };
+});
+handle("share:services", () => macShare.services());
+handle("share:copyText", (text) => {
+  if (typeof text !== "string" || text.length > 2000) throw coded("unknown");
+  clipboard.writeText(text);
+});
+
+// ------------------------------------------------ writing in the book
+
+/** Only a book that one of the exams has: nothing else gets a file of ink. */
+const knownBook = (hash) => typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash) && store.references().hashes.has(hash);
+handle("ink:load", (hash) => (knownBook(hash) ? ink.load(hash) : {}));
+handle("ink:save", (hash, page, data) => {
+  if (!knownBook(hash)) throw coded("unknown");
+  ink.save(hash, page, data);
 });
 
 const today_ = () => planner.todayIso();
