@@ -48,6 +48,7 @@ function App() {
       }
       if (problems && problems.length) setToast({ text: t("problem_" + problems[0].code, problems[0].title, problems[0].detail) });
     });
+    const stopNotice = api.onNotice((code) => setToast({ text: t(code) }));
     // Other files from the Finder (dropped on the Dock icon, say): material for the exam on screen.
     const stopHanded = api.onHanded(({ token, names }) => {
       const now = routeNow.current;
@@ -71,6 +72,7 @@ function App() {
       stopRuns();
       stopExam();
       stopOpened();
+      stopNotice();
       stopHanded();
       stopMenu();
     };

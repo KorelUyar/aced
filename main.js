@@ -184,6 +184,16 @@ app.on("open-file", (e, file) => {
   else waiting.push(file);
 });
 
+// A link to a shared exam ("aced://s/<id>#<key>", which the page a link opens hands over):
+// fetched from Aced's own share service, unlocked here, and opened like an Aced file from the
+// Finder. Links that come before the window is ready wait for it.
+const waitingLinks = [];
+app.on("open-url", (e, url) => {
+  e.preventDefault();
+  if (ready) openLink(url);
+  else if (waitingLinks.length < 10) waitingLinks.push(url);
+});
+
 // Files from the Finder that are not Aced files: material for the exam on screen. The window
 // says which exam that is (or that none is open); the paths stay here.
 const handed = new Map();
@@ -260,7 +270,10 @@ app.whenReady().then(() => {
   buildMenu();
   createWindow();
   ready = true;
-  win.webContents.once("did-finish-load", () => waiting.length && openFromFinder(waiting.splice(0)));
+  win.webContents.once("did-finish-load", () => {
+    if (waiting.length) openFromFinder(waiting.splice(0));
+    for (const url of waitingLinks.splice(0)) openLink(url);
+  });
   // The first time after an install or an update, macOS needs about a minute to get its text
   // recognition ready. That is started now, quietly, so it is done by the time a book without
   // text is added. (Only in the installed app: test runs do not need it.)
@@ -986,6 +999,36 @@ async function askAlready(exam) {
     cancelId: 2,
   });
   return ["open", "copy", "cancel"][r.response];
+}
+
+const fetching = new Set(); // links being fetched: the same link clicked twice is fetched once
+
+/**
+ * A link to a shared exam, from the page a link opens (see the "open-url" event). Only Aced's
+ * own service is asked, whatever the link says; what comes back is unlocked and then goes the
+ * way of every Aced file: the same checks, a new exam at 0%, no AI asked, and the question when
+ * the same exam is here already.
+ */
+async function openLink(url) {
+  const found = link.parse(url, linkHost());
+  if (!found) return tell("opened", { id: null, exam: null, problems: [{ title: "", code: "linkDamaged", detail: "" }] });
+  if (fetching.has(found.id)) return;
+  fetching.add(found.id);
+  tell("notice", "openingLink");
+  let dir = null;
+  try {
+    const bytes = await link.fetchShared(found, { host: linkHost(), fetch: net.fetch });
+    dir = share.tempDir();
+    const file = path.join(dir, store.settings().lang === "de" ? "Geteilte Prüfung.aced" : "Shared exam.aced");
+    fs.writeFileSync(file, bytes);
+    await openShared([file]);
+  } catch (err) {
+    const code = ["linkGone", "linkDamaged", "linkOffline", "linkOff"].includes(err && err.code) ? err.code : "linkOffline";
+    tell("opened", { id: null, exam: null, problems: [{ title: "", code, detail: "" }] });
+  } finally {
+    fetching.delete(found.id);
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /** Aced files from the Finder or the menu: imported, and the window goes to the new exam. */

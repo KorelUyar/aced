@@ -495,6 +495,7 @@ const STRINGS = {
     problem_linkGone: () => "This link has run out (a link works for 30 days) or is not complete. Ask for a new one.",
     problem_linkDamaged: () => "This link is not complete or was changed. Ask for a new one.",
     problem_linkOffline: () => "The shared exam could not be fetched: there is no connection to the share server. Try again when you are online.",
+    problem_linkOff: () => "Links are not switched on in this version of {app}. Ask for the file instead.",
     openingLink: "Opening the shared exam …",
 
     inkWrite: "Write in the book",
@@ -998,6 +999,7 @@ const STRINGS = {
     problem_linkGone: () => "Dieser Link ist abgelaufen (ein Link gilt 30 Tage) oder unvollständig. Lass dir einen neuen schicken.",
     problem_linkDamaged: () => "Dieser Link ist unvollständig oder wurde verändert. Lass dir einen neuen schicken.",
     problem_linkOffline: () => "Die geteilte Prüfung konnte nicht geholt werden: Es gibt keine Verbindung zum Server. Versuch es, wenn du online bist.",
+    problem_linkOff: () => "Links sind in dieser Version von {app} nicht eingeschaltet. Lass dir die Datei schicken.",
     openingLink: "Die geteilte Prüfung wird geöffnet …",
 
     inkWrite: "Ins Buch schreiben",

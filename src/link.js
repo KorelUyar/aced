@@ -156,10 +156,10 @@ async function fetchShared({ id, key }, { host = HOST, fetch = globalThis.fetch,
       parts.push(Buffer.from(value));
     }
   } catch (err) {
+    // (what is still coming is not wanted)
+    reader.cancel().catch(() => {});
     if (err.code === "linkDamaged") throw err;
     throw coded("linkOffline");
-  } finally {
-    reader.releaseLock?.();
   }
   return unseal(Buffer.concat(parts), key);
 }

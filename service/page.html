@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Aced: a shared exam</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/page.css">
+<script src="/page.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="brand"><img src="/icon.svg" alt="" width="40" height="40"><span>Aced</span></header>
+
+  <section id="open" class="card" hidden>
+    <p class="kicker" data-t="shared"></p>
+    <h1 id="name"></h1>
+    <p id="when" class="muted"></p>
+    <a id="openApp" class="button" href="#" data-t="openInAced"></a>
+    <p class="muted small" data-t="openNote"></p>
+  </section>
+
+  <section id="problem" class="card" hidden>
+    <h1 id="problemTitle"></h1>
+    <p id="problemText" class="muted"></p>
+  </section>
+
+  <section id="get" class="card quiet">
+    <h2 data-t="getTitle"></h2>
+    <p data-t="getText"></p>
+    <div class="install">
+      <code id="installLine">curl --proto '=https' --tlsv1.2 -fsSL https://github.com/KorelUyar/aced/releases/latest/download/install.sh | zsh</code>
+      <button id="copyLine" class="small-button" type="button" data-t="copy"></button>
+    </div>
+    <p class="muted small"><span data-t="getMore"></span> <a href="https://github.com/KorelUyar/aced" rel="noopener noreferrer">github.com/KorelUyar/aced</a></p>
+  </section>
+
+  <section id="plan" hidden>
+    <h2 data-t="planTitle"></h2>
+    <p class="muted small" data-t="planNote"></p>
+    <ol id="topics"></ol>
+  </section>
+
+  <footer class="muted small" data-t="footer"></footer>
+</main>
+</body>
+</html>
