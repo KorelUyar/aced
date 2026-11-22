@@ -40,13 +40,13 @@ let queue = Promise.resolve();
  * Prints the page in `file` (an HTML file) to `out` (a PDF). Pages are printed one at a time.
  * Resolves when the PDF is written. A page that has not printed after `limit` ms is given up.
  */
-function print(file, out, { signal, limit = 180000 } = {}) {
-  const job = queue.then(() => printOne(file, out, signal, limit));
+function print(file, out, { signal, limit = 180000, footer = "" } = {}) {
+  const job = queue.then(() => printOne(file, out, signal, limit, footer));
   queue = job.catch(() => {});
   return job;
 }
 
-async function printOne(file, out, signal, limit) {
+async function printOne(file, out, signal, limit, footer) {
   if (signal?.aborted) throw cancelled();
   const id = crypto.randomUUID();
   pages.set(id, file);
@@ -86,7 +86,20 @@ async function printOne(file, out, signal, limit) {
     await Promise.race([contents.loadURL(`${SCHEME}://page/${id}`), giveUp]);
     if (signal?.aborted) throw cancelled();
     const pdf = await Promise.race([
-      contents.printToPDF({ printBackground: true, preferCSSPageSize: true, generateDocumentOutline: true, generateTaggedPDF: false }),
+      contents.printToPDF({
+        printBackground: true,
+        preferCSSPageSize: true,
+        generateDocumentOutline: true,
+        generateTaggedPDF: false,
+        // A line at the foot of every page (an exam shared as a PDF says where it was made).
+        ...(footer
+          ? {
+              displayHeaderFooter: true,
+              headerTemplate: "<span></span>",
+              footerTemplate: `<div style="width:100%;text-align:center;font:7.5px -apple-system,Helvetica,sans-serif;color:#5c6370">${footer.replace(/[&<>]/g, "")}</div>`,
+            }
+          : {}),
+      }),
       giveUp,
     ]);
     if (signal?.aborted) throw cancelled();

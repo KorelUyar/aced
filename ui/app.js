@@ -7,6 +7,7 @@ import { Path, PANELS } from "./path.js";
 import { Setup } from "./setup.js";
 import { Questions } from "./final.js";
 import { Settings } from "./settings.js";
+import { Share } from "./share.js";
 
 const api = window.aced;
 document.title = api.name;
@@ -18,6 +19,7 @@ function App() {
   const [toast, setToast] = useState(null);
   const [panel, setPanel] = useState("book"); // what stands beside the plan: the book, the formula sheet, or nothing
   const [helper, setHelper] = useState(false); // the helper, over the plan
+  const [sharing, setSharing] = useState(false); // the share dialog, over the exam
   const [talks, setTalks] = useState({}); // exam id -> { turns: [{ question, answer?, pages?, error? }], busy }
   const routeNow = useRef(route);
   routeNow.current = route;
@@ -63,6 +65,7 @@ function App() {
   const nav = (next) => setRoute({ ...next, n: (moves.current += 1) });
   // Lets the screenshot and test scripts open a view directly.
   window.__nav = nav;
+  window.__share = setSharing;
 
   const exam = route.id && state.exams.find((e) => e.id === route.id);
   const putExam = (next) =>
@@ -178,6 +181,7 @@ function App() {
       </nav>`}
       ${onPath &&
       html`<span class="bar-end">
+        <button class="bar-btn" id="shareOpen" onClick=${() => setSharing(true)}>${t("share")}</button>
         <button class="bar-btn" id="helperToggle" aria-pressed=${String(helper)} onClick=${() => setHelper(!helper)}>${t("helper")}</button>
         <button class="bar-btn" id="toSetup" onClick=${() => nav({ name: "setup", id: exam.id })}>${t("setup")}</button>
       </span>`}
@@ -189,6 +193,7 @@ function App() {
       </button>`}
     </header>
     <div class=${"scroll" + (onPath ? " fill" : "")} key=${route.name + (route.id || "") + (route.n || 0) + lang() + (onPath ? "path" : "")}>${view}</div>
+    ${sharing && onPath && exam && html`<${Share} exam=${exam} close=${() => setSharing(false)} app=${app} />`}
     ${toast &&
     html`<div class="toast" role="status">
       <span>${toast.text}</span>

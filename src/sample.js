@@ -38,6 +38,18 @@ const empty = () => ({ done: {}, sets: {}, again: [], results: [], usage: { inpu
 const formula = (name, latex, note, page) => ({ name, latex, note, material: "m1", page });
 
 function exams(lang = "en") {
+  const list = sampleExams(lang);
+  // ACED_SAMPLE_SHARED=1 (pictures of 0.5): the first exam as a friend sees it after opening
+  // the Aced file someone shared: no ticks or results, and the book still to be added.
+  if (process.env.ACED_SAMPLE_SHARED === "1") {
+    const e = list[0];
+    Object.assign(e, empty(), { shared: { on: inDays(-1) } });
+    e.materials = e.materials.filter((m) => m.kind !== "oldExam").map((m) => (m.kind === "book" && m.from !== "pictures" ? { ...m, missing: true } : m));
+  }
+  return list;
+}
+
+function sampleExams(lang) {
   const today = inDays(0);
   return [
     {

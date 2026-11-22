@@ -101,6 +101,11 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
           </p>
         </header>
 
+        ${exam.shared &&
+        html`<div class="plan-note shared-note" role="note">
+          <p>${t("sharedNote", longDate(exam.shared.on, "short"))}${exam.materials.some((m) => m.missing) ? " " + t("sharedAddBooks", exam.materials.filter((m) => m.missing).map((m) => m.title)) : ""}</p>
+          ${exam.materials.some((m) => m.missing) && html`<div class="row-start"><button class="btn second" id="addCopy">${t("addYourCopy")}</button></div>`}
+        </div>`}
         ${(exam.missing || s.stale) &&
         html`<p class="plan-note" role="note">
           ${t(exam.missing ? "planMissing" : "planStale")}${" "}
@@ -217,12 +222,36 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
     html`<div class="divider" role="separator" aria-orientation="vertical" onPointerDown=${drag}></div>
       <aside class="side">
         ${panel === "book" &&
-        (book
+        (book && book.missing
+          ? html`<${MissingBook} material=${book} />`
+          : book
           ? html`<${Book} material=${book} page=${at.page} jump=${at.jump} onPage=${(page) => setAt((old) => (old.page === page && old.material === book.id ? old : { ...old, material: book.id, page }))} />`
           : html`<section><header class="side-head"><strong>${t("panel_book")}</strong></header><div class="side-body"><p class="muted">${t("noBook")}</p></div></section>`)}
         ${panel === "formulas" && html`<${Formulas} exam=${exam} run=${run} error=${sheetError} write=${writeSheet} show=${show} toSettings=${toSettings} app=${app} />`}
       </aside>`}
   </main>`;
+}
+
+/**
+ * A book that came with a shared exam by its name only: the friend adds their own copy. Aced
+ * knows it by its SHA-256, so the same file fits at once; another file is checked by its page
+ * count and title, and called another edition when they do not match.
+ */
+function MissingBook({ material }) {
+  return html`<section class="book missing-book">
+    <header class="side-head"><strong>${material.title}</strong></header>
+    <div class="side-body">
+      <div class="drop first add-copy">
+        <${Icon} name="book" size=${22} />
+        <div>
+          <strong>${t("addCopyTitle", material.title)}</strong>
+          <p>${t("addCopyText", material.pages)}</p>
+        </div>
+      </div>
+      <div class="row-start"><button class="btn second">${t("chooseFiles")}</button></div>
+      <p class="muted add-copy-note">${t("addCopyEdition")}</p>
+    </div>
+  </section>`;
 }
 
 /** The last stage: the final exam. It can be taken at any time; it is the way out once everything is ticked. */
