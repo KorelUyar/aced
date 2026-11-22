@@ -25,7 +25,7 @@ answers around it were written by Claude Opus 5.5 through Claude Code in a real 
   as one checklist, topic by topic: what you need to be able to do, then the steps ("Read
   p. 255–256", "Solve p. 257: 3, 4, 7"). The next step is marked, a line shows where today's
   share ends, finished topics fold away. A tick is a switch: click again to take it back.
-- **The book beside the plan.** Your PDF opens inside the app, next to the list. A step jumps to
+- **The book beside the plan.** Your book opens inside the app, next to the list. A step jumps to
   its page. The divider can be dragged, the panel hidden.
 - **Formula sheet.** The formulas this exam needs, large, grouped by topic, each with a link to
   the page it comes from. The topic you are on shows its own formulas right in the plan, so
@@ -46,10 +46,21 @@ answers around it were written by Claude Opus 5.5 through Claude Code in a real 
   you aim for (Swiss 1 to 6, German 1 to 6, or percent) and a pace: *Sprint* (little time, only
   what brings the most points), *Thorough* (everything) or *Efficient* (the best grade for the
   least time).
-- **Material.** Drop in the book as a PDF, paste the learning objectives, add slides, notes or
-  old exams. A PDF without text in it (a scan, or a book saved with
-  [Stapel](https://github.com/KorelUyar/stapel), which draws letters as shapes) is read with the
-  text recognition built into macOS, on your Mac, and shows in the book panel like any other.
+- **Material in any format.** Drop in the book, paste the learning objectives, add slides,
+  notes or old exams: PDFs, screenshots and photos (PNG, JPEG, HEIC, GIF, TIFF, BMP, WebP), Word
+  (docx, doc, rtf, odt), Excel (xlsx, xls, csv, ods), PowerPoint (pptx, ppt, odp), Pages,
+  Numbers and Keynote, web pages, SVG drawings, e-books (EPUB), Jupyter notebooks, and text of
+  any kind (Markdown, LaTeX, JSON, source code). Drop a whole folder, or copy a screenshot
+  (⌃⇧⌘4) or files in the Finder and paste them with ⌘V. Every file becomes a page in the book
+  panel like a PDF, and steps, page links, the helper and the formula sheet work the same.
+- **Your AI reads your pictures.** Screenshots, photos and short scans (up to 20 pages) are read
+  at once by the text recognition built into macOS, on your Mac, and right after by the AI you
+  chose, which writes down what is on each page with its formulas in LaTeX. Several pictures
+  added together are one document, in the order they were taken. When your AI cannot see
+  pictures, or cannot be reached, the text read on your Mac stays, and the material says so. A
+  long scanned book stays with the recognition on your Mac; a book saved with
+  [Stapel](https://github.com/KorelUyar/stapel), which draws letters as shapes, is read the same
+  way.
 
 The interface is English or German; on a first start it follows your Mac. What the AI writes
 follows the language of your material.
@@ -57,9 +68,9 @@ follows the language of your material.
 ## Your data and the AI
 
 Aced has no server, no account, no telemetry and no update check. Exams, plans and results are
-in one file in the app's folder on your Mac; your PDFs are copied next to it. Deleting an exam
-also deletes its copies of the PDFs, the text read from them and the answers kept for it,
-unless another exam uses them.
+in one file in the app's folder on your Mac; your files are copied next to it, each with the PDF
+made from it. Deleting an exam also deletes its copies, the text read from them and the answers
+kept for it, unless another exam uses them.
 
 The AI is one you bring:
 
@@ -75,9 +86,13 @@ What leaves your Mac, and where to:
 - **To the provider you chose, and nowhere else:** the text of the pages a step needs, your
   learning objectives, the exam's name, date, time and target grade, your questions to the
   helper, and the results you type in an exam when they are not numbers. For a large book that
-  is first the table of contents, to find the pages, then those pages. Never the PDF itself.
+  is first the table of contents, to find the pages, then those pages. Never a PDF, Word file or
+  book itself. **Pictures:** a picture of each page of material that is only pictures
+  (screenshots, photos, scans of up to 20 pages), once, when you add it, so your AI can read it.
+  With "another server", a small picture with two numbers on it goes there once, to find out
+  whether its model can see.
 - **With "Claude Code on this Mac":** Aced starts the `claude` command on your Mac with all its
-  tools switched off, so it can only read the text it is given and answer.
+  tools switched off, so it can only read the text and the pictures it is given and answer.
 - **With OpenRouter:** requests carry the app's name (`X-Title: Aced`), and the price for the
   estimate comes from OpenRouter's public model list.
 - **With "another server":** the address must start with `https://`; plain `http://` is only
@@ -86,8 +101,10 @@ What leaves your Mac, and where to:
   never in the window.
 
 Before a large run you see an estimate of tokens and, where the price is known, cost, and how
-long it usually takes. Every answer that could be used is kept on disk, so nothing is asked
-twice; an answer that could not be used is never kept.
+long it usually takes. Reading pictures is not asked first: a page costs about 3,000 tokens in
+(a few cents with a key), and the material says afterwards who read it and, with a key, what it
+cost. Every answer that could be used is kept on disk, so nothing is asked twice; an answer
+that could not be used is never kept.
 
 A real run on a 1073-page textbook, through Claude Code with Claude Opus 5.5: the strategy with
 its formula sheet took about 58,000 tokens in and 8,000 out (64 seconds), a question to the
@@ -102,7 +119,9 @@ on a whole book: strategy and formula sheet, helper, final exam and marking. The
 ran the whole path of 0.1 for real with each of its four models; the parts new in 0.2 are tested
 against a stand-in that speaks its format, not against the real service. "Another server" has
 run against a real Ollama with a small model in 0.1. OpenRouter is the least tested: against a
-stand-in for its format, and the real service only as far as refusing a wrong key. If one of
+stand-in for its format, and the real service only as far as refusing a wrong key. Reading pictures (new in 0.4) has run for real through Claude Code, on screenshots of an
+exercise sheet with formulas; with the Anthropic API, OpenRouter and other servers it is tested
+against stand-ins for their formats. If one of
 them misbehaves for you, please [open an issue](https://github.com/KorelUyar/aced/issues).
 
 ## What to know
@@ -116,8 +135,21 @@ them misbehaves for you, please [open an issue](https://github.com/KorelUyar/ace
 - **A formula on the sheet can be wrong.** It is written by the AI. Each one links to its page:
   check it against the book before you rely on it. Formulas in a PDF are often pictures, so
   the model sees the sentence around a formula but not always the formula itself.
-- **Recognised text is not perfect.** Small print and formulas in a book without real text can
-  come out wrong. The book panel always shows the real page.
+- **Recognised text is not perfect.** The recognition on your Mac reads print well and formulas
+  badly: in a screenshot, `x² − 7x + 12 = 0` comes out as "x - 7x + 12 = 0" and a fraction as
+  its parts. That is why your AI reads pictures right after. Small print in a long scanned book,
+  which stays with the recognition on your Mac, can come out wrong. The book panel always shows
+  the real page.
+- **How other files come through.** Aced makes a PDF of every file and keeps the original next
+  to it. Word formulas (Word's own format, and OpenDocument's) are drawn as formulas and reach
+  the AI as LaTeX. A spreadsheet is printed sheet by sheet with its columns lettered and its rows
+  numbered, as the cells show their values; of each sheet, the first 1000 rows and 40 columns,
+  and Aced says when it cut. Old PowerPoint files are read through macOS's Quick Look, old Word
+  files and RTF through macOS's textutil. Pages, Numbers and Keynote files keep only a picture
+  of their first page and their text where other apps can read them: Aced reads those and says
+  so; for all of it, export a PDF from the app. Web pages, drawings and e-books are drawn with
+  scripts off and nothing loaded from the internet. A file that cannot be read gets a sentence
+  that says what to do instead.
 - **A small model gives a weak plan.** With a small local model, expect vague topics and page
   references that do not hold. Aced leaves out references to pages the model was not shown.
 - **The book is only a picture.** A PDF is untrusted: in the panel nothing in it can be clicked,
@@ -160,7 +192,8 @@ more. With Claude Code there is nothing to enter.
 
 ## Develop
 
-Needs Node 22 and, for the text recognition helper, Xcode's command line tools.
+Needs Node 22 and, for the text recognition helper, Xcode's command line tools. Nothing else:
+every format is read by Aced itself or by what comes with macOS.
 
 ```sh
 npm install
@@ -171,11 +204,12 @@ npm run sample   # the app on invented exams, nothing is saved
 
 | | |
 |---|---|
-| `npm test` | planner, results in every notation, page search, store (damaged file, backup, a file from 0.1), reference check, the engine and every key-based provider against a local stand-in server |
-| `npm run smoke` | clicks through the app in a hidden window: an empty start up to a final exam (with a real file drop), the sample exams, and a damaged data file |
+| `npm test` | planner, results in every notation, page search, store (damaged file, backup, a file from 0.1), reference check, the engine and every key-based provider (pictures included) against a local stand-in server; and every file format, made on this Mac, with the hostile kind (a zip bomb, an external entity, scripts and pictures from a server, a picture of 400 megapixels) |
+| `npm run smoke` | clicks through the app in a hidden window: an empty start up to a final exam (with a real file drop), the sample exams, a damaged data file, and material handed over without the Finder (a folder, ⌘V of a screenshot, of files and of text, picture data from a browser) |
 | `npm run checks` | keyboard only, the wizard's edges, time in total, percent and German scale, reduced motion |
 | `electron scripts/window-check.js` | opens a real window for a few seconds: traffic lights, minimum size, date field |
 | `electron scripts/e2e.js <book.pdf> <objectives.txt> <outDir>` | the whole path for real through Claude Code (costs tokens) |
+| `electron scripts/e2e-formats.js <outDir>` | the same for screenshots, a Word file with formulas and an Excel file: read, planned, the book at the right page, found by the helper (costs tokens) |
 | `electron scripts/wrong-key.js` | asks the real Anthropic and OpenRouter services with a key that is not one |
 | `scripts/fixtures/claude-stub.sh` | a stand-in for the `claude` command with prepared answers, so the tests can play every state (not signed in, expired, usage limit, offline, a slow run) without touching a real login |
 | `npm run shots` | the pictures in `docs/shots` from the sample exams; with a data folder as third argument to `scripts/shots.js`, the ones with a real book |
@@ -190,7 +224,11 @@ Where things are:
 - `src/answers.js`: is a typed result right? Numbers in every notation, decided on the Mac.
 - `src/search.js`: finds the pages of a book a question is about.
 - `src/ai/`: the four providers behind one `ask()` that checks the answer against a schema.
-- `src/files.js`, `src/pdf-worker.js`, `src/ocr.js`, `native/ocr.swift`: reading PDFs.
+- `src/files.js`, `src/pdf-worker.js`, `src/ocr.js`, `native/ocr.swift`: the library, and reading
+  PDFs. The Swift helper also puts pictures on PDF pages and makes pictures of pages for the AI.
+- `src/convert.js`, `src/convert-worker.js`, `src/formats/`, `src/print.js`: every other format to
+  a PDF (the readers run in a process of their own; pages are printed with scripts off).
+- `src/see.js`: the AI reading pictures.
 - `src/store.js`, `src/secrets.js`: what is kept, and the keys.
 - `ui/`: the interface. Plain HTML, CSS and JavaScript modules, no bundler; Preact with htm,
   KaTeX, pdf.js and the Archivo typeface are vendored in `ui/vendor`. `ui/i18n.js` holds all
