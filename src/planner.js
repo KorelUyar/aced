@@ -53,8 +53,9 @@ const PAGE_MINUTES = 4; // reading one page that matters, slowly
 /**
  * The steps of a topic that go on the list. A topic with a summary starts with it (about three
  * minutes, instead of its pages). Then, by pace:
- * - "efficient": the summary, the exercises, then a short check (three questions on the topic).
- *   No reading: the pages stay a link in the summary.
+ * - "efficient": the summary and the exercises. No reading: the pages stay a link in the summary.
+ *   A short check (two questions on the topic) comes only where it tells something: where a task
+ *   in the app went wrong, or where exercises were ticked off without the app checking them.
  * - "sprint": the summary and the exercises; questions only where the book has no exercises.
  * - "thorough": the summary, then only the pages it names as the ones that matter, the exercises
  *   and the check.
@@ -62,7 +63,7 @@ const PAGE_MINUTES = 4; // reading one page that matters, slowly
  * A topic without a summary (an exam from before Aced 0.6, until it has one) keeps its steps:
  * what to read, which exercises to solve, and questions where the book has no exercises.
  */
-function workOf(topic, pace = "thorough", done = {}) {
+function workOf(topic, pace = "thorough", done = {}, results = {}) {
   const ticked = (st) => Boolean(tickOf(done, st.id));
   const reads = topic.steps.filter((s) => s.kind === "read");
   const solve = topic.steps.filter((s) => s.kind === "solve");
@@ -77,8 +78,17 @@ function workOf(topic, pace = "thorough", done = {}) {
         ? reads
         : key.map((r, i) => ({ id: `${topic.id}/k${i}`, kind: "read", material: r.material, from: r.from, to: r.to, chapter: r.what || "", minutes: Math.max(3, (r.to - r.from + 1) * PAGE_MINUTES), key: true }));
   }
-  const short = pace === "efficient" && solve.length && !ticked(quiz) ? { ...quiz, questions: Math.min(quiz.questions || 4, 3), minutes: 6 } : quiz;
-  const check = quiz && (pace !== "sprint" || !solve.length || ticked(quiz)) ? [short] : [];
+  let check = quiz && (pace !== "sprint" || !solve.length || ticked(quiz)) ? [quiz] : [];
+  if (quiz && pace === "efficient" && solve.length && !ticked(quiz)) {
+    const inApp = (topic.tasks || []).filter((x) => x.type !== "paper");
+    const result = (x) => tickOf(results, x.id) || {};
+    const wrong = inApp.some((x) => result(x).wrong);
+    const byHand = solve.some((st) => {
+      const own = inApp.filter((x) => x.step === st.id);
+      return ticked(st) && !(own.length && own.every((x) => result(x).right));
+    });
+    check = wrong || byHand ? [{ ...quiz, questions: 2, minutes: 4 }] : [];
+  }
   return [summary, ...reading, ...solve, ...check];
 }
 
@@ -102,14 +112,15 @@ function buildPlan(exam, today) {
   const totalLeft = left.reduce((a, b) => a + b, 0);
 
   // What stays and what is left out.
-  const density = (t) => t.share / Math.max(5, minutesOf(workOf(t, exam.pace, done)));
+  const results = exam.taskResults || {};
+  const density = (t) => t.share / Math.max(5, minutesOf(workOf(t, exam.pace, done, results)));
   const need = targetScore(exam.scale, exam.target);
   let room = totalLeft;
   let covered = 0;
   const kept = new Set();
   const dropped = [];
   for (const t of [...s.topics].sort((a, b) => density(b) - density(a))) {
-    const work = workOf(t, exam.pace, done);
+    const work = workOf(t, exam.pace, done, results);
     const open = work.filter((st) => !tickOf(done, st.id));
     const remaining = minutesOf(open);
     const started = open.length < work.length;
@@ -142,10 +153,10 @@ function buildPlan(exam, today) {
   });
   const stages = [];
   const ordered = s.topics.map((t, i) => ({ t, i })).filter((x) => kept.has(x.t.id)).sort((a, b) => (a.t.order ?? 9999) - (b.t.order ?? 9999) || a.i - b.i);
-  for (const { t } of ordered) stages.push({ id: t.id, topicId: t.id, title: t.title, again: false, tasks: workOf(t, exam.pace, done).map((step) => task(t, step, false)) });
+  for (const { t } of ordered) stages.push({ id: t.id, topicId: t.id, title: t.title, again: false, tasks: workOf(t, exam.pace, done, results).map((step) => task(t, step, false)) });
   for (const a of exam.again || []) {
     const t = byId.get(a.topicId);
-    if (t && a.steps.length) stages.push({ id: a.id, topicId: t.id, title: t.title, again: true, score: a.score ?? null, tasks: a.steps.map((step) => task(t, step, true)) });
+    if (t && a.steps.length) stages.push({ id: a.id, topicId: t.id, title: t.title, again: true, fromTask: a.from === "task", score: a.score ?? null, tasks: a.steps.map((step) => task(t, step, true)) });
   }
   const tasks = stages.flatMap((stage) => stage.tasks);
 
@@ -166,7 +177,6 @@ function buildPlan(exam, today) {
   const open = tasks.filter((t) => !t.done);
   const allMinutes = minutesOf(tasks) || 1;
   // A step whose tasks are partly right in the app counts for that part.
-  const results = exam.taskResults || {};
   const ofStep = (t) => (s.topics.find((x) => x.id === t.topicId)?.tasks || []).filter((x) => (t.step.tasks ? t.step.tasks.includes(x.id) : x.step === t.id));
   const partly = (t) => {
     const list = t.kind === "solve" ? ofStep(t) : [];

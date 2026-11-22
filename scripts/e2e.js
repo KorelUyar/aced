@@ -123,7 +123,8 @@ app.whenReady().then(async () => {
       log("strategy and formula sheet in", seconds(t0), "| checks", JSON.stringify(s.checks), "| pages read", s.pagesRead, "| topics", s.topics.length);
       for (const t of s.topics) log("  ", t.title, "|", t.steps.map((st) => (st.kind === "read" ? `read ${st.from}-${st.to}` : st.kind === "solve" ? `solve p${st.page}: ${st.labels.join(",")}${st.unconfirmed.length ? " (unconfirmed: " + st.unconfirmed + ")" : ""}` : "")).filter(Boolean).join("; "));
       for (const t of s.topics) log("   summary of", t.title + ":", t.summary ? `${t.summary.core.length} points, ${t.summary.example ? "an example" : "no example"}, ${t.summary.todo.length} to do, pages ${t.summary.pages.map((p) => p.from + "-" + p.to).join(" ")}` : "NONE");
-      fs.writeFileSync(path.join(out, "summaries.json"), JSON.stringify(s.topics.map((t) => ({ title: t.title, summary: t.summary })), null, 1));
+      for (const t of s.topics) log("   tasks of", t.title + ":", t.tasks ? t.tasks.map((x) => `${x.page}/${x.label} ${x.type} ${x.checked}`).join(", ") || "none" : "NOT MADE");
+      fs.writeFileSync(path.join(out, "summaries.json"), JSON.stringify(s.topics.map((t) => ({ title: t.title, summary: t.summary, tasks: t.tasks })), null, 1));
       const f = exam().formulas || [];
       log("formulas:", f.map((g) => g.formulas.length).join("+") || "none", "| with a page:", f.flatMap((g) => g.formulas).filter((x) => x.page).length, "of", f.flatMap((g) => g.formulas).length);
     } else {

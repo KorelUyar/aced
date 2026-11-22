@@ -285,7 +285,8 @@ app.whenReady().then(async () => {
       e = exam();
       assert.deepEqual(e.strategy.topics.map((t) => t.steps.map((st) => st.kind).join()), ["read,solve,quiz", "read,quiz"]);
       assert.equal(e.formulas[0].formulas[0].page, 1, "the formula sheet is written with the strategy, each formula with its page");
-      assert.deepEqual(await js(`[...document.querySelectorAll('.step .jump span')].map((x) => x.textContent)`), ["Read p. 1", "Solve p. 1: 1", "Read p. 2", "Answer 3 questions"], "steps say what to do, with page and number; questions only where the book has no exercises");
+      assert.deepEqual(await js(`[...document.querySelectorAll('.step .jump span')].map((x) => x.textContent)`), ["Summary instead of p. 1", "Solve p. 1: 1", "Summary instead of p. 2", "Answer 3 questions"], "efficient: a summary instead of the pages, the exercises; questions only where the book has no exercises");
+      assert.ok(await has(".stage.current .summary-card .katex"), "the topic that is up starts with its summary, formulas drawn");
       assert.match(await text(".step.asks .jump"), /written by the AI/);
       assert.equal(await text(".percent b"), "0");
       assert.ok(await has(".stage.current .own-formulas .katex"), "the topic that is up shows its own formulas beside the book");
@@ -298,6 +299,18 @@ app.whenReady().then(async () => {
       await until(`document.querySelector('.percent b').textContent === '0'`);
       await click(".step.now .mark");
       await until(`document.querySelector('.percent b').textContent === ${JSON.stringify(after)}`);
+      // The book's exercise in the app: its result typed and checked, then the worked solution.
+      await js(`[...document.querySelectorAll('.step .jump')].find((b) => /Solve/.test(b.textContent)).click()`);
+      await until(`!!document.querySelector('.drawer.tasks .task-prompt .katex')`);
+      assert.match(await text(".drawer.tasks .task-source"), /From the book, p\. 1, no\. 1/);
+      await js(`(() => { const f = document.querySelector('.drawer.tasks input.field'); f.value = '3'; f.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await click("#checkTask");
+      await until(`!!document.querySelector('.verdict.right')`);
+      await click("#showSolution");
+      assert.ok(await has(".task-solution .katex"), "the worked solution, with its formulas");
+      await click(".drawer.tasks .mini");
+      // All its tasks right: the step ticks itself, and the finished topic folds up.
+      await until(`document.querySelector('.stage.done .count')?.textContent === '2/2'`);
       // The formula sheet: every formula with a link to its page, which moves the book.
       await click(".tabs.panels button:nth-child(2)");
       await until(`!!document.querySelector('.formula .katex')`);
@@ -335,7 +348,7 @@ app.whenReady().then(async () => {
       await click(".plan #cancelRun");
       await until(`!document.querySelector('.plan .running')`);
       await sleep(300);
-      assert.ok(await has(".path .step.done"), "cancelling leaves the plan and its ticks as they were");
+      assert.ok((await has(".path .step.done")) || (await has(".path .stage.done")), "cancelling leaves the plan and its ticks as they were");
       assert.throws(() => execSync("pgrep -f claude-stub.sh", { stdio: "pipe" }), "the cancelled Claude Code process is gone");
       signInState("ok");
 
@@ -454,7 +467,8 @@ app.whenReady().then(async () => {
       assert.match(await text(".exam-card .exam-percent"), /\d+%/);
       await click(".exam-card");
       await until(`document.querySelectorAll('.stage').length >= 5`);
-      assert.match(await text(".left-out"), /Left out, because the time does not reach: Satz von Vieta/);
+      assert.ok(await has(".stage.current .summary-card .katex"), "the topic that is up starts with its summary");
+      assert.match(await text(".stage.current .step .jump"), /Summary instead of p\. \d+/, "and its first step is the summary, instead of the pages");
       assert.ok(await has(".stage.folded"), "a finished topic is folded away");
       assert.ok(await has(".day-end"), "one line shows where today is done");
       assert.ok(await has(".stage.current .own-formulas .katex"), "formulas are drawn");

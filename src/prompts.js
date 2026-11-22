@@ -131,6 +131,69 @@ The material above holds the pages the student would otherwise read for this top
 All together it must read in 2 to 3 minutes: at most about 350 words.`;
 }
 
+// The book's exercises, copied so they can be solved in the app: the result is typed, nothing else.
+const TASKS = obj({
+  tasks: list(
+    obj({
+      book: int,
+      page: int,
+      label: str,
+      prompt: str,
+      needs_figure: { type: "boolean" },
+      type: { type: "string", enum: ["number", "numbers", "choice", "expression", "paper"] },
+      value: num,
+      values: list(num),
+      ordered: { type: "boolean" },
+      tolerance: num,
+      unit: str,
+      choices: list(str),
+      correct: int,
+      expression: str,
+      answer: str,
+      form: str,
+      hint: str,
+      solution: list(str),
+      compute: list(str),
+      book_answer: str,
+      minutes: int,
+    }),
+  ),
+});
+
+// The same exercises solved a second time, from their text alone.
+const RESULTS = obj({ results: list(obj({ n: int, value: num, values: list(num), correct: int, expression: str, sure: { type: "boolean" } })) });
+
+function tasksTask({ exercises }) {
+  return `Task: the book's exercises as tasks in the app.
+The student solves these exercises on paper and types only the final result into the app, which checks it:
+${exercises}
+For each exercise, one entry:
+- "book", "page", "label": where it is printed, the label exactly as printed (the number or letter only).
+- "prompt": the exercise text copied exactly as printed, word for word, with formulas in LaTeX between $ and $. If it belongs to a common instruction printed above several exercises (for example "Solve:" or "Find the vertex of"), put that instruction in front, so the prompt can be read on its own. Copy, never rephrase.
+- "needs_figure": true if the exercise cannot be solved without a figure, graph or table printed with it.
+- "type": what the result is.
+  - "number": one number in "value" ("tolerance": half a unit of the last decimal you expect, 0 for a whole number; "unit" if it has one).
+  - "numbers": several numbers in "values". "ordered": true when their order matters (a point (x, y), coordinates), false when it does not (the solutions of an equation).
+  - "choice": the exercise itself offers options: "choices" as printed, "correct" the position of the right one (from 0).
+  - "expression": the result is a term or a function, such as a vertex form: in "expression", in plain notation with x as the variable, * for multiplication and ^ for powers (e.g. "2*(x-2)^2-5").
+  - "paper": the result cannot be typed (a sketch, a proof, a long explanation). Then "solution" says what a correct result looks like.
+  Fields that do not belong to the type: "value" 0, "values" and "choices" empty, "correct" -1, "expression" empty.
+- "answer": the result as the student writes it, in one line with LaTeX. "form": how to type it, in a few words in the language of the material (e.g. "Scheitelpunkt als x; y", "beide Lösungen, getrennt mit ;").
+- "hint": one sentence that helps with the first step, without giving the result.
+- "solution": the worked solution in 2 to 6 short steps, each a line with LaTeX.
+- "compute": for "number" and "numbers": one plain arithmetic expression per result value, without variables, that gives it (e.g. "(8+sqrt(16))/4"). Only numbers, + - * / ^, brackets and sqrt. Empty for the other types.
+- "book_answer": the result as the book prints it, if the material shows the book's own answer to this exercise (an answer key, solutions at the end); else empty.
+- "minutes": realistic minutes to solve it on paper.
+Work every result out carefully, step by step. A wrong result is the worst mistake this app can make.`;
+}
+
+function resultsTask({ tasks }) {
+  return `Task: solve these exercises.
+Solve each one carefully on your own and give only its result. They come from a book; there is no material with them.
+${tasks}
+For each, one entry with its number "n" and the result in the field that fits its type: "number" in "value"; "numbers" in "values" (in the order asked for, where an order is asked for); "choice" as the position "correct" (from 0); "expression" in "expression" in plain notation with x, * and ^. Fields that do not belong: "value" 0, "values" empty, "correct" -1, "expression" empty. "sure": false if the exercise is unclear or you are not certain of the result.`;
+}
+
 function questionsTask({ topics, count, final, hasOldExam, variant, planned }) {
   const names = topics.map((t, i) => `${i}: ${t.title}${t.objectives.length ? " (" + t.objectives.join("; ") + ")" : ""}`).join("\n");
   return `Task: ${final ? "the final exam" : "questions on one topic"}.
@@ -214,4 +277,4 @@ const SEE = obj({ text: str });
 const seeTask = (n, total) =>
   `This is page ${n} of ${total} of one document. Write down everything on it as the rules say. Answer with JSON: {"text": "..."}.`;
 
-module.exports = { SEE_SYSTEM, SEE, seeTask, SYSTEM, LOCATE, STRATEGY, QUESTIONS, GRADE, FORMULAS, HELP, SUMMARY, locateTask, strategyTask, summaryTask, questionsTask, gradeTask, formulasTask, helpTask };
+module.exports = { SEE_SYSTEM, SEE, seeTask, SYSTEM, LOCATE, STRATEGY, QUESTIONS, GRADE, FORMULAS, HELP, SUMMARY, TASKS, RESULTS, locateTask, strategyTask, summaryTask, tasksTask, resultsTask, questionsTask, gradeTask, formulasTask, helpTask };

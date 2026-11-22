@@ -35,27 +35,34 @@ function answer(e, taskId, typed, today) {
   if (!found) return null;
   const { task, topic } = found;
   const right = isRight(task, typed);
+  // A task whose result could not be confirmed never counts as wrong: it says so instead.
+  const sure = task.checked !== "none";
   e.taskResults = e.taskResults || {};
   const before = planner.tickOf(e.taskResults, taskId) || { tries: 0, wrong: 0 };
   const now = { ...before, tries: before.tries + 1, right, date: today, at: Date.now() };
-  if (!right) now.wrong = (before.wrong || 0) + 1;
+  if (!right && sure) now.wrong = (before.wrong || 0) + 1;
+  if (!sure) now.seen = true;
   e.taskResults[taskId] = now;
   const step = topic.steps.find((st) => st.id === task.step);
   const ofStep = (topic.tasks || []).filter((x) => x.step === task.step && x.type !== "paper");
-  if (step && right && ofStep.every((x) => (planner.tickOf(e.taskResults, x.id) || {}).right) && !planner.tickOf(e.done, step.id)) {
+  const settled = (x) => {
+    const r = planner.tickOf(e.taskResults, x.id) || {};
+    return r.right || (x.checked === "none" && r.seen);
+  };
+  if (step && (right || !sure) && ofStep.every(settled) && !planner.tickOf(e.done, step.id)) {
     e.done[step.id] = { date: today, minutes: step.minutes, at: Date.now() };
     delete e.floor;
   }
   // Wrong once: it comes back later, after the rest of the plan.
   const againId = `again:${taskId}`;
   e.again = e.again || [];
-  if (!right && !e.again.some((a) => a.id === againId)) {
+  if (!right && sure && !e.again.some((a) => a.id === againId)) {
     e.again.push({ id: againId, topicId: topic.id, from: "task", score: null, steps: [{ id: `${taskId}/again`, kind: "solve", material: task.material, page: task.page, labels: [task.label], minutes: task.minutes || 5, repeat: true, tasks: [taskId] }] });
   }
   // Right on a later try (another day): its repetition is done.
   const back = e.again.find((a) => a.id === againId);
   if (right && back && before.wrong && before.date !== today) e.done[`${taskId}/again`] = { date: today, minutes: task.minutes || 5, at: Date.now() };
-  return right;
+  return { right, sure };
 }
 
 module.exports = { isRight, answer, allTasks };

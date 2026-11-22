@@ -3187,3 +3187,26 @@ select.field {
 .task-dots i.at {
   box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--ink);
 }
+
+.verdict.unsure {
+  background: var(--partly-soft);
+  color: var(--partly);
+}
+
+/* the part of the page a task needs: its figure or table, as printed */
+.task-figure {
+  overflow: hidden;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+.task-figure img {
+  display: block;
+  width: 100%;
+}
+
+.task-figure.loading {
+  height: 120px;
+  background: var(--track-soft, var(--rule));
+}

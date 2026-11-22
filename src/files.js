@@ -80,7 +80,7 @@ const coded = (code, detail) => Object.assign(new Error(code), { code, detail })
  * The process is stopped when `signal` fires, or when it has not reported anything for two
  * minutes (a damaged file can keep a reader busy for ever).
  */
-function readPdf(file, onProgress, signal, facts = null) {
+function readPdf(file, onProgress, signal, facts = null, lines = null) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(coded("cancelled"));
     const child = utilityProcess.fork(path.join(__dirname, "pdf-worker.js"), [], { stdio: "ignore" });
@@ -104,16 +104,19 @@ function readPdf(file, onProgress, signal, facts = null) {
     child.on("message", (m) => {
       alive();
       if (m.type === "progress") onProgress?.(m.done, m.total);
-      else if (m.type === "done") finish(resolve, facts ? { count: m.count, sizes: m.sizes } : { pages: m.pages, outline: m.outline });
+      else if (m.type === "done") finish(resolve, lines ? { lines: m.lines } : facts ? { count: m.count, sizes: m.sizes } : { pages: m.pages, outline: m.outline });
       else finish(reject, new Error("pdf: " + m.message));
     });
     child.on("exit", () => finish(reject, new Error("pdf: the reader stopped")));
-    child.postMessage({ file, facts });
+    child.postMessage({ file, facts, lines });
   });
 }
 
 /** How many pages a PDF has, and the sizes of the pages asked for (in points), without reading any text. */
 const pdfFacts = (file, pages, signal) => readPdf(file, null, signal, pages);
+
+/** The lines of one page with where each starts (see pdf-worker.js). */
+const pdfLines = (file, page, signal) => readPdf(file, null, signal, null, page).then((r) => r.lines);
 
 /**
  * Many books print a page number that differs from the page's position in the file (a cover,
@@ -382,4 +385,4 @@ function prune({ hashes, answers }) {
   sweep("answers", answers);
 }
 
-module.exports = { init, add, pdfFacts, addPictures, addText, decode, ensureText, withoutLinks, readText, writeText, pdfPath, originalsPath, printedOffset, isScan, textless, sha, cached, remember, prune, hashFile };
+module.exports = { init, add, pdfFacts, pdfLines, addPictures, addText, decode, ensureText, withoutLinks, readText, writeText, pdfPath, originalsPath, printedOffset, isScan, textless, sha, cached, remember, prune, hashFile };

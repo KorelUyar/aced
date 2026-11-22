@@ -1,0 +1,32 @@
+{
+ "tasks": [
+  {
+   "book": 1,
+   "page": 1,
+   "label": "1",
+   "prompt": "Eine Lösung hat die Konzentration $c(\\mathrm{H_3O^+}) = 10^{-3}$ mol/l. Berechne den pH-Wert.",
+   "needs_figure": false,
+   "type": "number",
+   "value": 3,
+   "values": [],
+   "ordered": false,
+   "tolerance": 0,
+   "unit": "",
+   "choices": [],
+   "correct": -1,
+   "expression": "",
+   "answer": "pH $= 3$",
+   "form": "eine Zahl",
+   "hint": "Der pH-Wert ist der negative Zehnerlogarithmus der Konzentration.",
+   "solution": [
+    "$\\mathrm{pH} = -\\log_{10}(10^{-3})$",
+    "$\\mathrm{pH} = 3$"
+   ],
+   "compute": [
+    "3"
+   ],
+   "book_answer": "",
+   "minutes": 4
+  }
+ ]
+}

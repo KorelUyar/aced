@@ -383,6 +383,198 @@ async function writeSummary(exam, topicId, { onUsage, onKey, signal } = {}) {
   };
 }
 
+// ------------------------------------------------------------ the book's exercises in the app
+
+const TASK_CHARS = 60000; // the exercise pages, the pages around them and the book's answers
+const expr = require("./expr");
+const ANSWER_PAGE = /^\s*(answers?|solutions?|answer key|lösungen|loesungen|ergebnisse|résultats|solutions des exercices)\b/im;
+const labelKey = (l) => String(l).toLowerCase().replace(/[\s.)]+/g, "");
+
+/** Do two results of the same task agree? */
+function agree(task, other) {
+  const near = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= Math.max(task.tolerance || 0, Math.abs(b) * 1e-6, 1e-9);
+  if (task.type === "number") return near(other.value, task.value);
+  if (task.type === "numbers") {
+    const a = other.values || [];
+    const b = task.values;
+    if (a.length !== b.length) return false;
+    if (task.ordered) return b.every((v, i) => near(a[i], v));
+    const x = [...a].sort((p, q) => p - q);
+    return [...b].sort((p, q) => p - q).every((v, i) => near(x[i], v));
+  }
+  if (task.type === "choice") return other.correct === task.correct;
+  if (task.type === "expression") return expr.same(other.expression, task.expression);
+  return false;
+}
+
+/**
+ * The exercises a topic's plan asks for, as tasks in the app: copied from the book word for word,
+ * with the result, a hint and the worked solution. Every result is checked before anyone sees it:
+ * against the book's own answer where the material has one, else by solving the exercises again
+ * in a second request from their text alone, and numbers once more on this Mac from a plain
+ * calculation. Only a task whose result holds is "checked"; the others say so. Two requests.
+ */
+async function writeTasks(exam, topicId, { onUsage, onKey, signal } = {}) {
+  const topic = exam.strategy.topics.find((t) => t.id === topicId);
+  if (!topic) throw coded("unknown");
+  const solve = topic.steps.filter((st) => st.kind === "solve");
+  if (!solve.length) return [];
+  const g = gather(exam);
+  const bySource = new Map(g.sources.map((src) => [src.m.id, src]));
+  const wanted = new Map();
+  const add = (src, p) => {
+    if (!src || p < 1 || p > src.m.pages) return;
+    if (!wanted.has(src.n)) wanted.set(src.n, new Set());
+    wanted.get(src.n).add(p);
+  };
+  // The exercise pages first, then the page before (a common instruction) and after (an exercise
+  // that runs on), then pages that are the book's answers.
+  for (const st of solve) add(bySource.get(st.material), st.page);
+  for (const st of solve) [st.page - 1, st.page + 1].forEach((p) => add(bySource.get(st.material), p));
+  for (const st of solve) {
+    const src = bySource.get(st.material);
+    if (src) src.data.pages.forEach((text, i) => ANSWER_PAGE.test(text.slice(0, 400)) && add(src, i + 1));
+  }
+  let room = TASK_CHARS;
+  const selection = new Map();
+  for (const [n, pages] of wanted) {
+    const src = g.sources.find((x) => x.n === n);
+    const keep = [...pages].filter((p) => {
+      const size = src.data.pages[p - 1].length;
+      if (size > room) return false;
+      room -= size;
+      return true;
+    });
+    selection.set(n, keep.sort((a, b) => a - b));
+  }
+  const exercises = solve
+    .map((st) => {
+      const src = bySource.get(st.material);
+      return src ? `- book ${src.n}, page ${st.page}: ${st.labels.join(", ")}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+  const raw = await ai.ask(
+    {
+      name: "tasks",
+      system: P.SYSTEM,
+      material: material("", pagesBlock(g.sources, selection)),
+      prompt: P.tasksTask({ exercises }),
+      schema: P.TASKS,
+      maxTokens: 32000,
+      effort: "high",
+      usable: (v) => (v.tasks.length ? "" : "no tasks"),
+    },
+    { signal, onUsage, onKey },
+  );
+  const line = (x, max) => String(x || "").replace(/\s+/g, " ").trim().slice(0, max);
+  const seen = new Set();
+  const tasks = [];
+  for (const r of raw.tasks) {
+    const src = g.sources.find((x) => x.n === r.book);
+    // Only the exercises of the plan: the step that names this label on this page (or the next).
+    const step = src && solve.find((st) => st.material === src.m.id && Math.abs(st.page - r.page) <= 1 && st.labels.some((l) => labelKey(l) === labelKey(r.label)));
+    if (!step) continue;
+    const label = step.labels.find((l) => labelKey(l) === labelKey(r.label));
+    const id = `${step.id}/${labelKey(label) || tasks.length}`;
+    if (seen.has(id) || !line(r.prompt, 10)) continue;
+    seen.add(id);
+    tasks.push({
+      id,
+      step: step.id,
+      material: src.m.id,
+      page: step.page,
+      label,
+      prompt: String(r.prompt).trim().slice(0, 2000),
+      figure: r.needs_figure ? { top: 0, bottom: 1 } : null,
+      type: r.type,
+      value: r.value,
+      values: (r.values || []).slice(0, 10),
+      ordered: Boolean(r.ordered),
+      tolerance: Math.max(0, r.tolerance || 0),
+      unit: line(r.unit, 20),
+      choices: (r.choices || []).map((c) => line(c, 300)).slice(0, 6),
+      correct: r.correct,
+      expression: line(r.expression, 200),
+      answer: line(r.answer, 300),
+      form: line(r.form, 120),
+      hint: line(r.hint, 600),
+      solution: (r.solution || []).map((x) => line(x, 600)).filter(Boolean).slice(0, 8),
+      compute: (r.compute || []).map((x) => line(x, 200)),
+      bookAnswer: line(r.book_answer, 300),
+      minutes: clamp(r.minutes || 5, 1, 60),
+    });
+  }
+  // A task that needs its figure or table shows that part of its page.
+  for (const x of tasks.filter((x) => x.figure)) {
+    try {
+      const lines = await files.pdfLines(files.pdfPath(g.sources.find((s) => s.m.id === x.material).m.hash), x.page, signal);
+      x.figure = bandOf(lines, x.label, tasks.filter((y) => y.page === x.page).map((y) => y.label));
+    } catch (err) {
+      if (err.code === "cancelled") throw err;
+    }
+  }
+  // The check, before anyone sees a result: the book's own answer, a second solving, the numbers.
+  const typed = tasks.filter((x) => x.type !== "paper");
+  let again = [];
+  if (typed.length) {
+    const list = typed.map((x, i) => `${i}. (${x.type}${x.type === "numbers" ? (x.ordered ? ", in order" : ", any order") : ""}${x.type === "choice" ? ": " + x.choices.map((c, k) => `${k}) ${c}`).join("  ") : ""}) ${x.prompt}`).join("\n");
+    try {
+      again = (
+        await ai.ask(
+          { name: "results", system: P.SYSTEM, material: "", prompt: P.resultsTask({ tasks: list }), schema: P.RESULTS, maxTokens: 16000, effort: "high", fresh: true },
+          { signal, onUsage, onKey },
+        )
+      ).results;
+    } catch (err) {
+      if (err.code === "cancelled") throw err;
+    }
+  }
+  for (const x of tasks) {
+    const i = typed.indexOf(x);
+    const second = i >= 0 ? again.find((r) => r.n === i) : null;
+    const computed = x.type === "number" ? [x.value] : x.type === "numbers" ? x.values : null;
+    const sums =
+      computed && x.compute.length === computed.length
+        ? x.compute.map((c) => expr.value(c)).every((v, k) => Number.isFinite(v) && Math.abs(v - computed[k]) <= Math.max(x.tolerance, Math.abs(computed[k]) * 1e-6, 1e-9))
+        : !computed;
+    const book = x.bookAnswer && bookAgrees(x);
+    x.checked = x.type === "paper" ? "none" : book ? "book" : second && second.sure !== false && agree(x, second) && sums ? "twice" : "none";
+    delete x.compute;
+    delete x.bookAnswer;
+  }
+  return tasks;
+}
+
+/**
+ * Where on its page an exercise is printed: from the line that starts with its label to the line
+ * where the next exercise starts (or the end of the page). Shares of the page height; the whole
+ * page when the label cannot be found.
+ */
+function bandOf(lines, label, labels) {
+  const key = labelKey(label);
+  const starts = (l, k) => {
+    const m = /^\(?([0-9]{1,3}[a-z]?|[a-z])[.):\s]/i.exec(l.text + " ");
+    return m && labelKey(m[1]) === k;
+  };
+  const at = lines.findIndex((l) => starts(l, key));
+  if (at < 0) return { top: 0, bottom: 1 };
+  const next = lines.findIndex((l, i) => i > at && /^\(?([0-9]{1,3}[a-z]?)[.):\s]/i.test(l.text + " ") && labels.some((x) => labelKey(x) !== key));
+  const top = Math.max(0, lines[at].top - 0.015);
+  const bottom = next > at ? Math.min(1, lines[next].top - 0.005) : 1;
+  return bottom - top >= 0.06 ? { top, bottom } : { top: 0, bottom: 1 };
+}
+
+/** Does the book's printed answer give this task's result? */
+function bookAgrees(x) {
+  const text = x.bookAnswer;
+  if (x.type === "number") return answers.numberRight(text, x.value, x.tolerance);
+  if (x.type === "numbers") return x.ordered ? answers.numbersInOrder(text, x.values, x.tolerance) : answers.numbersRight(text, x.values, x.tolerance);
+  if (x.type === "expression") return expr.same(text, x.expression);
+  if (x.type === "choice") return tidy(text).includes(tidy(x.choices[x.correct] || "\u0000"));
+  return false;
+}
+
 // ------------------------------------------------------------ quizzes
 
 /** The pages a topic's quiz is written from: what it tells the student to read and solve. */
@@ -694,4 +886,4 @@ async function help(exam, question, { earlier = [], now = "" } = {}, { onUsage, 
   };
 }
 
-module.exports = { estimate, analyze, writeSummary, writeQuestions, mark, writeFormulas, help, findLabel, checkExercise, gather };
+module.exports = { estimate, analyze, writeSummary, writeTasks, agree, bookAgrees, bandOf, writeQuestions, mark, writeFormulas, help, findLabel, checkExercise, gather };

@@ -47,7 +47,7 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
   const [practice, setPractice] = useState(null); // the solve step whose tasks are open in the app
   const grid = useRef(null);
   const asked = useRef(false);
-  const lacking = s.topics.filter((x) => !x.summary).length;
+  const lacking = s.topics.filter((x) => !x.summary).length + s.topics.filter((x) => x.tasks === undefined && x.steps.some((st) => st.kind === "solve")).length * 2;
 
   const show = (materialId, page) => {
     if (!materialOf(exam, materialId) || materialOf(exam, materialId).type !== "pdf") return app.notify(t("noBookHere"));
@@ -179,7 +179,7 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
                 <h2>${over ? html`<button aria-expanded=${String(!folded)} onClick=${toggle}>${title}</button>` : title}</h2>
                 <span class="count num">${over && html`<${Icon} name="check" size=${14} />`}${finished}/${stage.tasks.length}</span>
               </header>
-              ${!folded && stage.again && html`<p class="can short">${t("againWhy", Math.round((stage.score || 0) * 100))}</p>`}
+              ${!folded && stage.again && html`<p class="can short">${stage.fromTask ? t("againTask") : t("againWhy", Math.round((stage.score || 0) * 100))}</p>`}
               ${!folded &&
               !stage.again &&
               topic.summary &&
@@ -332,9 +332,9 @@ function Tasks({ exam, task: step, show, close, app }) {
     setBusy(true);
     api
       .checkTask(exam.id, task.id, value)
-      .then(({ right, exam: next }) => {
+      .then(({ right, sure, exam: next }) => {
         app.putExam(next);
-        mark({ verdict: right ? "right" : "wrong" });
+        mark({ verdict: right ? "right" : sure ? "wrong" : "unsure" });
       }, app.fail)
       .finally(() => setBusy(false));
   };
@@ -354,6 +354,7 @@ function Tasks({ exam, task: step, show, close, app }) {
         ${task.variant ? t("variantOf", t("page", printed(m, task.page)), task.label) : t("fromBook", t("page", printed(m, task.page)), task.label)}
       </button>
       <p class="task-prompt"><${Rich} text=${task.prompt} /></p>
+      ${task.figure && m && m.type === "pdf" && !m.missing && html`<${Figure} exam=${exam} task=${task} />`}
       ${task.type === "choice"
         ? html`<div class="choices" role="radiogroup" aria-label=${t("resultLabel")}>
             ${task.choices.map(
@@ -382,6 +383,7 @@ function Tasks({ exam, task: step, show, close, app }) {
       ${task.type !== "choice" && html`<p class="task-form muted">${task.form || t("taskForm_" + (task.type === "numbers" && task.ordered ? "point" : task.type))}</p>`}
       ${state.verdict === "right" && html`<p class="verdict right" role="status"><${Icon} name="check" size=${14} /> ${t("taskRight")}</p>`}
       ${state.verdict === "wrong" && html`<p class="verdict wrong" role="status">${t("taskWrong")}</p>`}
+      ${state.verdict === "unsure" && html`<p class="verdict unsure" role="status">${t("taskUnsure")}</p>`}
       <div class="task-actions">
         <button class="btn primary" id="checkTask" disabled=${!filled || busy} onClick=${check}>${t("checkResult")}</button>
         ${task.hint && !state.hint && html`<button class="btn plain" id="taskHint" onClick=${() => mark({ hint: true })}>${t("hint")}</button>`}
@@ -406,6 +408,27 @@ function Tasks({ exam, task: step, show, close, app }) {
       </footer>
     </div>
   </section>`;
+}
+
+/**
+ * The part of the book's page a task needs (its figure or table), as a picture. A part that cannot
+ * be used shows the whole page.
+ */
+function Figure({ exam, task }) {
+  const [url, setUrl] = useState(null);
+  const [ratio, setRatio] = useState(0.7);
+  useEffect(() => {
+    let live = true;
+    api.pagePicture(exam.id, task.material, task.page).then((u) => live && setUrl(u), () => {});
+    return () => (live = false);
+  }, [task.id]);
+  const top = Math.max(0, Math.min(0.95, Number(task.figure.top) || 0));
+  const bottom = Math.max(top + 0.05, Math.min(1, Number(task.figure.bottom) || 1));
+  const span = bottom - top;
+  if (!url) return html`<div class="task-figure loading" aria-hidden="true"></div>`;
+  return html`<div class="task-figure" style=${{ aspectRatio: `${ratio} / ${span}` }}>
+    <img src=${url} alt=${t("figureOf", task.label)} style=${{ marginTop: `${(-top / ratio) * 100}%` }} onLoad=${(e) => e.target.naturalHeight && setRatio(e.target.naturalWidth / e.target.naturalHeight)} />
+  </div>`;
 }
 
 /**

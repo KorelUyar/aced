@@ -47,7 +47,7 @@ esac
 answer='{"ok":true}'
 if [ "$state" = empty ]; then answer='{"approach":"","objectives":[],"topics":[]}'
 else
-  for task in "the study strategy:strategy" "the summary of one topic:summary" "the formula sheet:formulas" "the final exam:questions" "questions on one topic:questions" "mark results:marks" "answer the student:help"; do
+  for task in "the study strategy:strategy" "the summary of one topic:summary" "the book's exercises as tasks in the app:tasks" "solve these exercises:results" "the formula sheet:formulas" "the final exam:questions" "questions on one topic:questions" "mark results:marks" "answer the student:help"; do
     if [[ "$input" == *"Task: ${task%%:*}"* ]]; then answer="$(cat "$here/${task##*:}.json")"; break; fi
   done
   # A picture of a page, sent the way Aced sends pictures (--input-format stream-json): what is on it.

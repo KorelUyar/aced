@@ -233,6 +233,7 @@ function sampleExams(lang) {
       },
       ...empty(),
       done: {
+        "t1/sum": { date: inDays(-1), minutes: 3, at: 0.5 },
         "t1/r0": { date: inDays(-1), minutes: 15, at: 1 },
         "t1/s0": { date: inDays(-1), minutes: 20, at: 2 },
         "t1/s1": { date: inDays(-1), minutes: 15, at: 3 },

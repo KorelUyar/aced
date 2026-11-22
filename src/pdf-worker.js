@@ -68,13 +68,42 @@ async function factsOf(pdfjs, doc, pages) {
   return { count: doc.numPages, sizes };
 }
 
-async function read(file, facts) {
+/**
+ * The lines of one page, top to bottom: where each starts (a share of the page height, from the
+ * top) and how it begins. For finding where an exercise is printed.
+ */
+async function linesOf(doc, n) {
+  if (!Number.isInteger(n) || n < 1 || n > doc.numPages) return [];
+  const page = await doc.getPage(n);
+  const [, y0, , y1] = page.view;
+  const height = y1 - y0 || 1;
+  const rows = new Map();
+  for (const item of (await page.getTextContent()).items) {
+    if (!item.str || !item.str.trim()) continue;
+    const y = Math.round(item.transform[5] / 2) * 2;
+    const size = Math.abs(item.transform[3]) || 10;
+    const row = rows.get(y) || { y, size, items: [] };
+    row.items.push({ x: item.transform[4], str: item.str });
+    rows.set(y, row);
+  }
+  page.cleanup();
+  return [...rows.values()]
+    .sort((a, b) => b.y - a.y)
+    .map((r) => ({ top: Math.max(0, Math.min(1, (y1 - r.y - r.size) / height)), text: r.items.sort((a, b) => a.x - b.x).map((i) => i.str).join(" ").trim().slice(0, 40) }));
+}
+
+async function read(file, facts, lines) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   // In Node, pdf.js loads its "worker" into this same process; it still wants to be told where it is.
   pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).href;
   const data = new Uint8Array(fs.readFileSync(file));
   const task = pdfjs.getDocument({ data, useSystemFonts: true, disableFontFace: true, isEvalSupported: false, verbosity: 0 });
   const doc = await task.promise;
+  if (Number.isInteger(lines)) {
+    const out = { lines: await linesOf(doc, lines) };
+    await task.destroy();
+    return out;
+  }
   if (Array.isArray(facts)) {
     const out = await factsOf(pdfjs, doc, facts);
     await task.destroy();
@@ -94,7 +123,7 @@ async function read(file, facts) {
 
 port.on("message", async ({ data }) => {
   try {
-    port.postMessage({ type: "done", ...(await read(data.file, data.facts)) });
+    port.postMessage({ type: "done", ...(await read(data.file, data.facts, data.lines)) });
   } catch (err) {
     port.postMessage({ type: "error", message: String(err && err.message ? err.message : err) });
   }

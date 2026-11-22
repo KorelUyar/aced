@@ -104,6 +104,8 @@ contextBridge.exposeInMainWorld("aced", {
   taskDone: (id, taskId) => call("task:done", id, taskId),
   // A result typed for one of the book's exercises in the app: { right, exam }.
   checkTask: (id, taskId, typed) => call("task:check", id, taskId, typed),
+  // A page as a picture (a data URL), for a task that needs its figure or table.
+  pagePicture: (id, materialId, page) => call("page:picture", id, materialId, page),
   taskUndo: (id, taskId) => call("task:undo", id, taskId),
   openSet: (id, what) => call("set:open", id, what),
   saveDraft: (id, key, draft) => call("set:draft", id, key, draft),

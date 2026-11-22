@@ -1034,7 +1034,8 @@ handle("analysis:run", (id, options) =>
     strategy.basis = basisOf(exam);
     store.setStrategy(id, strategy);
     const progress = store.exam(id).previous || { kept: 0, lost: 0 };
-    // A summary for every topic, to learn from instead of reading its pages.
+    // A summary for every topic, to learn from instead of reading its pages, and the book's
+    // exercises as tasks in the app.
     await summarise(id, signal, say);
     // The formula sheet belongs to the strategy. If it fails, the strategy still stands; the sheet is asked for again when it is opened.
     try {
@@ -1061,13 +1062,22 @@ handle("cancel", (id) => {
 
 // ------------------------------------------------ formula sheet and helper
 
+/** Topics that still need a summary, or tasks (a topic with exercises in the book), and the AI calls that costs. */
+function learning(exam) {
+  const topics = exam.strategy ? exam.strategy.topics : [];
+  const summaries = topics.filter((t) => !t.summary).map((t) => t.id);
+  const tasks = topics.filter((t) => t.tasks === undefined && t.steps.some((st) => st.kind === "solve")).map((t) => t.id);
+  return { summaries, tasks, calls: summaries.length + tasks.length * 2 };
+}
+
 /**
- * Writes the summary of every topic that has none yet, one request per topic, each kept as soon
- * as it is there (a cancel keeps what is done). A topic whose summary fails keeps its pages; the
- * others go on.
+ * Writes the summary of every topic that has none yet (one request per topic), then the tasks of
+ * every topic that has none yet (two requests per topic: the exercises copied, then solved again
+ * to check them). Each is kept as soon as it is there (a cancel keeps what is done). A topic whose
+ * summary or tasks fail keeps its pages and the book; the others go on.
  */
 async function summarise(id, signal, say) {
-  const todo = store.exam(id).strategy.topics.filter((t) => !t.summary).map((t) => t.id);
+  const todo = learning(store.exam(id)).summaries;
   // An exam with progress (made before Aced 0.6) gets new steps: it shows no less than before
   // until the next tick, and a topic already begun counts its summary as read.
   const before = planner.buildPlan(store.exam(id), today());
@@ -1088,13 +1098,28 @@ async function summarise(id, signal, say) {
     }
     done++;
   }
+  const exercises = learning(store.exam(id)).tasks;
+  done = 0;
+  for (const topicId of exercises) {
+    say({ stage: "tasks", done, total: exercises.length });
+    try {
+      const list = await engine.writeTasks(store.exam(id), topicId, tracked(id, signal));
+      store.change(id, (e) => {
+        const topic = e.strategy && e.strategy.topics.find((t) => t.id === topicId);
+        if (topic) topic.tasks = list;
+      });
+    } catch (err) {
+      if (err.code === "cancelled") throw err;
+    }
+    done++;
+  }
 }
 
 /** Summaries for an exam that has none yet: one made before Aced 0.6, or a shared one. */
 handle("summaries", async (id) => {
   const exam = store.exam(id);
   if (!exam.strategy) throw coded("unknown");
-  if (exam.strategy.topics.some((t) => !t.summary)) {
+  if (learning(exam).calls) {
     await run(id, "summaries", async (signal, say) => {
       await ensureTexts(id, signal, say);
       await summarise(id, signal, say);
@@ -1165,14 +1190,34 @@ handle("task:undo", (id, taskId) => {
 
 // ------------------------------------------------ the book's exercises as tasks in the app
 
+/** A page as a picture (a data URL), for a task that needs the figure or table printed with it. */
+const pagePictures = new Map(); // "hash:page" -> the picture, while the app runs
+handle("page:picture", async (id, materialId, page) => {
+  const m = store.exam(id).materials.find((x) => x.id === materialId && x.type === "pdf" && !x.missing);
+  const n = Number(page);
+  if (!m || !Number.isInteger(n) || n < 1 || n > m.pages || !fs.existsSync(files.pdfPath(m.hash))) throw coded("unknown");
+  const key = m.hash + ":" + n;
+  if (pagePictures.has(key)) return pagePictures.get(key);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aced-page-"));
+  try {
+    const [p] = await require("./src/convert").pagePictures(files.pdfPath(m.hash), dir, { longSide: 1400, first: n, last: n });
+    if (!p) throw coded("unknown");
+    const url = "data:image/jpeg;base64," + fs.readFileSync(path.isAbsolute(p.file) ? p.file : path.join(dir, p.file)).toString("base64");
+    pagePictures.set(key, url);
+    return url;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /** A typed result for a task: { right, exam }. Only the result is typed, never the working. */
 handle("task:check", (id, taskId, typed) => {
   if (typeof taskId !== "string") throw coded("unknown");
   const value = Number.isInteger(typed) ? typed : String(typed ?? "").slice(0, 400);
-  let right = null;
-  const exam = store.change(id, (e) => (right = tasks.answer(e, taskId, value, today())));
-  if (right === null) throw coded("unknown");
-  return { right, exam: decorate(store.view(exam)) };
+  let out = null;
+  const exam = store.change(id, (e) => (out = tasks.answer(e, taskId, value, today())));
+  if (!out) throw coded("unknown");
+  return { right: out.right, sure: out.sure, exam: decorate(store.view(exam)) };
 });
 
 // ------------------------------------------------ the final exam, and questions on a topic
