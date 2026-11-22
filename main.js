@@ -488,49 +488,68 @@ const pastedName = (lang) => {
   return `${lang === "de" ? "Eingefügtes Bild" : "Pasted picture"} ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
 };
 
-/** Files copied in the Finder (⌘C): all of them, from the list the Finder puts on the clipboard. */
-function clipboardFiles() {
-  if (process.platform !== "darwin") return [];
-  const found = [];
+/**
+ * What is on the clipboard: files copied in the Finder (⌘C: every one of them, by its address),
+ * else a picture (a screenshot taken with ⌃⇧⌘4, a picture copied in Preview, Photos or a
+ * browser), else text. Returns { files } | { image, ext } | { text } | {}.
+ */
+async function fromClipboard() {
+  let items = [];
   try {
-    const list = clipboard.read("NSFilenamesPboardType");
-    for (const m of String(list || "").matchAll(/<string>([^<]+)<\/string>/g)) found.push(m[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'"));
+    items = await clipboard.read();
   } catch {
-    // no list of files on the clipboard
+    return {};
   }
-  if (!found.length) {
-    try {
-      const url = clipboard.read("public.file-url");
-      if (url && url.startsWith("file://")) found.push(fileURLToPath(url));
-    } catch {
-      // nor a single file
+  const read = async (item, type) => item.getType(type).catch(() => null);
+  const files = [];
+  for (const item of items) {
+    if (!item.types.includes("text/uri-list")) continue;
+    const list = await read(item, "text/uri-list");
+    for (const line of String(list ? await list.text() : "").split(/\r?\n/)) {
+      if (!line.startsWith("file://")) continue;
+      try {
+        files.push(fileURLToPath(line.trim()));
+      } catch {
+        // not an address of a file
+      }
     }
   }
-  return found.filter((p) => fs.existsSync(p));
+  const existing = files.filter((p) => fs.existsSync(p));
+  if (existing.length) return { files: existing };
+  for (const item of items) {
+    const type = item.types.includes("image/png") ? "image/png" : item.types.find((t) => /tiff/i.test(t));
+    if (!type) continue;
+    const blob = await read(item, type);
+    if (blob && blob.size > 0 && blob.size <= 200 * 1024 * 1024) return { image: Buffer.from(await blob.arrayBuffer()), ext: type === "image/png" ? ".png" : ".tiff" };
+  }
+  for (const item of items) {
+    if (!item.types.includes("text/plain")) continue;
+    const blob = await read(item, "text/plain");
+    const text = blob ? await blob.text() : "";
+    if (text.trim()) return { text };
+  }
+  return {};
 }
 
 /**
- * ⌘V on the material: files copied in the Finder are added as files; a picture (a screenshot
- * taken with ⌃⇧⌘4, a picture copied in Preview, Photos or a browser) is added as a picture;
+ * ⌘V on the material: files copied in the Finder are added as files; a picture as a picture;
  * text comes back so the window can open it in the box for pasted text.
  */
 handle("material:paste", async (id) => {
-  const copied = clipboardFiles();
-  if (copied.length) return addFiles(id, copied);
-  const image = clipboard.readImage();
-  if (!image.isEmpty()) {
+  const found = await fromClipboard();
+  if (found.files) return addFiles(id, found.files);
+  if (found.image) {
     const folder = pasteFolder();
     const name = pastedName(store.settings().lang);
-    const file = path.join(folder, "pasted.png");
-    fs.writeFileSync(file, image.toPNG());
+    const file = path.join(folder, "pasted" + found.ext);
+    fs.writeFileSync(file, found.image);
     try {
       return await addFiles(id, [file], { names: new Map([[file, name]]) });
     } finally {
       fs.rmSync(folder, { recursive: true, force: true });
     }
   }
-  const text = clipboard.readText();
-  if (text.trim()) return { exam: view(id), problems: [], text: text.slice(0, 3000000) };
+  if (found.text) return { exam: view(id), problems: [], text: found.text.slice(0, 3000000) };
   return { exam: view(id), problems: [{ title: "", code: "emptyClipboard" }] };
 });
 

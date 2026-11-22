@@ -123,7 +123,8 @@ function read(archive) {
           else if (r.local === "AlternateContent" || r.local === "m" || r.local === "oMathPara" || r.local === "oMath") {
             // A formula (PowerPoint keeps Word's format for it inside a newer element).
             const math = X.first(r, "oMathPara") || X.first(r, "oMath") || (r.local === "oMath" || r.local === "oMathPara" ? r : null);
-            if (math) html += M.marked(M.fromOmml(math));
+            // In the line, at the size of the slide's text (a formula of its own would be body-sized).
+            if (math) html += M.marked({ ...M.fromOmml(math), a: {} });
             else html += X.kids(X.kid(r, "Fallback") || r).map((k) => (k.local === "r" ? esc(X.text(X.kid(k, "t"))) : "")).join("");
           }
         }

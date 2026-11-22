@@ -404,6 +404,11 @@ function referenceChecks() {
   same(findLabel("Lies den Text.  12  Berechne den pH-Wert.", "12"), 1);
   same(findLabel("Lies den Text.  12.  Berechne den pH-Wert.", "12"), 2, "a number at the start of a column");
   same(findLabel("See Example 1.", "1"), 1);
+  same(findLabel("A B C\n1 Nr Aufgabe Punkte\n2 Ü1 Ein Kapital von 5000 CHF\n3 Ü2 Welches Kapital", "Ü2"), 2, "a label with a letter, first in a row of a printed spreadsheet");
+  same(findLabel("| A3 | Löse die Gleichung |", "A3"), 2, "or first in a table row read by an AI");
+  same(findLabel("Das Format A4 ist üblich.", "A4"), 1, "but not in the middle of a sentence");
+  same(findLabel("6. Finde die Nullstellen.\na) graphisch\nb) rechnerisch", "6 b"), 2, "a part of an exercise: the exercise, then its letter");
+  same(findLabel("6. Finde die Nullstellen.\na) graphisch", "6 c"), 0, "a part the exercise does not have");
   const source = { data: { pages: ["Theory, no exercises here.", "1. First\n2. Second\n3. Third", "4. Fourth\n5. Fifth"] } };
   same(checkExercise(source, 2, "2"), { page: 2, state: "confirmed" });
   same(checkExercise(source, 2, "5"), { page: 3, state: "moved" }, "an exercise cited one page off is put on the right page");

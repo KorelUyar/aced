@@ -2,7 +2,7 @@
 # A stand-in for the `claude` command in tests, so that every state a person can be in with
 # Claude Code can be played through without touching a real login or sending anything. It
 # answers the three things Aced asks of Claude Code the way the real one does (texts and exit
-# codes taken from it):
+# codes taken from it), pictures of pages included:
 #
 #   auth status --json     auth login     -p … (a request, read from standard input)
 #
@@ -50,5 +50,7 @@ else
   for task in "the study strategy:strategy" "the formula sheet:formulas" "the final exam:questions" "questions on one topic:questions" "mark results:marks" "answer the student:help"; do
     if [[ "$input" == *"Task: ${task%%:*}"* ]]; then answer="$(cat "$here/${task##*:}.json")"; break; fi
   done
+  # A picture of a page, sent the way Aced sends pictures (--input-format stream-json): what is on it.
+  if [[ "$input" == *"This is page "* && "$*" == *"--input-format stream-json"* ]]; then answer="$(cat "$here/see.json")"; fi
 fi
 printf '{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":%s,"usage":{"input_tokens":1200,"output_tokens":300}}\n' "$answer"

@@ -1,7 +1,7 @@
 {
   "name": "aced",
   "productName": "Aced",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Know exactly what to do before your exam: one list from your own book, with the book beside it",
   "main": "main.js",
   "author": "Korel Uyar",
@@ -17,8 +17,8 @@
   "scripts": {
     "start": "electron .",
     "sample": "electron . --sample",
-    "test": "electron scripts/test.js && electron scripts/test-ocr.js && electron scripts/test-book.js",
-    "smoke": "electron scripts/smoke.js && electron scripts/smoke.js sample && electron scripts/smoke.js damaged",
+    "test": "electron scripts/test.js && electron scripts/test-ocr.js && electron scripts/test-book.js && electron scripts/test-formats.js",
+    "smoke": "electron scripts/smoke.js && electron scripts/smoke.js sample && electron scripts/smoke.js damaged && electron scripts/smoke-formats.js",
     "checks": "electron scripts/checks.js",
     "shots": "electron scripts/shots.js docs/shots light && electron scripts/shots.js docs/shots dark && electron scripts/sheet.js docs/shots",
     "icon": "electron scripts/icon.js",

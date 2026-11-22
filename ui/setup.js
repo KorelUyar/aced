@@ -62,8 +62,8 @@ export function Setup({ exam, run, app, toSettings }) {
   // screenshot (⌃⇧⌘4) or a copied picture are added; copied text opens the box for text.
   const paste = useRef(null);
   paste.current = (e) => {
-    const target = e.target;
-    if (target && (target.closest("input, textarea, select, [contenteditable]") || pasting)) return;
+    const target = e.target instanceof Element ? e.target : document.activeElement;
+    if ((target instanceof Element && target.closest("input, textarea, select, [contenteditable]")) || pasting) return;
     e.preventDefault();
     if (run) return;
     api.pasteMaterial(exam.id).then((r) => {

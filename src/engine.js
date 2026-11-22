@@ -131,6 +131,15 @@ function findLabel(text, label, recognised = false) {
     return found.length ? Math.min(...found) : -1;
   };
   if (standsAt(core) >= 0) return 2;
+  // A label with a letter in it ("Ü1", "A3") first on its line, or first in a table row after
+  // the row's number (a spreadsheet printed by Aced) or after a "|": a table of exercises.
+  if (/\p{L}/u.test(core) && new RegExp(`(?:^|\\|)[ \\t]*(?:\\d{1,5}[ \\t]+)?${escaped(core)}(?=[ \\t|]|$)`, "imu").test(text)) return 2;
+  // A part of an exercise ("6 b", "6b"): the exercise stands, and the part's letter after it ("b)", "(b)").
+  const part = /^(\d{1,3})\s*\.?\s*([a-z])\)?$/i.exec(core);
+  if (part) {
+    const at = standsAt(part[1]);
+    if (at >= 0 && new RegExp(`(?:^|\\n|[ \\t(])${part[2]}[).]`, "i").test(text.slice(at))) return 2;
+  }
   if (recognised && /^\d{1,3}$/.test(core)) {
     const n = Number(core);
     const lookalike = { 0: "[0Oo]", 1: "[1lIi|]", 5: "[5Ss]" };
