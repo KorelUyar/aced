@@ -48,6 +48,19 @@ function App() {
       }
       if (problems && problems.length) setToast({ text: t("problem_" + problems[0].code, problems[0].title, problems[0].detail) });
     });
+    // Other files from the Finder (dropped on the Dock icon, say): material for the exam on screen.
+    const stopHanded = api.onHanded(({ token, names }) => {
+      const now = routeNow.current;
+      const id = now.name !== "settings" && now.name !== "new" ? now.id || null : null;
+      api.addHanded(token, id).then(
+        (r) => {
+          if (!r) return setToast({ text: t("handedNoExam", names) });
+          if (r.exam) setState((s) => (s ? { ...s, exams: s.exams.map((e) => (e.id === r.exam.id ? r.exam : e)) } : s));
+          if (r.problems && r.problems.length) setToast({ text: t("problem_" + r.problems[0].code, r.problems[0].title, r.problems[0].detail) });
+        },
+        (err) => setToast({ text: errorText(err) }),
+      );
+    });
     const stopMenu = api.onMenu((what) => {
       const from = routeNow.current;
       if (what === "settings" && from.name !== "settings") setRoute({ name: "settings", id: from.id, from, n: (moves.current += 1) });
@@ -58,6 +71,7 @@ function App() {
       stopRuns();
       stopExam();
       stopOpened();
+      stopHanded();
       stopMenu();
     };
   }, []);

@@ -50,11 +50,15 @@ answers around it were written by Claude Opus 5.5 through Claude Code in a real 
   file** that opens in your friend's Aced (a double-click is enough), as a **PDF** to read or
   print, or as a **web page** that opens on any phone or computer, also offline. Then the Mac's
   own share menu (AirDrop, Messages, Mail …), or "Save as…". Your friend starts at 0%: your
-  ticks, results and answers stay with you. Your own notes, worksheets and screenshots can go
-  along; books stay out by default (they are big, and your friend should use their own copy).
-  When your friend adds their copy of the book, Aced knows the same file by its fingerprint
-  (SHA-256) at once; another file is compared by its pages and title, and Aced says when it
-  looks like another edition.
+  ticks, results and answers stay with you. You tick what goes along: your own notes,
+  worksheets and screenshots, each with the text your Aced (or your AI) read from it, so
+  opening the file reads nothing again and costs nothing. What you don't tick stays home
+  entirely. Books stay out by default (they are big, and your friend should use their own
+  copy): of a book, only its title, page count and a fingerprint go along. When your friend
+  adds their copy, Aced knows the same file by its SHA-256 at once; another file is compared by
+  the text of three of its pages (by their sizes when there is no text), and Aced says when it
+  looks like another edition. The same file opened twice asks: open the exam you have, or add
+  another copy.
 - **New exam.** Five questions: which exam, when, how much time (per day or in total), the grade
   you aim for (Swiss 1 to 6, German 1 to 6, or percent) and a pace: *Sprint* (little time, only
   what brings the most points), *Thorough* (everything) or *Efficient* (the best grade for the
@@ -173,11 +177,17 @@ them misbehaves for you, please [open an issue](https://github.com/KorelUyar/ace
   instead.
 - **A shared Aced file is checked like any file from outside.** It is a zip with the plan as
   JSON and the material as PDFs, read with the same limits as an Office file; every field is
-  checked and cut to size, nothing in it may name a place on your Mac, its material goes through
-  the same reading as a file you add, and a damaged file or one from a newer Aced gets a
-  sentence instead of an exam. What never goes into an Aced file, a PDF or a web page: your
-  ticks, results and answers, your AI settings and keys, the names of your files and folders,
-  and who you are. The PDF and the web page carry a small "Made with Aced · uyarid.com" line.
+  checked and cut to size, nothing in it may name a place on your Mac, the text that comes along
+  is used only when it fits its PDF page for page, ids that every JavaScript object has
+  (`constructor`, `__proto__` …) are refused, and a damaged file or one from a newer Aced gets a
+  sentence instead of an exam. Opening one asks no AI. What never goes into an Aced file, a PDF
+  or a web page: your ticks, results and answers, your AI settings and keys, where your files
+  are (no folders, no paths), material you did not tick, and anything about your Mac or your
+  account. Material you tick goes along with its title (its file name, unless you renamed it).
+  Every PDF in an Aced file is a clean copy, drawn anew: without the document's information
+  (author, title, the app that made it), its XMP metadata, attachments and links, and with what
+  its photos say about themselves (camera, owner, place, time) blanked. The PDF and the web
+  page carry a small "Made with Aced · uyarid.com" line.
 - **Links are never followed.** A symbolic link in a dropped folder (an unpacked archive can
   hold one pointing at any file on your Mac), dropped on its own, or inside a Pages or RTF
   package is not read: Aced says it is only a link. A link dragged in or pasted (a bookmark,

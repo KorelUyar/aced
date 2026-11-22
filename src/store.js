@@ -296,7 +296,7 @@ function doneWork(strategy, done) {
   const pages = new Map(); // "material:page" -> the tick it came from
   const exercises = new Map(); // "material:label" -> [{ page, tick }]
   for (const step of stepsOf(strategy)) {
-    const tick = done[step.id];
+    const tick = planner.tickOf(done, step.id);
     if (!tick) continue;
     for (const key of pagesOf(step)) pages.set(key, tick);
     for (const [material, page, label] of exercisesOf(step)) {
@@ -376,7 +376,7 @@ function setStrategy(id, strategy) {
     // What the old ticks stood for and the new plan does not count as done.
     const now = doneWork(strategy, done);
     const lost = stepsOf(old).filter((step) => {
-      if (!exam.done[step.id]) return false;
+      if (!planner.tickOf(exam.done, step.id)) return false;
       if (step.kind === "read") return !pagesOf(step).some((k) => now.pages.has(k));
       if (step.kind === "solve") return !exercisesOf(step).every(([m, p, l]) => now.solved(m, p, l) || stepsOf(strategy).some((x) => x.kind === "solve" && x.material === m && Math.abs(x.page - p) <= 1 && (x.solved || []).includes(l)));
       return false;
@@ -399,7 +399,7 @@ function setStrategy(id, strategy) {
       // Questions on one topic belong to that topic's question step in the new plan, if it has one.
       const step = !set.final && map.has(set.topicIds[0]) ? strategy.topics.find((t) => t.id === set.topicIds[0]).steps.find((st) => st.kind === "quiz") : null;
       if (!set.final && step && set.stepId && !set.stepId.includes("/a")) {
-        if (exam.done[set.stepId]) done[step.id] = exam.done[set.stepId];
+        if (planner.tickOf(exam.done, set.stepId)) done[step.id] = planner.tickOf(exam.done, set.stepId);
         set.stepId = step.id;
         set.key = `topic:${step.id}#0`;
       }
@@ -409,7 +409,7 @@ function setStrategy(id, strategy) {
     for (const a of exam.again) {
       if (!map.has(a.topicId)) continue; // its topic is gone: the result stays in the record, the extra steps go
       again.push({ ...a, topicId: map.get(a.topicId) });
-      for (const step of a.steps) if (exam.done[step.id]) done[step.id] = exam.done[step.id];
+      for (const step of a.steps) if (planner.tickOf(exam.done, step.id)) done[step.id] = planner.tickOf(exam.done, step.id);
     }
     exam.strategy = strategy;
     exam.done = done;
@@ -437,7 +437,7 @@ function undoStrategy(id) {
 
 /** The exercises ticked off so far, per material: [{ material, page, labels }]. A new strategy is told to pick others where it can. */
 function solved(exam) {
-  return stepsOf(exam.strategy).filter((step) => step.kind === "solve" && exam.done[step.id]).map((step) => ({ material: step.material, page: step.page, labels: step.labels }));
+  return stepsOf(exam.strategy).filter((step) => step.kind === "solve" && planner.tickOf(exam.done, step.id)).map((step) => ({ material: step.material, page: step.page, labels: step.labels }));
 }
 
 function addUsage(id, usage) {

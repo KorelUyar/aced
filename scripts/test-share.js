@@ -47,6 +47,41 @@ const failsWith = async (fn, code, message) => {
   }
 };
 
+/**
+ * A PDF that tells a lot about itself: an author, a path for a title, the app that made it, XMP,
+ * and a photo whose EXIF names its owner. Its page says "Dichte rho = m / V".
+ */
+function metaPdf() {
+  const { nativeImage } = require("electron");
+  const jpeg = nativeImage.createFromBuffer(require("./fixtures/formats").png(60, 40, [30, 90, 200])).toJPEG(85);
+  const owner = Buffer.from("SENDER-CAMERA-OWNER\0", "latin1");
+  const tiff = Buffer.concat([Buffer.from("4d4d002a00000008" + "0001" + "013b0002" + owner.length.toString(16).padStart(8, "0") + "0000001a" + "00000000", "hex"), owner]);
+  const app1 = Buffer.concat([Buffer.from([0xff, 0xe1, (tiff.length + 8) >> 8, (tiff.length + 8) & 255]), Buffer.from("Exif\0\0", "latin1"), tiff]);
+  const photo = Buffer.concat([jpeg.subarray(0, 2), app1, jpeg.subarray(2)]);
+  const xmp = '<?xpacket begin=""?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>Jamie Example</dc:creator></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>';
+  const content = "q 120 0 0 80 40 60 cm /Im1 Do Q BT /F1 14 Tf 40 30 Td (Dichte rho = m / V) Tj ET";
+  const objs = [
+    "<< /Type /Catalog /Pages 2 0 R /Metadata 6 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 160] /Resources << /XObject << /Im1 5 0 R >> /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents 4 0 R >>",
+    [`<< /Length ${content.length} >>`, Buffer.from(content, "latin1")],
+    [`<< /Type /XObject /Subtype /Image /Width 60 /Height 40 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${photo.length} >>`, photo],
+    [`<< /Type /Metadata /Subtype /XML /Length ${Buffer.byteLength(xmp)} >>`, Buffer.from(xmp)],
+    "<< /Author (Jamie Example) /Title (/home/jamie/Documents/Secret.docx) /Creator (Microsoft Word) /Producer (Microsoft Word) >>",
+  ];
+  const parts = [Buffer.from("%PDF-1.4\n", "latin1")];
+  const offsets = [];
+  let at = parts[0].length;
+  objs.forEach((o, i) => {
+    const chunk = Array.isArray(o) ? Buffer.concat([Buffer.from(`${i + 1} 0 obj\n${o[0]}\nstream\n`, "latin1"), o[1], Buffer.from("\nendstream\nendobj\n", "latin1")]) : Buffer.from(`${i + 1} 0 obj\n${o}\nendobj\n`, "latin1");
+    offsets.push(at);
+    parts.push(chunk);
+    at += chunk.length;
+  });
+  parts.push(Buffer.from(`xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => String(o).padStart(10, "0") + " 00000 n \n").join("")}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info 7 0 R >>\nstartxref\n${at}\n%%EOF\n`, "latin1"));
+  return Buffer.concat(parts);
+}
+
 /** A book of `pages` pages, each with its number and two exercises on it. */
 async function book(file, pages, title) {
   const win = new BrowserWindow({ show: false });
@@ -78,14 +113,25 @@ app.whenReady().then(async () => {
   fs.writeFileSync(worksheet, require("./fixtures/formats").docx());
   const sheetItem = await files.add(worksheet, null, null, { lang: "de" });
   const objectives = files.addText("Ich kann die Scheitelpunktform herleiten.\nIch kann Nullstellen berechnen.", "Lernziele");
+  // A note that stays home, and a sheet with a photo that says a lot about itself, read by an AI.
+  const note = files.addText("SENDER-PRIVATE-NOTE: mein Passwort", "SENDER-NOTE-TITLE");
+  const metaFile = path.join(root, "Dichte.pdf");
+  fs.writeFileSync(metaFile, metaPdf());
+  const metaItem = await files.add(metaFile);
+  ok(/Dichte rho/.test(files.readText(metaItem.hash).pages[0]), "the sheet with the photo reads");
+  files.writeText(metaItem.hash, { ...files.readText(metaItem.hash), pages: ["AI-READ: Dichte ρ = m/V"], recognised: true, reader: "ai", model: "claude-opus-5-5" });
+  const sheetText = files.readText(sheetItem.hash).pages;
   const exam = store.createExam(sample);
   store.change(exam.id, (e) => {
     e.materials = [
       { ...bookItem, id: "m1", kind: "book", title: "Mathematik 1: Algebra und Funktionen" },
       { ...sheetItem, id: "m4", kind: "notes" },
       { ...objectives, id: "m2", kind: "objectives" },
+      { ...note, id: "m6", kind: "notes" },
+      { ...metaItem, id: "m7", kind: "notes", read: "ai", model: "claude-opus-5-5" },
     ];
-    e.strategy = sample.strategy;
+    e.strategy = structuredClone(sample.strategy);
+    e.strategy.topics[0].steps.push({ id: "t1/note", kind: "read", material: "m6", from: 1, to: 1, minutes: 5 });
     e.formulas = sample.formulas;
     e.sets = structuredClone(sample.sets);
     // What the sender has done, typed and was told: none of it may go along.
@@ -99,23 +145,31 @@ app.whenReady().then(async () => {
   store.setSettings({ ai: { provider: "anthropic", model: "claude-opus-5-5" } });
   const sent = store.exam(exam.id);
   const acedFile = path.join(root, share.fileName(sent.name, "aced"));
-  fs.writeFileSync(
-    acedFile,
-    share.pack(sent, {
-      chosen: ["m4", "m2"],
-      appVersion: "0.5.0",
-      pdfOf: (m) => (fs.existsSync(files.pdfPath(m.hash)) ? fs.readFileSync(files.pdfPath(m.hash)) : null),
-      textOf: (m) => files.readText(m.hash),
-    }),
-  );
+  const copies = fs.mkdtempSync(path.join(root, "copies-"));
+  const packed = await share.packExam(sent, { chosen: ["m4", "m2", "m7"], appVersion: "0.5.0", files, ocr: require("../src/ocr"), dir: copies });
+  same(packed.left, [], "every ticked PDF could be copied clean");
+  same(fs.readdirSync(copies), [], "and the copies are gone again");
+  fs.writeFileSync(acedFile, packed.bytes);
   same(path.basename(acedFile), "Mathematik Quadratische Funktionen.aced", "the file is named after the exam, nothing else");
 
   // ---- what is in the file
   const zip = require("../src/formats/zip");
   const archive = zip.open(acedFile);
-  same(archive.names.sort(), ["aced.json", "m/2.pdf"], "only the plan and the material that was ticked (the worksheet as PDF; the book stays out)");
+  same(archive.names.sort(), ["aced.json", "m/2.pdf", "m/5.pdf"], "only the plan and the material that was ticked (the worksheet and the sheet as PDFs; the book stays out)");
   const raw = archive.read("aced.json").toString("utf8");
+  const pdfs = Buffer.concat([archive.read("m/2.pdf"), archive.read("m/5.pdf")]).toString("latin1");
   archive.close();
+  for (const [what, bad] of [
+    ["the author", "Jamie Example"],
+    ["a path as the title", "Secret.docx"],
+    ["the app that made it", "Microsoft Word"],
+    ["XMP", "xmpmeta"],
+    ["EXIF", "Exif"],
+    ["the photo's owner", "SENDER-CAMERA-OWNER"],
+    ["the converter's page address", "aced-print"],
+    ["the Mac's system version", "macOS Version"],
+    ["the time the copy was made", "D:20"],
+  ]) ok(!pdfs.includes(bad), `never in a PDF of the file: ${what}`);
   const doc = JSON.parse(raw);
   same([doc.format, doc.version, doc.exam.name], ["aced-exam", 1, sample.name], "a versioned Aced file");
   for (const [what, bad] of [
@@ -130,8 +184,15 @@ app.whenReady().then(async () => {
     ["the book's file name", "Mathematik 1.pdf"],
     ["the user's name", os.userInfo().username],
     ["the home folder", os.homedir()],
+    ["an unticked note's title", "SENDER-NOTE-TITLE"],
+    ["an unticked note's text", "SENDER-PRIVATE-NOTE"],
   ]) ok(!raw.includes(bad), `never in the file: ${what}`);
-  ok(doc.materials.find((m) => m.id === "m1").included === false && doc.materials.find((m) => m.id === "m1").hash === bookItem.hash, "the book is named with its SHA-256, without its pages");
+  ok(!doc.materials.some((m) => m.id === "m6"), "material that stays home has no entry at all");
+  ok(!doc.strategy.topics.some((t) => t.steps.some((st) => st.material === "m6")), "and no step points at it");
+  const sentBook = doc.materials.find((m) => m.id === "m1");
+  same(Object.keys(sentBook).sort(), ["hash", "id", "included", "kind", "pages", "probe", "title"], "a book that stays home: its title, pages and fingerprint only");
+  ok(sentBook.included === false && sentBook.hash === bookItem.hash && sentBook.probe.text.length === 3 && sentBook.probe.text.every((x) => /^[a-f0-9]{16}$/.test(x)), "the book is named with its SHA-256 and three page fingerprints, without its pages");
+  ok(/^[a-f0-9-]{36}$/.test(doc.id), "every shared file has an id of its own");
   ok(doc.sets[0].questions.every((q) => !("draft" in q) && !("typed" in q)) && !("result" in doc.sets[0]), "questions go along without anything typed or marked");
 
   // ---- the friend: a new exam at 0%, the book waiting for their copy
@@ -141,14 +202,18 @@ app.whenReady().then(async () => {
   const got = store.exam(id);
   const view = store.view(got);
   same([got.name, view.percent, Object.keys(got.done).length, got.results.length, got.usage.input], [sample.name, 0, 0, 0, 0], "a new exam at 0%: no ticks, no results, no usage");
-  same(got.shared, { on: "2026-11-22" }, "marked as shared, with the day");
+  same(got.shared, { on: "2026-11-22", id: doc.id }, "marked as shared, with the day and the file's id");
+  ok(!got.strategy.stale, "opening it does not call for a new plan");
+  const m7 = got.materials.find((m) => m.id === "m7");
+  same([m7.read, m7.model, files.readText(m7.hash).pages], ["ai", "claude-opus-5-5", ["AI-READ: Dichte ρ = m/V"]], "what the sender's AI read came along: nothing is read again");
   same(got.strategy.topics.map((t) => t.steps.length), sample.strategy.topics.map((t) => t.steps.length), "the plan as it was sent, step by step");
   same(got.formulas.map((g) => g.formulas.length), sample.formulas.map((g) => g.formulas.length), "the formula sheet");
   ok(Object.values(got.sets).every((set) => set.result === null && Object.keys(set.draft).length === 0), "the questions, waiting to be answered");
   const m1 = got.materials.find((m) => m.id === "m1");
   same([m1.missing, m1.expect.pages, m1.expect.hash === bookItem.hash], [true, 112, true], "the book waits for the friend's own copy");
   const m4 = got.materials.find((m) => m.id === "m4");
-  ok(!m4.missing && m4.pages === 2 && /Quadratische Gleichungen/.test(files.readText(m4.hash).pages.join(" ")), "the worksheet came along, read again on this Mac");
+  ok(!m4.missing && m4.pages === 2 && /Quadratische Gleichungen/.test(files.readText(m4.hash).pages.join(" ")), "the worksheet came along");
+  same(files.readText(m4.hash).pages, sheetText, "with the text the sender's Aced read");
   ok(/Scheitelpunktform herleiten/.test(files.readText(got.materials.find((m) => m.id === "m2").hash).pages.join(" ")), "the learning objectives came along");
   // Another edition: fewer pages, another title.
   const other = path.join(root, "Mathe neu.pdf");
@@ -156,6 +221,17 @@ app.whenReady().then(async () => {
   const second = await share.importExam(acedFile, { store, files, lang: "de", today: "2026-11-22" });
   const r1 = await share.supplyBook(second, "m1", other, { store, files, lang: "de" });
   same(r1.edition, "other", "a book with other pages and another title is called another edition");
+  // As many pages, but other text on them: another edition too, whatever its name.
+  const lookalike = path.join(root, "Mathematik 1 Kopie.pdf");
+  await book(lookalike, 112, "Andere Ausgabe");
+  const fourth = await share.importExam(acedFile, { store, files, lang: "de", today: "2026-11-22" });
+  same((await share.supplyBook(fourth, "m1", lookalike, { store, files, lang: "de" })).edition, "other", "as many pages with other text on them: another edition");
+  // Another file of the same edition (made again: other bytes, the same text): the same book.
+  const again = path.join(root, "Mathematik 1 nochmals.pdf");
+  await book(again, 112, "Mathematik 1");
+  const fifth = await share.importExam(acedFile, { store, files, lang: "de", today: "2026-11-22" });
+  const r3 = await share.supplyBook(fifth, "m1", again, { store, files, lang: "de" });
+  ok(r3.item.hash !== bookItem.hash && r3.edition === "same", "another file with the same text on the same pages: the same edition");
   // The same book: found by its SHA-256, and the plan's steps point into it.
   const r2 = await share.supplyBook(id, "m1", bookFile, { store, files, lang: "de" });
   same(r2.edition, "same", "the same book is found by its SHA-256");
@@ -165,6 +241,16 @@ app.whenReady().then(async () => {
   // Opened again on this Mac: the book is there at once.
   const third = await share.importExam(acedFile, { store, files, lang: "de", today: "2026-11-22" });
   same(store.exam(third).materials.find((m) => m.id === "m1").missing, undefined, "a book this Mac already has is found at once");
+  // The same shared file again, when the person is asked: open the exam they have, add another
+  // copy, or nothing.
+  let asked = 0;
+  const reopened = await share.importExam(acedFile, { store, files, lang: "de", today: "2026-11-22", already: async () => (asked++, "open") });
+  ok(asked === 1 && store.exam(reopened).shared.id === doc.id, "the same shared file again: the person is asked, and the exam they have opens");
+  const count = store.exams().length;
+  const copied = await share.importExam(acedFile, { store, files, lang: "de", today: "2026-11-22", already: async () => "copy" });
+  ok(copied !== reopened && store.exams().length === count + 1, "or another copy is added, when they say so");
+  await failsWith(() => share.importExam(acedFile, { store, files, lang: "de", today: "2026-11-22", already: async () => "cancel" }), "cancelled", "or nothing happens");
+  same(store.exams().length, count + 1, "and nothing was added then");
 
   // ---- hostile Aced files
   const H = path.join(root, "hostile");
@@ -177,6 +263,30 @@ app.whenReady().then(async () => {
   const docOf = (patch) => JSON.stringify({ ...doc, ...patch });
   const zipOf = share.zipOf;
   const importing = (f) => () => share.importExam(f, { store, files, lang: "de", today: "2026-11-22" });
+  // Ids every object has ("constructor", "__proto__" …): refused, so nothing reads as ticked off.
+  const odd = ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"];
+  const topic0 = doc.strategy.topics[0];
+  const oddFile = put(
+    "odd ids.aced",
+    zipOf([
+      [
+        "aced.json",
+        Buffer.from(
+          JSON.stringify({
+            ...doc,
+            materials: [...doc.materials, { id: "__proto__", kind: "notes", type: "text", title: "x", included: true, text: "x" }, { id: "constructor", kind: "notes", type: "text", title: "y", included: true, text: "y" }],
+            strategy: { ...doc.strategy, topics: [topic0, { ...topic0, id: "constructor" }, { ...topic0, id: "t-odd", steps: topic0.steps.map((st, i) => ({ ...st, id: odd[i % odd.length] })) }] },
+          }),
+        ),
+      ],
+    ]),
+  );
+  const oddExam = store.exam(await share.importExam(oddFile, { store, files, lang: "de", today: "2026-11-22" }));
+  const oddIds = [...oddExam.materials.map((m) => m.id), ...oddExam.strategy.topics.flatMap((t) => [t.id, ...t.steps.map((st) => st.id)])];
+  ok(!oddIds.some((x) => odd.includes(x)), "ids every object has are refused on import");
+  same(store.view(oddExam).percent, 0, "and nothing reads as ticked off");
+  const { tickOf } = require("../src/planner");
+  ok(tickOf({}, "constructor") === undefined && tickOf({}, "toString") === undefined && tickOf({ a: 1 }, "a") === 1, "a step is ticked off only by an entry of its own");
   const before = store.exams().length;
   await failsWith(importing(put("kein-zip.aced", "just text")), "damaged", "a file that is not a zip");
   await failsWith(importing(put("ohne-json.aced", zipOf([["readme.txt", Buffer.from("hi")]]))), "damaged", "a zip without aced.json");

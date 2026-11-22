@@ -7,6 +7,10 @@
 // What decides: value per minute decides what is left out when time is short. What stays is
 // done in the book's own order, because a later chapter leans on the earlier one.
 
+// A step is ticked off only by an entry of its own: never by a name every object has
+// ("constructor", "toString"), which a plan from somewhere else could use as a step's id.
+const tickOf = (done, id) => (done && Object.prototype.hasOwnProperty.call(done, id) ? done[id] : undefined);
+
 const DAY = 86400000;
 const clamp = (x, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
 
@@ -82,7 +86,7 @@ function buildPlan(exam, today) {
   const dropped = [];
   for (const t of [...s.topics].sort((a, b) => density(b) - density(a))) {
     const work = workOf(t);
-    const open = work.filter((st) => !done[st.id]);
+    const open = work.filter((st) => !tickOf(done, st.id));
     const remaining = minutesOf(open);
     const started = open.length < work.length;
     if (remaining === 0) {
@@ -107,8 +111,8 @@ function buildPlan(exam, today) {
     topicId: topic ? topic.id : null,
     step,
     minutes: step.minutes,
-    done: Boolean(done[step.id]),
-    doneOn: done[step.id] ? done[step.id].date : null,
+    done: Boolean(tickOf(done, step.id)),
+    doneOn: tickOf(done, step.id) ? tickOf(done, step.id).date : null,
     again,
     today: false,
   });
@@ -163,4 +167,5 @@ function buildPlan(exam, today) {
   };
 }
 
-module.exports = { buildPlan, workOf, targetScore, gradeFor, reaches, addDays, diffDays, todayIso };
+module.exports = {
+  tickOf, buildPlan, workOf, targetScore, gradeFor, reaches, addDays, diffDays, todayIso };

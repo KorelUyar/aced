@@ -7,7 +7,7 @@ const MATH = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?!\s)(
 
 function draw(tex, display) {
   try {
-    return katex.renderToString(tex, { displayMode: display, throwOnError: true, trust: false, strict: "ignore", output: "htmlAndMathml" });
+    return katex.renderToString(tex, { displayMode: display, throwOnError: true, trust: false, strict: "ignore", output: "htmlAndMathml", maxSize: 20, maxExpand: 200 });
   } catch {
     return null;
   }

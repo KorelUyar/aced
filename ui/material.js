@@ -22,10 +22,11 @@ export function describe(m, reading, model) {
     if (m.readCost > 0) parts.push(t("aboutCost", money(m.readCost)));
     return { text: parts.join(", "), retry: false };
   }
-  if (m.scanned) return { text: m.readFailed ? `${t("scannedNote")} ${t("aiFailed_" + reason(m.readFailed))}` : t("scannedNote"), retry: Boolean(m.readFailed) };
+  // "local": read on a Mac without an AI (a shared exam's pictures, say): the AI reads it only when asked.
+  if (m.scanned) return { text: m.readFailed ? `${t("scannedNote")} ${t("aiFailed_" + reason(m.readFailed))}` : t("scannedNote"), retry: Boolean(m.readFailed) || m.read === "local" };
   if (m.recognised) parts.push(t("recognisedNote"));
   if (m.readFailed) return { text: parts.join(", ") + ". " + t("aiFailed_" + reason(m.readFailed)), retry: true };
-  return { text: parts.join(", "), retry: false };
+  return { text: parts.join(", "), retry: m.read === "local" };
 }
 
 const KNOWN = new Set(["cannotSee", "noProvider", "offline", "signIn", "usageLimit", "cancelled", "noKey", "badKey", "noClaudeCode", "noCredit", "rateLimit"]);

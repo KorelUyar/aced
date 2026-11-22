@@ -92,6 +92,10 @@ contextBridge.exposeInMainWorld("aced", {
   onExam: on("exam"),
   // An Aced file was opened from the Finder or the menu: { id, exam, problems }.
   onOpened: on("opened"),
+  // Files opened from the Finder that are not Aced files: { token, names }. `addHanded` adds
+  // them to the exam on screen (the paths never come through here), or drops them (id null).
+  onHanded: on("handed"),
+  addHanded: (token, id) => call("files:handed", token, id),
 
   formulas: (id) => call("formulas", id),
   help: (id, question, context) => call("help", id, question, context),

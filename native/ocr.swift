@@ -14,6 +14,8 @@
 //       every page as a JPEG of at most <long-side> pixels: what an AI that can see is shown
 //   aced-ocr --sample <out.png>
 //       a small picture with one line of print, to find out whether an AI can see
+//   aced-ocr --clean <file.pdf> <out.pdf>
+//       a copy to share: every page drawn anew, without the file's information and metadata
 //
 // Prints one line of JSON per step, as it goes. For reading a PDF:
 //   {"page":0,"total":90}                           at once: the file is open, nothing is read yet
@@ -198,6 +200,35 @@ func images(_ out: String, _ paths: [String]) {
     say(["done": true, "pages": pages])
 }
 
+/// A copy of a PDF that says nothing about where it came from: every page is drawn anew into a
+/// new PDF, so the document's information (author, title, the app that made it), its XMP
+/// metadata, attachments, scripts, links and form fields stay behind. The text stays text and
+/// every page stays (a page that cannot be drawn becomes an empty one, so the numbers still fit).
+/// Pictures go along as they are; what a photo says about itself is blanked by the app.
+func clean(_ file: String, _ out: String) {
+    guard let doc = CGPDFDocument(URL(fileURLWithPath: file) as CFURL) else { fail("cannot open the PDF") }
+    guard doc.isUnlocked, doc.numberOfPages > 0 else { fail("locked or empty") }
+    guard let context = CGContext(URL(fileURLWithPath: out) as CFURL, mediaBox: nil, nil) else { fail("cannot write the PDF") }
+    for n in 1...doc.numberOfPages {
+        autoreleasepool {
+            guard let page = doc.page(at: n) else {
+                var box = CGRect(x: 0, y: 0, width: 595, height: 842)
+                context.beginPage(mediaBox: &box)
+                return context.endPage()
+            }
+            let crop = page.getBoxRect(.cropBox)
+            let turned = abs(page.rotationAngle) % 180 == 90
+            var box = CGRect(x: 0, y: 0, width: turned ? crop.height : crop.width, height: turned ? crop.width : crop.height)
+            context.beginPage(mediaBox: &box)
+            context.concatenate(page.getDrawingTransform(.cropBox, rect: box, rotate: 0, preserveAspectRatio: true))
+            context.drawPDFPage(page)
+            context.endPage()
+        }
+    }
+    context.closePDF()
+    say(["done": true, "pages": doc.numberOfPages])
+}
+
 func renderPages(_ file: String, _ longSide: CGFloat, _ folder: String, _ first: Int, _ last: Int) {
     guard let doc = PDFDocument(url: URL(fileURLWithPath: file)) else { fail("cannot open the PDF") }
     let total = doc.pageCount
@@ -330,6 +361,8 @@ case "--images" where args.count >= 3:
     images(args[1], Array(args.dropFirst(2)))
 case "--render" where args.count >= 4:
     renderPages(args[1], CGFloat(Double(args[2]) ?? 2000), args[3], args.count >= 5 ? Int(args[4]) ?? 1 : 1, args.count >= 6 ? Int(args[5]) ?? Int.max : Int.max)
+case "--clean" where args.count == 3:
+    clean(args[1], args[2])
 case "--sample" where args.count == 2:
     guard let picture = sample(), write(picture, to: args[1], type: .png) else { fail("cannot write the picture") }
     say(["file": args[1]])
@@ -340,5 +373,5 @@ case let file? where !file.hasPrefix("--"):
     let last = min(total, args.count >= 3 ? Int(args[2]) ?? total : total)
     readPdf(doc, first: first, last: last)
 default:
-    fail("usage: aced-ocr <file.pdf> [first] [last] | --prepare | --info <picture>... | --images <out.pdf> <picture>... | --render <file.pdf> <long-side> <folder> [first] [last] | --sample <out.png>")
+    fail("usage: aced-ocr <file.pdf> [first] [last] | --prepare | --info <picture>... | --images <out.pdf> <picture>... | --render <file.pdf> <long-side> <folder> [first] [last] | --sample <out.png> | --clean <file.pdf> <out.pdf>")
 }

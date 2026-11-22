@@ -171,15 +171,28 @@ function buildMenu() {
 
 app.setName(brand.name);
 
-// An Aced file opened from the Finder (a double-click, or dropped on the Dock icon). Files that
-// come before the window is ready wait for it.
+// A file opened from the Finder (a double-click on an Aced file, or anything dropped on the Dock
+// icon). Files that come before the window is ready wait for it.
 const waiting = [];
 let ready = false;
 app.on("open-file", (e, file) => {
   e.preventDefault();
-  if (ready) openShared([file]);
+  if (ready) openFromFinder([file]);
   else waiting.push(file);
 });
+
+// Files from the Finder that are not Aced files: material for the exam on screen. The window
+// says which exam that is (or that none is open); the paths stay here.
+const handed = new Map();
+function openFromFinder(paths) {
+  const isAced = (p) => path.extname(p).toLowerCase() === ".aced";
+  if (paths.some(isAced)) openShared(paths.filter(isAced));
+  const others = paths.filter((p) => !isAced(p));
+  if (!others.length) return;
+  const token = require("crypto").randomUUID();
+  handed.set(token, others);
+  tell("handed", { token, names: others.map((p) => path.basename(p)) });
+}
 
 app.whenReady().then(() => {
   if (!single) return;
@@ -235,7 +248,7 @@ app.whenReady().then(() => {
   buildMenu();
   createWindow();
   ready = true;
-  win.webContents.once("did-finish-load", () => waiting.length && openShared(waiting.splice(0)));
+  win.webContents.once("did-finish-load", () => waiting.length && openFromFinder(waiting.splice(0)));
   // The first time after an install or an update, macOS needs about a minute to get its text
   // recognition ready. That is started now, quietly, so it is done by the time a book without
   // text is added. (Only in the installed app: test runs do not need it.)
@@ -452,8 +465,11 @@ function addFiles(id, paths, { names = new Map() } = {}) {
     const lang = store.settings().lang;
     const shown = (file) => names.get(file) || path.basename(file);
     let items = expand(paths, problems);
-    // An Aced file is an exam a friend shared: it becomes an exam of its own.
-    const shared = items.filter((x) => x.ext === "aced");
+    // An Aced file is an exam a friend shared: it becomes an exam of its own. One inside a
+    // folder is left out (a folder is material for this exam), and the person is told.
+    const top = new Set(paths);
+    for (const x of items) if (x.ext === "aced" && !top.has(x.file)) problems.push({ title: shown(x.file), code: "aceInFolder" });
+    const shared = items.filter((x) => x.ext === "aced" && top.has(x.file));
     items = items.filter((x) => x.ext !== "aced");
     let opened = null;
     if (shared.length) {
@@ -813,23 +829,24 @@ async function makeShare(id, output, chosen) {
   if (output === "aced") {
     const file = path.join(dir, share.fileName(exam.name, "aced"));
     const known = new Set(exam.materials.map((m) => m.id));
-    const bytes = share.pack(exam, {
+    const { bytes, left } = await share.packExam(exam, {
       chosen: (Array.isArray(chosen) ? chosen : []).filter((m) => known.has(m)),
       appVersion: app.getVersion(),
-      pdfOf: (m) => (fs.existsSync(files.pdfPath(m.hash)) ? fs.readFileSync(files.pdfPath(m.hash)) : null),
-      textOf: (m) => files.readText(m.hash),
+      files,
+      ocr,
+      dir,
     });
     fs.writeFileSync(file, bytes);
-    return file;
+    return { file, left };
   }
   const page = await examPage(exam, { lang });
   const html = path.join(dir, share.fileName(exam.name, "html"));
   fs.writeFileSync(html, page);
-  if (output === "web") return html;
+  if (output === "web") return { file: html, left: [] };
   const pdf = path.join(dir, share.fileName(exam.name, "pdf"));
   await print(html, pdf, { footer: footerOf(lang) });
   fs.rmSync(html, { force: true });
-  return pdf;
+  return { file: pdf, left: [] };
 }
 
 /**
@@ -838,19 +855,19 @@ async function makeShare(id, output, chosen) {
  */
 handle("share:send", async (id, options) => {
   const output = ["aced", "pdf", "web"].includes(options && options.output) ? options.output : "aced";
-  const file = await makeShare(id, output, options && options.materials);
+  const { file, left } = await makeShare(id, output, options && options.materials);
   if (options && options.how === "save") {
     const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath("documents"), path.basename(file)) });
     if (r.canceled || !r.filePath) return { cancelled: true };
     fs.copyFileSync(file, r.filePath);
-    return { saved: path.basename(r.filePath) };
+    return { saved: path.basename(r.filePath), left };
   }
   if (process.platform === "darwin" && ShareMenu) {
     new ShareMenu({ filePaths: [file] }).popup({ window: win });
-    return { shown: true };
+    return { shown: true, left };
   }
   shell.showItemInFolder(file);
-  return { shown: true };
+  return { shown: true, left };
 });
 
 const today_ = () => planner.todayIso();
@@ -866,14 +883,36 @@ async function importShared(paths, { signal } = {}) {
   let last = null;
   for (const file of paths) {
     try {
-      last = await share.importExam(file, { store, files, lang: store.settings().lang, today: today_(), signal });
-      readPictures(last);
+      // Opening it costs nothing: the text came along, and the AI reads only when asked to.
+      last = await share.importExam(file, { store, files, lang: store.settings().lang, today: today_(), signal, already: askAlready });
     } catch (err) {
       if (err.code === "cancelled") break;
       problems.push({ title: path.basename(file), code: err.code === "newer" ? "aceNewer" : err.code === "tooLarge" ? "tooLarge" : "aceDamaged", detail: err.detail || "" });
     }
   }
   return { id: last, problems };
+}
+
+// Files from the Finder that are not Aced files, for the exam on screen (see openFromFinder).
+handle("files:handed", (token, id) => {
+  const paths = handed.get(token);
+  handed.delete(token);
+  if (!paths || typeof id !== "string" || !store.exams().some((e) => e.id === id)) return null;
+  return addFiles(id, paths);
+});
+
+/** The same shared file again: open the exam that came from it, or add another copy? */
+async function askAlready(exam) {
+  const de = store.settings().lang === "de";
+  const r = await dialog.showMessageBox(win, {
+    type: "question",
+    message: de ? `„${exam.name}“ hast du schon.` : `You have “${exam.name}” already.`,
+    detail: de ? "Diese geteilte Datei hast du schon einmal geöffnet." : "You opened this shared file before.",
+    buttons: de ? ["Öffnen", "Weitere Kopie hinzufügen", "Abbrechen"] : ["Open it", "Add another copy", "Cancel"],
+    defaultId: 0,
+    cancelId: 2,
+  });
+  return ["open", "copy", "cancel"][r.response];
 }
 
 /** Aced files from the Finder or the menu: imported, and the window goes to the new exam. */
@@ -975,7 +1014,7 @@ handle("analysis:estimate", async (id) => {
     unchanged: Boolean(exam.strategy && !exam.strategy.stale && exam.strategy.basis === basisOf(exam)),
     // Pages the AI is still reading: the plan waits for them.
     reading: exam.materials.filter((m) => (reading.get(id) || new Set()).has(m.id)).reduce((sum, m) => sum + m.pages, 0),
-    ticked: exam.strategy ? exam.strategy.topics.flatMap((t) => t.steps).filter((step) => exam.done[step.id]).length : 0,
+    ticked: exam.strategy ? exam.strategy.topics.flatMap((t) => t.steps).filter((step) => planner.tickOf(exam.done, step.id)).length : 0,
   };
 });
 

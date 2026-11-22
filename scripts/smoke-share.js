@@ -131,8 +131,47 @@ app.whenReady().then(async () => {
     app.emit("open-file", { preventDefault() {} }, broken);
     await until(`/not an Aced file that can be read/.test(document.querySelector('.toast')?.textContent || '')`);
     assert.equal(store.exams().length, count, "a damaged file makes no exam");
+    const waitFor = async (check, what) => {
+      const end = Date.now() + 60000;
+      while (!check()) {
+        if (Date.now() > end) throw new Error("timed out: " + what);
+        await sleep(100);
+      }
+    };
+    // The same shared file again while its exam is here: the person is asked.
+    let asked = 0;
+    dialog.showMessageBox = async () => (asked++, { response: 0 });
+    app.emit("open-file", { preventDefault() {} }, saved.aced);
+    await waitFor(() => asked === 1, "the question");
+    await sleep(800);
+    assert.equal(store.exams().length, count, "the same shared file again: asked, and “Open it” adds nothing");
+    dialog.showMessageBox = async () => ({ response: 1 });
+    app.emit("open-file", { preventDefault() {} }, saved.aced);
+    await waitFor(() => store.exams().length === count + 1, "another copy");
+    const copyId = store.exams().find((e) => e.shared && e.id !== friendId).id;
+    await sleep(1000); // the window goes to the new copy
+    // Other files from the Finder: material for the exam on screen. A shared exam inside a folder
+    // is left out, with a sentence.
+    const folder = path.join(userData, "Ordner");
+    fs.mkdirSync(folder);
+    fs.copyFileSync(saved.aced, path.join(folder, "drin.aced"));
+    fs.writeFileSync(path.join(folder, "Notiz.txt"), "Dichte ist Masse durch Volumen.");
+    const had = store.exam(copyId).materials.length;
+    app.emit("open-file", { preventDefault() {} }, folder);
+    await waitFor(() => store.exam(copyId).materials.length === had + 1, "the note added to the exam on screen");
+    await until(`/inside a folder/.test(document.querySelector('.toast')?.textContent || '')`);
+    assert.equal(store.exams().length, count + 1, "the Aced file in the folder made no exam");
+    // With no exam on screen: a sentence, nothing added anywhere.
+    await js(`window.__nav({ name: "home" })`);
+    await sleep(500);
+    const totals = () => store.exams().reduce((n, e) => n + e.materials.length, 0);
+    const all = totals();
+    app.emit("open-file", { preventDefault() {} }, book);
+    await until(`/open an exam first/.test(document.querySelector('.toast')?.textContent || '')`);
+    await sleep(500);
+    assert.equal(totals(), all, "a file from the Finder with no exam open is not added anywhere");
     assert.deepEqual(errors, [], "no errors in the page");
-    console.log("ok: the Share dialog (Aced file, PDF, web page), a shared exam opened from the Finder at 0%, its book added by its SHA-256, a damaged file refused");
+    console.log("ok: the Share dialog (Aced file, PDF, web page), a shared exam opened from the Finder at 0%, its book added by its SHA-256, a damaged file refused, the same file again asked about, other Finder files added to the exam on screen (or a sentence)");
   } catch (err) {
     console.log("FAIL", err.message, errors.slice(0, 3).join(" | "));
     process.exitCode = 1;

@@ -112,4 +112,11 @@ async function prepare(signal) {
   return recogniser;
 }
 
-module.exports = { available, read, prepare, helperPath };
+/** A copy of a PDF to share, without its information and metadata (native/ocr.swift, --clean). Resolves to its page count. */
+async function clean(file, out, signal) {
+  let pages = 0;
+  await run(["--clean", file, out], (step) => step.done && (pages = step.pages), signal);
+  return pages;
+}
+
+module.exports = { available, read, prepare, clean, helperPath };

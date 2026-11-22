@@ -130,8 +130,8 @@ const STRINGS = {
     shareOut_pdf_has: "In it: the plan by topic with pages and exercises, the learning objectives and the formula sheet.",
     shareOut_web_has: "In it: the plan by topic with pages and exercises, the learning objectives and the formula sheet. It loads nothing from the internet.",
     shareMaterial: "Material in the file",
-    shareBooks: "Books stay out: they are big, and your friend should use their own copy. With the same book, the pages fit.",
-    shareNever: "Never in it: your ticks and results, your answers, your AI settings and keys, the names of your files and folders.",
+    shareBooks: "What you don't tick stays home. Of a book, only its title, page count and a fingerprint go along (unless you tick it), so your friend can add their own copy.",
+    shareNever: "Never in it: your ticks and results, your answers, your AI settings and keys, where your files are, material you don't tick, and what files say about themselves (author, app, camera, place).",
     shareSaveAs: "Save as…",
     shareSend: "Share…",
     shareSaved: (name) => `“${name}” saved.`,
@@ -140,8 +140,13 @@ const STRINGS = {
     problem_aceDamaged: (f) => `“${f}” is not an Aced file that can be read: it may be damaged or cut short. Ask for it again.`,
     problem_otherEdition: (f, detail) => {
       const [has, wants] = String(detail || "").split("|");
-      return `“${f}” looks like another edition: it has ${has} pages, the shared plan expects ${wants}. Steps may point to the wrong pages.`;
+      return has === wants
+        ? `“${f}” looks like another edition: its pages hold other text than the book the plan was made with. Steps may point to the wrong pages.`
+        : `“${f}” looks like another edition: it has ${has} pages, the book the plan was made with has ${wants}. Steps may point to the wrong pages.`;
     },
+    problem_aceInFolder: (f) => `“${f}” is a shared exam inside a folder, so it was left out. To open it, double-click it or drop it here on its own.`,
+    handedNoExam: (names) => `To add “${names[0]}”${names.length > 1 ? ` and ${names.length - 1} more` : ""}, open an exam first and drop it there.`,
+    shareLeft: (titles) => `“${titles.join("”, “")}” stayed home: Aced could not make a clean copy of it.`,
     editionOther: "another edition? Pages may not fit",
     sharedNote: (date) => `Shared with you on ${date}. Your plan starts at 0%.`,
     sharedAddBooks: (titles) => `Add your copy of ${titles.map((x) => `“${x}”`).join(" and ")}, and every step opens at its page.`,
@@ -576,8 +581,8 @@ const STRINGS = {
     shareOut_pdf_has: "Darin: der Plan nach Themen mit Seiten und Aufgaben, die Lernziele und das Formelblatt.",
     shareOut_web_has: "Darin: der Plan nach Themen mit Seiten und Aufgaben, die Lernziele und das Formelblatt. Sie lädt nichts aus dem Internet.",
     shareMaterial: "Material in der Datei",
-    shareBooks: "Bücher bleiben draussen: Sie sind gross, und dein Freund soll sein eigenes Exemplar nehmen. Mit demselben Buch passen die Seiten.",
-    shareNever: "Nie darin: deine Häkchen und Resultate, deine Antworten, deine KI-Einstellungen und Schlüssel, die Namen deiner Dateien und Ordner.",
+    shareBooks: "Was du nicht ankreuzt, bleibt bei dir. Von einem Buch gehen nur Titel, Seitenzahl und ein Fingerabdruck mit (ausser du kreuzt es an), damit deine Freunde ihr eigenes Exemplar hinzufügen können.",
+    shareNever: "Nie darin: deine Häkchen und Resultate, deine Antworten, deine KI-Einstellungen und Schlüssel, wo deine Dateien liegen, Material, das du nicht ankreuzt, und was Dateien über sich selbst sagen (Autor, App, Kamera, Ort).",
     shareSaveAs: "Sichern unter …",
     shareSend: "Teilen …",
     shareSaved: (name) => `«${name}» gesichert.`,
@@ -586,8 +591,13 @@ const STRINGS = {
     problem_aceDamaged: (f) => `«${f}» ist keine lesbare Aced-Datei: Sie ist vielleicht beschädigt oder unvollständig. Lass sie dir nochmals schicken.`,
     problem_otherEdition: (f, detail) => {
       const [has, wants] = String(detail || "").split("|");
-      return `«${f}» sieht nach einer anderen Auflage aus: Es hat ${has} Seiten, der geteilte Plan erwartet ${wants}. Schritte zeigen vielleicht auf falsche Seiten.`;
+      return has === wants
+        ? `«${f}» sieht nach einer anderen Auflage aus: Auf seinen Seiten steht anderer Text als im Buch, mit dem der Plan gemacht wurde. Schritte zeigen vielleicht auf falsche Seiten.`
+        : `«${f}» sieht nach einer anderen Auflage aus: Es hat ${has} Seiten, das Buch, mit dem der Plan gemacht wurde, hat ${wants}. Schritte zeigen vielleicht auf falsche Seiten.`;
     },
+    problem_aceInFolder: (f) => `«${f}» ist eine geteilte Prüfung in einem Ordner und wurde darum weggelassen. Zum Öffnen doppelklicke sie oder zieh sie einzeln hierher.`,
+    handedNoExam: (names) => `Um «${names[0]}»${names.length > 1 ? ` und ${names.length - 1} weitere` : ""} hinzuzufügen, öffne zuerst eine Prüfung und zieh es dorthin.`,
+    shareLeft: (titles) => `«${titles.join("», «")}» ist bei dir geblieben: Aced konnte keine saubere Kopie davon machen.`,
     editionOther: "andere Auflage? Seiten passen vielleicht nicht",
     sharedNote: (date) => `Mit dir geteilt am ${date}. Dein Plan beginnt bei 0 %.`,
     sharedAddBooks: (titles) => `Füge dein Exemplar von ${titles.map((x) => `«${x}»`).join(" und ")} hinzu, dann öffnet jeder Schritt seine Seite.`,

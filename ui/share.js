@@ -33,10 +33,14 @@ export function Share({ exam, close, app }) {
     api.shareExam(exam.id, { output, materials: [...chosen], how }).then(
       (r) => {
         setBusy(false);
+        const left = r.left && r.left.length ? t("shareLeft", r.left) : "";
         if (r.saved) {
-          app.notify(t("shareSaved", r.saved));
+          app.notify(left ? `${t("shareSaved", r.saved)} ${left}` : t("shareSaved", r.saved));
           close();
-        } else if (r.shown) close();
+        } else if (r.shown) {
+          if (left) app.notify(left);
+          close();
+        }
       },
       (err) => {
         setBusy(false);

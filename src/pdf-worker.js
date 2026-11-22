@@ -52,13 +52,34 @@ async function outlineOf(doc) {
   return out;
 }
 
-async function read(file) {
+/** How many pages, and the sizes of the pages asked for: nothing is read. */
+async function factsOf(pdfjs, doc, pages) {
+  const sizes = [];
+  for (const n of pages.slice(0, 8)) {
+    if (!Number.isInteger(n) || n < 1 || n > doc.numPages) {
+      sizes.push(null);
+      continue;
+    }
+    const page = await doc.getPage(n);
+    const [x0, y0, x1, y1] = page.view;
+    sizes.push(page.rotate % 180 ? [y1 - y0, x1 - x0] : [x1 - x0, y1 - y0]);
+    page.cleanup();
+  }
+  return { count: doc.numPages, sizes };
+}
+
+async function read(file, facts) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   // In Node, pdf.js loads its "worker" into this same process; it still wants to be told where it is.
   pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).href;
   const data = new Uint8Array(fs.readFileSync(file));
   const task = pdfjs.getDocument({ data, useSystemFonts: true, disableFontFace: true, isEvalSupported: false, verbosity: 0 });
   const doc = await task.promise;
+  if (Array.isArray(facts)) {
+    const out = await factsOf(pdfjs, doc, facts);
+    await task.destroy();
+    return out;
+  }
   const pages = [];
   for (let n = 1; n <= doc.numPages; n++) {
     const page = await doc.getPage(n);
@@ -73,7 +94,7 @@ async function read(file) {
 
 port.on("message", async ({ data }) => {
   try {
-    port.postMessage({ type: "done", ...(await read(data.file)) });
+    port.postMessage({ type: "done", ...(await read(data.file, data.facts)) });
   } catch (err) {
     port.postMessage({ type: "error", message: String(err && err.message ? err.message : err) });
   }
