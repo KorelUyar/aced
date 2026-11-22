@@ -126,7 +126,7 @@ async function toPdf({ files, kind, ext, out, lang }, { signal } = {}) {
       const { code } = await runTool("/usr/bin/qlmanage", ["-p", "-o", work, files[0]], { signal, limit: 120000 });
       const preview = fs.readdirSync(work).filter((n) => n.endsWith(".qlpreview")).map((n) => path.join(work, n, "Preview.html")).find((p) => fs.existsSync(p));
       if (code !== 0 || !preview) throw coded("unreadable");
-      job = { ...job, kind: "html", file: preview };
+      job = { ...job, kind: "slides-html", file: preview };
     }
     const made = await inWorker(job, signal);
     if (made.pdf) fs.copyFileSync(made.pdf, out);

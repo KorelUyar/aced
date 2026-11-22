@@ -466,6 +466,10 @@ async function providerChecks() {
   ok(sent.body.messages[0].content[0].text.includes("two and three") && sent.body.stream === true);
   ok(!("thinking" in sent.body) && !("temperature" in sent.body), "no parameters the current models reject");
   same(usage, [{ input: 140, cached: 0, written: 40, output: 12 }]);
+  // A picture of a page goes first, as an image block; Claude can see.
+  await ai.ask(request("What is on this page?", { images: [{ mediaType: "image/jpeg", data: "QUJD" }] }));
+  same(seen.at(-1).body.messages[0].content[0], { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "QUJD" } }, "a picture goes to Anthropic as an image block, before the text");
+  same(await ai.canSee(), true, "a Claude model can see pictures");
   const { cost } = require("../src/ai/models");
   same(Math.round(cost([4, 20, 0.2], { input: 1000, cached: 400, written: 300, output: 100 }) * 1e6), 4780, "plain, written and cached input each have their price");
   // Settings for the SDK in the environment must not reach the request.
@@ -556,6 +560,8 @@ async function providerChecks() {
   same(or.body.provider, { require_parameters: true }, "only providers that can do structured output");
   same(or.body.messages[1].content[0].cache_control, { type: "ephemeral" });
   same(usage, [{ input: 90, cached: 60, output: 7, cost: 0.0004 }]);
+  await ai.ask(request("OpenRouter picture case", { images: [{ mediaType: "image/png", data: "QUJD" }] }));
+  same(calls.at(-1).body.messages[1].content[0], { type: "image_url", image_url: { url: "data:image/png;base64,QUJD" } }, "a picture goes to OpenRouter as an image part, before the text");
   style = "stream";
   usage.length = 0;
   same(await ai.ask(request("Streamed case"), { onUsage: (u) => usage.push(u) }), { answer: 5 }, "a streamed answer is put together");
@@ -584,9 +590,15 @@ async function providerChecks() {
 
   // ---- Another server in the OpenAI format: one that knows structured output, one that does not
   const plain = [];
+  let seesPictures = true;
   const local = await serve((req, body, res) => {
     plain.push(body);
     if (body.response_format) return json(res, 400, { error: { message: "response_format is not supported" } });
+    // The small picture with two numbers on it: a server whose model sees names them.
+    if (JSON.stringify(body).includes("Which two numbers")) {
+      if (!seesPictures) return json(res, 400, { error: { message: "this model does not support image input" } });
+      return json(res, 200, { choices: [{ finish_reason: "stop", message: { content: '{"text": "12 and 34"}' } }] });
+    }
     json(res, 200, { choices: [{ finish_reason: "stop", message: { content: 'Sure!\n```json\n{"answer": 5}\n```' } }], usage: { prompt_tokens: 50, completion_tokens: 9 } });
   });
   store.setSettings({ ai: { provider: "openai", model: "", baseURL: local.url + "/v1/" } });
@@ -598,6 +610,14 @@ async function providerChecks() {
   ok(!("provider" in plain[0]) && !("usage" in plain[0]), "nothing OpenRouter-specific goes to another server");
   same(plain[0].stream_options, { include_usage: true });
   ok(!("stream_options" in plain[2]) && !("response_format" in plain[2]), "the last try is the plainest request there is");
+  await ai.ask(request("Local picture case", { images: [{ mediaType: "image/jpeg", data: "QUJD" }] }));
+  same(plain.at(-1).messages[1].content[0], { type: "image_url", image_url: { url: "data:image/jpeg;base64,QUJD" } }, "the picture stays in the plainest request too");
+  ok(plain.at(-1).messages[1].content[1].text.includes('"additionalProperties":false'), "with the schema in words after it");
+  const sample = async () => Buffer.from("not really a picture");
+  same(await ai.canSee({ samplePicture: sample }), true, "another server is shown a picture with two numbers once: it names them, so it sees");
+  seesPictures = false;
+  store.setSettings({ ai: { provider: "openai", model: "text-only-model" } });
+  same(await ai.canSee({ samplePicture: sample }), false, "one whose model refuses pictures does not");
   local.close();
   // 404: a model the server does not have, or an address that leads nowhere.
   const lost = await serve((req, body, res) =>

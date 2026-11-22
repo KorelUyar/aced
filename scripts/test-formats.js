@@ -75,7 +75,21 @@ app.whenReady().then(async () => {
   const secret = path.join(dir, "secret.txt");
   fs.writeFileSync(secret, "TOP-SECRET-TOKEN");
   const { make } = require("./fixtures/formats");
-  const fx = await make(path.join(dir, "fixtures"), { remote, secret, shots: await screenshots(dir) });
+  const shots = await screenshots(dir);
+  const fx = await make(path.join(dir, "fixtures"), { remote, secret, shots });
+  // WebP: sips cannot write it here, the page can.
+  {
+    const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+    await win.loadURL("about:blank");
+    const data = await win.webContents.executeJavaScript(`new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; c.getContext("2d").drawImage(img, 0, 0); resolve(c.toDataURL("image/webp", 0.92)); };
+      img.src = "data:image/png;base64,${shots[0].toString("base64")}";
+    })`);
+    win.destroy();
+    fx["Foto.webp"] = path.join(dir, "fixtures", "Foto.webp");
+    fs.writeFileSync(fx["Foto.webp"], Buffer.from(data.split(",")[1], "base64"));
+  }
   const files = require("../src/files");
   const userData = path.join(dir, "data");
   files.init(userData);
@@ -121,6 +135,14 @@ app.whenReady().then(async () => {
     ok(/Quadratische Gleichungen/.test(t) && /15\.00%/.test(t) && /05\.12\.2026/.test(t), "strings, percentages and dates as Excel shows them");
     ok(/Zinseszins/.test(t) && /6,092\.01 CHF/.test(t), "the second sheet, with its number format");
     ok(!/versteckt/.test(t), "a hidden sheet is left out");
+  }
+  // ---- Excel 97 to 2003 (.xls, written by xlwt; kept in scripts/fixtures/formats)
+  {
+    fx["Noten.xls"] = path.join(__dirname, "fixtures", "formats", "Noten.xls");
+    const item = await add("Noten.xls");
+    const t = text(item);
+    same([item.from, item.pages], ["xls", 2], "an old Excel file: two sheets, two pages");
+    ok(/Quadratische Gleichungen/.test(t) && /15\.0%/.test(t) && /05\.12\.2026/.test(t) && /Übung 12/.test(t) && /Berechne 30\^2/.test(t), "its shared strings, percentages, dates and both sheets");
   }
   {
     const item = await add("Messwerte gross.xlsx");
@@ -188,7 +210,7 @@ app.whenReady().then(async () => {
     ok(item.recognised && !item.scanned, "their text is recognised");
     ok(fs.readdirSync(path.join(userData, "originals", item.hash)).length === 3, "the three originals are kept");
   }
-  for (const name of ["Foto.heic", "Foto.jpg", "Foto.gif", "Foto.bmp", "Foto.tiff"]) {
+  for (const name of ["Foto.heic", "Foto.jpg", "Foto.gif", "Foto.bmp", "Foto.tiff", "Foto.webp"]) {
     const item = await add(name);
     ok(!item.error && item.pages === 1 && /Löse/.test(text(item)), `${name}: one page, text recognised`);
   }

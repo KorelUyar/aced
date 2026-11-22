@@ -31,7 +31,7 @@ function htmlText(bytes) {
  * (a page saved "complete" keeps them in "<name>_files"), are put inside it; nothing outside
  * that folder is read, and addresses on the internet are left for the printer to refuse.
  */
-function htmlFile(file) {
+function htmlFile(file, { landscape = false } = {}) {
   const bytes = fs.readFileSync(file);
   if (bytes.length > 50 * 1024 * 1024) throw coded("tooLarge");
   let html = htmlText(bytes);
@@ -59,7 +59,7 @@ function htmlFile(file) {
     }
   });
   // A page without its own print styles gets the app's margins and type.
-  const style = "<style>@page{size:A4;margin:14mm}body{font-family:-apple-system,Helvetica,Arial,sans-serif}img{max-width:100%;height:auto}</style>";
+  const style = `<style>@page{size:A4${landscape ? " landscape" : ""};margin:14mm}body{font-family:-apple-system,Helvetica,Arial,sans-serif}img{max-width:100%;height:auto}</style>`;
   html = /<head[\s>]/i.test(html) ? html.replace(/<head([\s>][^>]*>|>)/i, (m) => m + style) : style + html;
   return { html };
 }

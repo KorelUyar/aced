@@ -30,6 +30,9 @@ function run({ kind, file, ext, lang }) {
       return require("./formats/web").epubFile(file);
     case "html":
       return require("./formats/web").htmlFile(file);
+    case "slides-html":
+      // An old PowerPoint file as Quick Look shows it: one slide after the other, on landscape pages.
+      return require("./formats/web").htmlFile(file, { landscape: true });
     case "svg":
       return require("./formats/web").svgFile(file);
     case "iwork":
