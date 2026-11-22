@@ -10,9 +10,10 @@
 // whatever it looks like. What comes back is opened exactly like an Aced file from the Finder.
 const crypto = require("crypto");
 
-// The share service: one address, set when the service is running. Empty: no links (the share
-// window says so). The service itself is in service/ (one setting there: where it keeps files).
-const HOST = "";
+// The share service: one address. Empty: no links (the share window has none). The service
+// itself is in service/ (one setting there: where it keeps files); this one runs it on a
+// server of Aced's maker, behind HTTPS.
+const HOST = "https://aced.uyarid.com";
 
 const MAGIC = Buffer.from("ACD1", "latin1"); // locked Aced file, version 1
 const IV = 12;

@@ -49,8 +49,9 @@ require(mainFile);
 app.whenReady().then(async () => {
   const share = await service.start({ ...service.settings({}), port: 0, dataDir: path.join(userData, "service") }, { quiet: true });
   // The app's share service, as main.js finds it whenever the window asks or a link is made or
-  // opened: none at first (an Aced without links), this one later.
-  delete process.env.ACED_LINK_HOST;
+  // opened: none at first (an Aced without links: set and empty), this one later. Never the
+  // real one in src/link.js: the suites send nothing out.
+  process.env.ACED_LINK_HOST = "";
   const linksOn = () => (process.env.ACED_LINK_HOST = `http://127.0.0.1:${share.port}`);
   const win = await window;
   win.setContentSize(1360 * SCALE, 860 * SCALE);

@@ -85,8 +85,9 @@ answers around it were written by Claude Opus 5.5 through Claude Code in a real 
   the exam as a page to read without Aced: a **PDF** to read or print, or a **web page** that
   opens on any phone or computer, also offline. The Mac's own share menu comes last ("More…").
   If AirDrop, Messages or Mail is not set up on your Mac, the window says so. **Copy link**
-  appears only in an Aced that has a share service: then it comes first, and your friend opens
-  the exam from a link (see "What leaves your Mac"); without one, the window has no link. Your
+  comes first: it puts a link on the clipboard to paste anywhere, and your friend opens the
+  exam from it for 30 days (see "What leaves your Mac"). The link opens a page with the plan
+  and, for a friend without Aced yet, the line that installs it. Your
   friend starts at 0%: your ticks, results and answers stay with you. You tick what goes along
   ("Change" in the window): your own notes,
   worksheets and screenshots, each with the text your Aced (or your AI) read from it, so
@@ -162,10 +163,9 @@ What leaves your Mac, and where to:
   accepted for a server on your own computer. Its key is forgotten when you change the address.
 - **Keys** are stored through the Mac's keychain and are used only in the app's main process,
   never in the window.
-- **With "Copy link":** Aced makes links only when it has a share service (an Aced without one
-  has no "Copy link", and nothing goes anywhere). Then the Aced file you share is locked on your
-  Mac with a key made for that one link (AES-256-GCM), and only the locked bytes go to that
-  service, which keeps them for 30 days and cannot read them: the key is only in the link,
+- **With "Copy link":** the Aced file you share is locked on your Mac with a key made for that
+  one link (AES-256-GCM), and only the locked bytes go to Aced's share service at
+  `aced.uyarid.com`, which keeps them for 30 days (25 MB at most) and cannot read them: the key is only in the link,
   after `#`, the part of an address that browsers never send to a server. Whoever has the link
   can open the exam. A link that is opened is fetched from that service and nowhere else.
 
@@ -307,7 +307,7 @@ npm run sample   # the app on invented exams, nothing is saved
 | `electron scripts/e2e-formats.js <outDir>` | the same for screenshots, a Word file with formulas and an Excel file: read, planned, the book at the right page, found by the helper (costs tokens) |
 | `electron scripts/wrong-key.js` | asks the real Anthropic and OpenRouter services with a key that is not one |
 | `scripts/fixtures/claude-stub.sh` | a stand-in for the `claude` command with prepared answers, so the tests can play every state (not signed in, expired, usage limit, offline, a slow run) without touching a real login |
-| `node service/server.js` | the share service behind links, on this Mac (its settings are in its first lines; `service/Dockerfile` and `service/aced-share.service` run it on a server). `ACED_LINK_HOST=http://127.0.0.1:8790 npm start` points a run from the source folder at it |
+| `node service/server.js` | the share service behind links, on this Mac (its settings are in its first lines; `service/Dockerfile` and `service/aced-share.service` run it on a server). `ACED_LINK_HOST=http://127.0.0.1:8790 npm start` points a run from the source folder at it (`ACED_LINK_HOST=` empty: a run without links; the suites run so unless they start their own) |
 | `npm run shots` | the pictures in `docs/shots` from the sample exams; with a data folder as third argument to `scripts/shots.js`, the ones with a real book |
 | `npm run dist` | `dist/Aced-macOS.zip`: universal, signed ad hoc |
 
@@ -335,7 +335,7 @@ Where things are:
 - `src/mac-share.js`: AirDrop, Messages, Mail and the clipboard, through the Swift helper.
 - `src/link.js`, `service/`: links: the Aced file locked on the Mac, and the small service that
   keeps it for 30 days and serves the page a link opens. The service's address is `HOST` in
-  `src/link.js`; empty, there are no links.
+  `src/link.js` (`https://aced.uyarid.com`); empty, there are no links.
 - `ui/ink.js`, `src/ink.js`: writing in the book, and where it is kept.
 - `src/store.js`, `src/secrets.js`: what is kept, and the keys.
 - `ui/`: the interface. Plain HTML, CSS and JavaScript modules, no bundler; Preact with htm,

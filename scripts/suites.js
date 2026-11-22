@@ -15,10 +15,13 @@ if (!GROUPS[group]) {
   process.exit(2);
 }
 const electron = require("electron");
+// No suite talks to the real share service (src/link.js HOST): unless one is named, a run from
+// the source folder has none, and smoke-06.js starts its own on this Mac.
+const env = { ...process.env, ACED_LINK_HOST: process.env.ACED_LINK_HOST ?? "" };
 const failed = [];
 for (const suite of GROUPS[group]) {
   const [file, ...args] = suite.split(" ");
-  const r = spawnSync(electron, [path.join(__dirname, file), ...args], { stdio: "inherit", cwd: path.join(__dirname, "..") });
+  const r = spawnSync(electron, [path.join(__dirname, file), ...args], { stdio: "inherit", cwd: path.join(__dirname, ".."), env });
   if (r.status !== 0) failed.push(suite);
 }
 console.log(failed.length ? `FAIL ${group}: ${failed.join(", ")}` : `ok ${group}: all ${GROUPS[group].length} suites`);
