@@ -390,13 +390,8 @@ final class Sender: NSObject, NSApplicationDelegate, NSSharingServiceDelegate {
         service.delegate = self
         NSApp.activate(ignoringOtherApps: true)
         service.perform(withItems: items)
+        // (macOS shows AirDrop and Messages over the whole screen, dimmed, in front of every app)
         say(["opened": true])
-        // The window shows in front of the app that asked, also when macOS kept that one active.
-        for delay in [0.2, 0.8] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                for window in NSApp.windows where window.isVisible { window.orderFrontRegardless() }
-            }
-        }
         // Nobody answers for a quarter of an hour: the helper ends; macOS keeps what it was given.
         DispatchQueue.main.asyncAfter(deadline: .now() + 900) { exit(0) }
     }

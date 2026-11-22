@@ -163,6 +163,7 @@ function layerOf(book, leaf, n, ctl) {
         const el = document.createElement("div");
         el.className = "ink-note";
         el.dataset.index = i;
+        el.dataset.at = `${note.x},${note.y}`;
         el.style.left = `${note.x / 100}%`;
         el.style.top = `${note.y / 100}%`;
         el.textContent = note.text;
@@ -178,10 +179,12 @@ function layerOf(book, leaf, n, ctl) {
     return [round(((e.clientX - r.left) / r.width) * UNIT), round(((e.clientY - r.top) / r.width) * UNIT)];
   };
 
-  /** A text note: a new one at (x, y) (index -1), or note `index` written anew. */
-  function write(index, x, y) {
+  /** A text note: a new one at (x, y), or the one at `spot` ("x,y") written anew. */
+  function write(spot, x, y) {
     if (writing) writing(true);
     const page = book.pages.get(n) || emptyPage();
+    // (found by its place, after the note before was kept: that may have taken one away)
+    const index = spot ? page.n.findIndex((note) => `${note.x},${note.y}` === spot) : -1;
     const old = index >= 0 ? page.n[index] : { x, y, text: "" };
     const el = document.createElement("textarea");
     el.className = "ink-note editing";
@@ -245,7 +248,7 @@ function layerOf(book, leaf, n, ctl) {
     if (tool === "text") {
       const note = target.closest && target.closest(".ink-note");
       // (after the click that ended another note's writing)
-      setTimeout(() => write(note ? Number(note.dataset.index) : -1, x, y), 0);
+      setTimeout(() => write(note ? note.dataset.at : null, x, y), 0);
       return;
     }
     leaf.setPointerCapture(e.pointerId);
@@ -269,7 +272,7 @@ function layerOf(book, leaf, n, ctl) {
         if (p.length < 8000) p.push(x, y);
       }
       stroke.el.setAttribute("d", pathOf(p));
-    } else if (erased !== null || (ctl.tool === "eraser" && e.buttons === 1)) rub(e);
+    } else if (erased !== null) rub(e);
   }
   function up() {
     if (stroke) {
@@ -295,7 +298,9 @@ function layerOf(book, leaf, n, ctl) {
     if (!page) return;
     const [x, y] = at(e);
     const s = page.s.filter((st) => near(st, x, y) > ERASE);
-    const note = e.target.closest && e.target.closest(".ink-note:not(.editing)");
+    // (what is under the pointer: while it is held, every event goes to the sheet)
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const note = under && leaf.contains(under) && under.closest(".ink-note:not(.editing)");
     const notesLeft = note ? page.n.filter((_, i) => i !== Number(note.dataset.index)) : page.n;
     if (s.length === page.s.length && notesLeft.length === page.n.length) return;
     const next = { s, n: notesLeft };

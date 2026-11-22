@@ -31,7 +31,7 @@
         none: "Hier öffnen sich Prüfungen, die jemand mit Aced geteilt hat.",
         examOn: (d) => `Prüfung am ${d}`,
         read: (a, b) => (a === b ? `Lesen: S. ${a}` : `Lesen: S. ${a}–${b}`),
-        solve: (p, l) => `Lösen: S. ${p}, ${l.join(", ")}`,
+        solve: (p, l) => `Lösen: S. ${p}, Aufgaben ${l.join(", ")}`,
         quiz: (n) => `${n} Fragen`,
         topics: (n) => `${n} Themen`,
       }
@@ -57,7 +57,7 @@
         none: "Exams someone shared with Aced open here.",
         examOn: (d) => `Exam on ${d}`,
         read: (a, b) => (a === b ? `Read p. ${a}` : `Read pp. ${a}–${b}`),
-        solve: (p, l) => `Solve p. ${p}: ${l.join(", ")}`,
+        solve: (p, l) => `Solve p. ${p}, exercises ${l.join(", ")}`,
         quiz: (n) => `${n} questions`,
         topics: (n) => `${n} topics`,
       };

@@ -8,3 +8,5 @@ build/bin/
 *.pdf
 e2e-*/
 /out/
+# what the share service keeps when run from here (service/server.js)
+service/data/

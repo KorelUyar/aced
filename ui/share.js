@@ -52,6 +52,8 @@ export function Share({ exam, close, app }) {
     return () => window.removeEventListener("keydown", key);
   }, [busy]);
   useEffect(() => {
+    // The keyboard starts at the first way (a click shows no ring there).
+    document.getElementById("share-link")?.focus({ preventScroll: true });
     let live = true;
     api.shareServices().then(
       (s) => live && setServices(s || {}),
