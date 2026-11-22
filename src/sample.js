@@ -49,7 +49,14 @@ function exams() {
       target: 5,
       pace: "sprint",
       createdAt: inDays(-1) + "T16:00:00.000Z",
-      materials: [book("m1", "Mathematik 1: Algebra und Funktionen", 312), text("m2", "objectives", "Lernziele Semesterprüfung"), text("m3", "oldExam", "Prüfung 2025, Serie A")],
+      materials: [
+        book("m1", "Mathematik 1: Algebra und Funktionen", 312),
+        // A Word worksheet, and screenshots of an exercise sheet that the AI has read.
+        { ...book("m4", "Arbeitsblatt 7: Quadratische Gleichungen", 2), kind: "notes", from: "docx", format: "docx", chars: 1900 },
+        { ...book("m5", "Bildschirmfoto 2026-11-20 um 14.02.11 (3 Seiten)", 3), kind: "notes", from: "pictures", files: 3, recognised: true, read: "ai", model: "claude-opus-5-5", chars: 2400 },
+        text("m2", "objectives", "Lernziele Semesterprüfung"),
+        text("m3", "oldExam", "Prüfung 2025, Serie A"),
+      ],
       strategy: {
         createdOn: inDays(-1),
         model: "sample",
