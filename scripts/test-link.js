@@ -388,6 +388,38 @@ test("ink is kept per page, checked, and deleted with the book", () => {
   assert.equal(fs.readdirSync(path.join(dir, "ink")).length, 0);
 });
 
+// ------------------------------------------------------------ files handed to other apps (src/mac-share.js)
+
+test("files handed to AirDrop, Messages, Mail or the clipboard are deleted after two days", async () => {
+  // (src/mac-share.js asks src/ocr.js for the helper, which asks Electron: a stand-in here)
+  const Module = require("module");
+  const load = Module._load;
+  Module._load = function (request, ...rest) {
+    return request === "electron" ? { app: { isPackaged: false } } : load.call(this, request, ...rest);
+  };
+  let macShare;
+  try {
+    macShare = require("../src/mac-share");
+  } finally {
+    Module._load = load;
+  }
+  const fresh = macShare.keptDir();
+  const old = macShare.keptDir();
+  dirs.push(fresh, old);
+  assert.match(path.basename(fresh), /^aced-sent-/);
+  fs.writeFileSync(path.join(old, "Exam.aced"), "x");
+  const then = new Date(Date.now() - 3 * 864e5);
+  fs.utimesSync(old, then, then);
+  // a file (not a folder) and a link with the same start are left alone
+  const plain = path.join(os.tmpdir(), `aced-sent-file-${process.pid}`);
+  fs.writeFileSync(plain, "x");
+  fs.utimesSync(plain, then, then);
+  assert.ok(macShare.pruneKept() >= 1);
+  assert.ok(fs.existsSync(fresh) && !fs.existsSync(old) && fs.existsSync(plain));
+  fs.rmSync(plain, { force: true });
+  await assert.rejects(macShare.send("printer", "/etc/hosts"), { code: "unknown" }, "only AirDrop, Messages and Mail");
+});
+
 // ------------------------------------------------------------ run
 
 (async () => {
