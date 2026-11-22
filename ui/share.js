@@ -45,6 +45,9 @@ export function Share({ exam, close, app }) {
   const [link, setLink] = useState(null); // { url, expires, left }
   // What this Mac has set up (AirDrop, Messages, Mail); until it is known, everything is offered.
   const [services, setServices] = useState({});
+  // Whether this Aced makes links. Until that is known (a moment), the window waits: without a
+  // share service there is no link to offer, so there is no "Copy link" at all.
+  const [links, setLinks] = useState(null);
 
   useEffect(() => {
     const key = (e) => e.key === "Escape" && !busy && close();
@@ -52,15 +55,21 @@ export function Share({ exam, close, app }) {
     return () => window.removeEventListener("keydown", key);
   }, [busy]);
   useEffect(() => {
-    // The keyboard starts at the first way (a click shows no ring there).
-    document.getElementById("share-link")?.focus({ preventScroll: true });
     let live = true;
+    api.shareLinks().then(
+      (on) => live && setLinks(on === true),
+      () => live && setLinks(false),
+    );
     api.shareServices().then(
       (s) => live && setServices(s || {}),
       () => {},
     );
     return () => (live = false);
   }, []);
+  // The keyboard starts at the first way (a click shows no ring there).
+  useEffect(() => {
+    if (links !== null) document.querySelector(".share-win #share-link, .share-win .sw-tile")?.focus({ preventScroll: true });
+  }, [links]);
 
   const toggle = (id) => {
     setLink(null);
@@ -118,8 +127,11 @@ export function Share({ exam, close, app }) {
     </button>`;
   };
 
-  return html`<div class="overlay" role="presentation" onClick=${(e) => e.target === e.currentTarget && !busy && close()}>
-    <section class="share share-win view" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+  const dismiss = (e) => e.target === e.currentTarget && !busy && close();
+  if (links === null) return html`<div class="overlay" role="presentation" onClick=${dismiss}></div>`;
+
+  return html`<div class="overlay" role="presentation" onClick=${dismiss}>
+    <section class=${"share share-win view" + (links ? "" : " no-link")} role="dialog" aria-modal="true" aria-labelledby="shareTitle">
       <header class="sw-head">
         <div>
           <h2 id="shareTitle">${t("shareTitle")}</h2>
@@ -128,7 +140,9 @@ export function Share({ exam, close, app }) {
         <button class="sw-close" aria-label=${t("close")} title=${t("close")} onClick=${() => !busy && close()}><${Glyph} name="close" size=${18} /></button>
       </header>
 
-      ${link
+      ${!links
+        ? null
+        : link
         ? html`<div class="sw-link done" role="status">
             <span class="sw-badge"><${Glyph} name="done" /></span>
             <span class="sw-link-text">

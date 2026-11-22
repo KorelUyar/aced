@@ -62,6 +62,8 @@ contextBridge.exposeInMainWorld("aced", {
   shareExam: (id, options) => call("share:send", id, options),
   // Which of AirDrop, Messages and Mail this Mac has set up: { airdrop, messages, mail }.
   shareServices: () => call("share:services"),
+  // Whether this Aced makes links (it has a share service): true or false.
+  shareLinks: () => call("share:links"),
   copyText: (text) => call("share:copyText", text),
   // What the person wrote in a book (ui/ink.js): per page, kept on this Mac only.
   inkLoad: (hash) => call("ink:load", hash),

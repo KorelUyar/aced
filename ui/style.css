@@ -3270,6 +3270,10 @@ button.sw-link:active:not(:disabled) {
   margin-top: 12px;
 }
 
+.no-link .sw-grid {
+  margin-top: 0;
+}
+
 .sw-tile {
   display: grid;
   justify-items: center;

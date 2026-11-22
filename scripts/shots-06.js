@@ -96,8 +96,17 @@ app.whenReady().then(async () => {
     if (mode === "share") {
       await js(`window.__nav({ name: 'exam', id: 'sample-math' })`);
       await until(`!!document.querySelector('.path .step')`);
+      // Without a share service (src/link.js HOST empty): no link.
+      delete process.env.ACED_LINK_HOST;
       await js(`window.__share(true)`);
-      await until(`!!document.querySelector('.share-win')`);
+      await until(`!!document.querySelector('.share-win.no-link')`);
+      await sleep(400);
+      await shot("share-window-nolink");
+      await click(".sw-close");
+      // With one (only its address matters for the picture: nothing is sent).
+      process.env.ACED_LINK_HOST = "http://127.0.0.1:9";
+      await js(`window.__share(true)`);
+      await until(`!!document.querySelector('#share-link')`);
       await sleep(400);
       await shot("share-window");
       await click("#shareChange");

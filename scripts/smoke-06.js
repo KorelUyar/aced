@@ -48,8 +48,10 @@ require(mainFile);
 
 app.whenReady().then(async () => {
   const share = await service.start({ ...service.settings({}), port: 0, dataDir: path.join(userData, "service") }, { quiet: true });
-  // (main.js reads it whenever a link is made or opened)
-  process.env.ACED_LINK_HOST = `http://127.0.0.1:${share.port}`;
+  // The app's share service, as main.js finds it whenever the window asks or a link is made or
+  // opened: none at first (an Aced without links), this one later.
+  delete process.env.ACED_LINK_HOST;
+  const linksOn = () => (process.env.ACED_LINK_HOST = `http://127.0.0.1:${share.port}`);
   const win = await window;
   win.setContentSize(1360 * SCALE, 860 * SCALE);
   const errors = [];
@@ -115,8 +117,24 @@ app.whenReady().then(async () => {
     await js(`window.__nav({ name: 'exam', id: ${JSON.stringify(created.id)} })`);
     await until(`document.querySelector('.book-page')?.dataset.state === 'shown'`, 60000);
 
-    // ------------------------------------------------ the share window
+    // ------------------------------------------------ the share window, in an Aced without links
+    step = "the share window without links";
+    await click("#shareOpen");
+    await until(`!!document.querySelector('.share-win')`);
+    assert.equal(await js(`!!document.querySelector('#share-link') || /Copy link|not switched on/.test(document.querySelector('.share-win').textContent)`), false, "no link at all");
+    assert.equal(await js(`document.querySelector('.share-win').classList.contains('no-link')`), true);
+    assert.equal(await js(`document.querySelector('.sw-head').nextElementSibling.className`), "sw-grid", "the five ways are the first row");
+    assert.deepEqual(await js(`[...document.querySelectorAll('.sw-grid .sw-tile')].map((b) => b.id)`), ["share-airdrop", "share-messages", "share-mail", "share-copy", "share-save"]);
+    assert.equal(await js(`document.activeElement.id`), "share-airdrop", "the keyboard starts at the first way");
+    await assert.rejects(js(`window.aced.shareExam(${JSON.stringify(created.id)}, { way: 'link', materials: [] })`), /linkOff/, "and main makes none either");
+    await click(".sw-close");
+    // ------------------------------------------------ the share window, with a share service
     step = "the share window";
+    linksOn();
+    await click("#shareOpen");
+    await until(`!!document.querySelector('#share-link') && !document.querySelector('.share-win.no-link')`);
+    assert.equal(await js(`document.activeElement.id`), "share-link", "with links, the keyboard starts at the link");
+    await click(".sw-close");
     await click("#shareOpen");
     await until(`!!document.querySelector('.share-win') && !!document.querySelector('#share-messages.missing')`);
     assert.equal(await js(`document.querySelectorAll('.sw-tile.missing').length`), 1, "only Messages is not set up here");
@@ -282,7 +300,7 @@ app.whenReady().then(async () => {
     for (const e of store.exams()) await js(`window.aced.deleteExam(${JSON.stringify(e.id)})`);
     assert.equal(fs.existsSync(path.join(userData, "ink", `${hash}.json`)), false, "pruned with the book");
     assert.deepEqual(errors, [], "no errors in the page");
-    console.log("ok: share window (not set up, AirDrop, Copy file, Mail, the material choice), Copy link (locked, on the service, on the clipboard), the friend's link (0%, asked again, 7 hostile links refused, run out), writing in the book (pen, highlighter, zoom, undo/redo, note as text, eraser, kept and back, never shared, pruned)");
+    console.log("ok: share window (no link without a share service, not set up, AirDrop, Copy file, Mail, the material choice), Copy link (locked, on the service, on the clipboard), the friend's link (0%, asked again, 7 hostile links refused, run out), writing in the book (pen, highlighter, zoom, undo/redo, note as text, eraser, kept and back, never shared, pruned)");
   } catch (err) {
     console.log("FAIL", step, "-", err.message, errors.slice(0, 3).join(" | "));
     process.exitCode = 1;

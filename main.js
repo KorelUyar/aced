@@ -941,6 +941,8 @@ handle("share:send", async (id, options) => {
   return { shown: true, left };
 });
 handle("share:services", () => macShare.services());
+// Whether this Aced makes links at all: without a share service the window shows no link.
+handle("share:links", () => Boolean(link.originOf(linkHost())));
 handle("share:copyText", (text) => {
   if (typeof text !== "string" || text.length > 2000) throw coded("unknown");
   clipboard.writeText(text);
