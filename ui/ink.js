@@ -242,6 +242,8 @@ function layerOf(book, leaf, n, ctl) {
 
   let stroke = null; // the line being drawn: { s, el }
   let erased = null; // what one sweep of the eraser took: a copy of the page before, or null
+  let last = null; // where the eraser was at the event before, in units
+  const each = (e) => (e.getCoalescedEvents && e.getCoalescedEvents().length ? e.getCoalescedEvents() : [e]);
 
   function down(e) {
     const tool = ctl.tool;
@@ -259,6 +261,7 @@ function layerOf(book, leaf, n, ctl) {
     leaf.setPointerCapture(e.pointerId);
     if (tool === "eraser") {
       erased = copyOf(book.pages.get(n));
+      last = null;
       rub(e);
       return;
     }
@@ -267,24 +270,28 @@ function layerOf(book, leaf, n, ctl) {
     (tool === "hl" ? marks : lines).append(el);
     stroke = { s, el };
   }
+  /** A point of the line being drawn (points closer together than a bit of its width add nothing). */
+  function extend(ev) {
+    const p = stroke.s.p;
+    const [x, y] = at(ev);
+    if (Math.hypot(x - p[p.length - 2], y - p[p.length - 1]) < (stroke.s.t === "hl" ? 18 : 6)) return;
+    if (p.length < 8000) p.push(x, y);
+  }
   function move(e) {
     if (stroke) {
-      const p = stroke.s.p;
-      for (const ev of e.getCoalescedEvents ? e.getCoalescedEvents() : [e]) {
-        const [x, y] = at(ev);
-        // points closer together than a fraction of the line's width add nothing
-        if (Math.hypot(x - p[p.length - 2], y - p[p.length - 1]) < (stroke.s.t === "hl" ? 18 : 6)) continue;
-        if (p.length < 8000) p.push(x, y);
-      }
-      stroke.el.setAttribute("d", pathOf(p));
-    } else if (erased !== null) rub(e);
+      for (const ev of each(e)) extend(ev);
+      stroke.el.setAttribute("d", pathOf(stroke.s.p));
+    } else if (erased !== null) for (const ev of each(e)) rub(ev);
   }
-  function up() {
+  /** The end of a line or of a sweep of the eraser (`letGo`: the pointer was let go there, not taken away). */
+  function up(e, letGo) {
     if (stroke) {
+      if (letGo) extend(e);
       const { s } = stroke;
       stroke = null;
       change(book, n, (p) => void p.s.push(s));
     } else if (erased !== null) {
+      if (letGo) rub(e);
       const before = erased;
       erased = null;
       const after = copyOf(book.pages.get(n));
@@ -296,13 +303,23 @@ function layerOf(book, leaf, n, ctl) {
       }
     }
   }
-  /** The eraser takes whole strokes and notes it touches. */
+  /**
+   * The eraser takes whole strokes and notes it touches: along the way from where it was at the
+   * event before, so a quick sweep also takes a line it crossed between two events.
+   */
   function rub(e) {
     if (erased === null) return;
+    const [x, y] = at(e);
+    const [fx, fy] = last || [x, y];
+    last = [x, y];
     const page = book.pages.get(n);
     if (!page) return;
-    const [x, y] = at(e);
-    const s = page.s.filter((st) => near(st, x, y) > ERASE);
+    const steps = Math.max(1, Math.ceil(Math.hypot(x - fx, y - fy) / (ERASE / 2)));
+    const hit = (st) => {
+      for (let i = 0; i <= steps; i++) if (near(st, fx + ((x - fx) * i) / steps, fy + ((y - fy) * i) / steps) <= ERASE) return true;
+      return false;
+    };
+    const s = page.s.filter((st) => !hit(st));
     // (what is under the pointer: while it is held, every event goes to the sheet)
     const under = document.elementFromPoint(e.clientX, e.clientY);
     const note = under && leaf.contains(under) && under.closest(".ink-note:not(.editing)");
@@ -316,8 +333,8 @@ function layerOf(book, leaf, n, ctl) {
 
   leaf.addEventListener("pointerdown", down);
   leaf.addEventListener("pointermove", move);
-  leaf.addEventListener("pointerup", up);
-  leaf.addEventListener("pointercancel", up);
+  leaf.addEventListener("pointerup", (e) => up(e, true));
+  leaf.addEventListener("pointercancel", (e) => up(e, false));
   draw();
   return { draw, box };
 }

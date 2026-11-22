@@ -214,30 +214,82 @@ test("the service refuses what is no locked file, too big, or asked for wrongly"
 });
 
 test("the service counts per visitor, and keeps files 30 days", async () => {
-  const s = await serve({ uploadsPerHour: 2, fetchesPerMinute: 3, ipHeader: "x-visitor" });
+  const s = await serve({ uploadsPerHour: 2, fetchesPerMinute: 3, ipHeader: "x-visitor", trustedProxies: ["127.0.0.1"] });
   try {
     const blob = link.seal(Buffer.alloc(50)).blob;
     const as = (who) => ({ method: "POST", body: blob, headers: { "x-visitor": who } });
-    assert.equal((await call(s.port, "/api/s", as("a"))).status, 201);
-    const second = await call(s.port, "/api/s", as("a"));
+    assert.equal((await call(s.port, "/api/s", as("10.0.0.1"))).status, 201);
+    const second = await call(s.port, "/api/s", as("10.0.0.1"));
     assert.equal(second.status, 201);
-    const third = await call(s.port, "/api/s", as("a"));
+    const third = await call(s.port, "/api/s", as("10.0.0.1"));
     assert.equal(third.status, 429, "a third upload in the hour");
     assert.ok(third.headers["retry-after"]);
-    assert.equal((await call(s.port, "/api/s", as("b"))).status, 201, "another visitor");
+    assert.equal((await call(s.port, "/api/s", as("10.0.0.2"))).status, 201, "another visitor");
     const { id } = JSON.parse(second.body);
-    for (let i = 0; i < 3; i++) assert.equal((await call(s.port, `/api/s/${id}`, { headers: { "x-visitor": "c" } })).status, 200);
-    assert.equal((await call(s.port, `/api/s/${id}`, { headers: { "x-visitor": "c" } })).status, 429, "fetched too often");
+    for (let i = 0; i < 3; i++) assert.equal((await call(s.port, `/api/s/${id}`, { headers: { "x-visitor": "10.0.0.3" } })).status, 200);
+    assert.equal((await call(s.port, `/api/s/${id}`, { headers: { "x-visitor": "10.0.0.3" } })).status, 429, "fetched too often");
     clock += 61e3;
-    assert.equal((await call(s.port, `/api/s/${id}`, { headers: { "x-visitor": "c" } })).status, 200, "a minute later");
+    assert.equal((await call(s.port, `/api/s/${id}`, { headers: { "x-visitor": "10.0.0.3" } })).status, 200, "a minute later");
     // 30 days on, it is gone, from the disk too.
     clock += 30 * 864e5;
-    assert.equal((await call(s.port, `/api/s/${id}`, { headers: { "x-visitor": "d" } })).status, 404);
+    assert.equal((await call(s.port, `/api/s/${id}`, { headers: { "x-visitor": "10.0.0.4" } })).status, 404);
     assert.equal(s.sweep() >= 1, true);
     assert.equal(s.stored().count, 0);
     assert.equal(fs.readdirSync(dirs[dirs.length - 1]).length, 0);
     clock += 3600e3;
-    assert.equal((await call(s.port, "/api/s", as("a"))).status, 201, "an hour later, a again");
+    assert.equal((await call(s.port, "/api/s", as("10.0.0.1"))).status, 201, "an hour later, the first again");
+  } finally {
+    await s.close();
+  }
+});
+
+test("a visitor's address comes from the proxy only: made-up headers count as the connection", async () => {
+  const blob = link.seal(Buffer.alloc(50)).blob;
+  const as = (port, who) => call(port, "/api/s", { method: "POST", body: blob, headers: who === undefined ? {} : { "cf-connecting-ip": who } });
+  const count = async (port, names) => {
+    let ok = 0;
+    for (const who of names) if ((await as(port, who)).status === 201) ok++;
+    return ok;
+  };
+  // no trusted proxy: the header is ignored, whatever it says
+  const open = await serve({ uploadsPerHour: 3, ipHeader: "cf-connecting-ip" });
+  try {
+    assert.equal(await count(open.port, Array.from({ length: 20 }, (_, i) => `10.0.0.${i}`)), 3, "20 made-up visitors are one");
+  } finally {
+    await open.close();
+  }
+  // from the trusted proxy: its last value counts; a list, garbage or nothing counts as the proxy
+  const behind = await serve({ uploadsPerHour: 3, ipHeader: "cf-connecting-ip", trustedProxies: ["127.0.0.1", "::1"] });
+  try {
+    assert.equal(await count(behind.port, ["10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4"]), 4, "four visitors");
+    assert.equal(await count(behind.port, ["1.1.1.1, 10.0.0.9", "2.2.2.2, 10.0.0.9", "3.3.3.3, 10.0.0.9", "4.4.4.4, 10.0.0.9"]), 3, "the value the proxy added, not the visitor's");
+    assert.equal(await count(behind.port, ["not an address", "", "10.0.0.300", undefined, "<script>"]), 3, "anything else is the proxy itself");
+  } finally {
+    await behind.close();
+  }
+});
+
+test("uploads that stop sending lose their place; one visitor cannot hold every place", async () => {
+  const s = await serve({ idleMs: 300, uploadsPerHour: 100 });
+  const dir = dirs[dirs.length - 1];
+  const stall = () => {
+    const sock = require("net").connect(s.port, "127.0.0.1");
+    sock.on("error", () => {});
+    sock.write(`POST /api/s HTTP/1.1\r\nHost: x\r\nContent-Type: application/octet-stream\r\nContent-Length: 200000\r\n\r\n`);
+    sock.write(Buffer.concat([link.MAGIC, Buffer.alloc(1000)]));
+    return sock;
+  };
+  try {
+    const stalled = [stall(), stall(), stall()];
+    await new Promise((r) => setTimeout(r, 120));
+    const blob = link.seal(Buffer.alloc(50)).blob;
+    assert.equal((await call(s.port, "/api/s", { method: "POST", body: blob })).status, 429, "a third at once from the same visitor");
+    await new Promise((r) => setTimeout(r, 700));
+    assert.equal((await call(s.port, "/api/s", { method: "POST", body: blob })).status, 201, "free again after the senders stopped");
+    assert.equal(fs.readdirSync(dir).filter((n) => n.startsWith(".part-")).length, 0, "nothing half written is left");
+    stalled.forEach((sock) => sock.destroy());
+    // the page's script and style are asked for anew like the page itself
+    for (const route of ["/page.js", "/page.css"]) assert.equal((await call(s.port, route)).headers["cache-control"], "no-cache", route);
   } finally {
     await s.close();
   }
