@@ -6,6 +6,7 @@
 const fs = require("fs");
 const path = require("path");
 const { pathToFileURL } = require("url");
+const planner = require("./planner");
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -26,6 +27,11 @@ const WORDS = {
     pages: (a, b) => (a === b ? `p. ${a}` : `p. ${a}–${b}`),
     page: (a) => `p. ${a}`,
     questions: (n) => `${n} questions, in Aced`,
+    summary: "Summary",
+    example: "Example",
+    result: "Result:",
+    todo: "What to do",
+    details: (pages) => `Details in the book: ${pages}`,
     min: (m) => `${m} min`,
     formulas: "Formula sheet",
     footer: "Made with Aced · uyarid.com",
@@ -47,6 +53,11 @@ const WORDS = {
     pages: (a, b) => (a === b ? `S. ${a}` : `S. ${a}–${b}`),
     page: (a) => `S. ${a}`,
     questions: (n) => `${n} Fragen, in Aced`,
+    summary: "Zusammenfassung",
+    example: "Beispiel",
+    result: "Ergebnis:",
+    todo: "Was du tun musst",
+    details: (pages) => `Details im Buch: ${pages}`,
     min: (m) => `${m} Min.`,
     formulas: "Formelblatt",
     footer: "Gemacht mit Aced · uyarid.com",
@@ -115,6 +126,13 @@ ul.steps li { break-inside: avoid; }
 .topic .weight { margin-left: auto; font: 500 13px/1 Archivo, sans-serif; color: var(--muted); white-space: nowrap; }
 .topic .why { color: var(--muted); font-size: 14px; margin: 4px 0 8px; }
 ul.steps { list-style: none; margin: 0; padding: 0; }
+.summary { margin: 6px 0 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--rule); font-size: 14px; }
+.summary .label { margin: 8px 0 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.summary .label:first-child { margin-top: 0; }
+.summary ul, .summary ol { margin: 0; padding-left: 20px; }
+.summary li { margin: 3px 0; }
+.summary .example p { margin: 4px 0; }
+.summary .details { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
 ul.steps li { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--rule); }
 ul.steps li:first-child { border-top: 0; }
 .box { flex: none; width: 15px; height: 15px; border: 1.6px solid var(--muted); border-radius: 4px; transform: translateY(2px); }
@@ -165,8 +183,20 @@ async function examPage(exam, { lang = "en" } = {}) {
     if (st.kind === "solve") return `<li><span class="box"></span><span class="what"><b>${esc(w.solve)} ${esc(w.page(printedPage(m, st.page)))}: ${esc(st.labels.join(", "))}</b></span><span class="min">${esc(w.min(st.minutes))}</span></li>`;
     return `<li><span class="box"></span><span class="what">${esc(w.questions(st.questions || 4))}</span><span class="min">${esc(w.min(st.minutes || 10))}</span></li>`;
   };
+  // A topic's summary, as in the app: the core of its pages, an example, what to do, where the details are.
+  const summaryOf = (t) => {
+    const sm = t.summary;
+    if (!sm || !sm.core || !sm.core.length) return "";
+    const ex = sm.example && sm.example.task ? `<div class="example"><p class="label">${esc(w.example)}</p><p>${rich(k, sm.example.task)}</p><ol>${(sm.example.steps || []).map((x) => `<li>${rich(k, x)}</li>`).join("")}</ol><p><b>${esc(w.result)}</b> ${rich(k, sm.example.result)}</p></div>` : "";
+    const todo = sm.todo && sm.todo.length ? `<p class="label">${esc(w.todo)}</p><ol>${sm.todo.map((x) => `<li>${rich(k, x)}</li>`).join("")}</ol>` : "";
+    const pages = (sm.pages || []).map((p) => w.pages(printedPage(material(p.material), p.from), printedPage(material(p.material), p.to)) + (p.what ? ` (${p.what})` : "")).join(", ");
+    return `<div class="summary"><p class="label">${esc(w.summary)}</p><ul>${sm.core.map((x) => `<li>${rich(k, x)}</li>`).join("")}</ul>${ex}${todo}${pages ? `<p class="details">${esc(w.details(pages))}</p>` : ""}</div>`;
+  };
+  // The steps by the exam's pace, as a friend starts them (nothing ticked): the summary is shown
+  // above them, so it is not a step of its own here.
+  const stepsOf = (t) => planner.workOf(t, exam.pace, {}, {}).filter((st) => st.kind !== "summary");
   const topics = s.topics
-    .map((t, i) => `<div class="topic"><h3><span class="n">${i + 1}</span><span>${esc(t.title)}</span>${t.share ? `<span class="weight">${esc(w.share(t.share))}</span>` : ""}</h3>${t.why ? `<p class="why">${rich(k, t.why)}</p>` : ""}<ul class="steps">${t.steps.map(step).join("")}</ul></div>`)
+    .map((t, i) => `<div class="topic"><h3><span class="n">${i + 1}</span><span>${esc(t.title)}</span>${t.share ? `<span class="weight">${esc(w.share(t.share))}</span>` : ""}</h3>${t.why ? `<p class="why">${rich(k, t.why)}</p>` : ""}${summaryOf(t)}<ul class="steps">${stepsOf(t).map(step).join("")}</ul></div>`)
     .join("");
   const sheet = (exam.formulas || [])
     .filter((g) => g.formulas && g.formulas.length)

@@ -33,6 +33,7 @@
         read: (a, b) => (a === b ? `Lesen: S. ${a}` : `Lesen: S. ${a}–${b}`),
         solve: (p, l) => `Lösen: S. ${p}, Aufgaben ${l.join(", ")}`,
         quiz: (n) => `${n} Fragen`,
+        summary: "Zusammenfassung des Themas, etwa 3 Minuten, in Aced",
         topics: (n) => `${n} Themen`,
       }
     : {
@@ -59,6 +60,7 @@
         read: (a, b) => (a === b ? `Read p. ${a}` : `Read pp. ${a}–${b}`),
         solve: (p, l) => `Solve p. ${p}, exercises ${l.join(", ")}`,
         quiz: (n) => `${n} questions`,
+        summary: "Summary of the topic, about 3 minutes, in Aced",
         topics: (n) => `${n} topics`,
       };
   document.documentElement.lang = de ? "de" : "en";
@@ -163,9 +165,30 @@
         p.textContent = topic.why.slice(0, 400);
         li.append(p);
       }
+      // The steps as Aced plans them for the exam's pace (0.6): a topic with a summary starts with
+      // it; "efficient" and "sprint" read no pages, "thorough" reads the pages the summary names;
+      // questions come where the book has no exercises (and in "thorough").
+      const pace = doc.exam && typeof doc.exam.pace === "string" ? doc.exam.pace : "thorough";
+      const summary = topic.summary && typeof topic.summary === "object" && Array.isArray(topic.summary.core) && topic.summary.core.length ? topic.summary : null;
+      const raw = Array.isArray(topic.steps) ? topic.steps.slice(0, 40).filter((x) => x && typeof x === "object") : [];
+      const solves = raw.some((x) => x.kind === "solve");
+      const keyPages = summary && Array.isArray(summary.pages) ? summary.pages.filter((p) => p && typeof p === "object" && int(p.from)).slice(0, 3).map((p) => ({ kind: "read", material: p.material, from: p.from, to: p.to, chapter: p.what })) : [];
+      const planned = !summary
+        ? raw
+        : [
+            { kind: "summary" },
+            ...(pace === "thorough" ? (keyPages.length ? keyPages : raw.filter((x) => x.kind === "read")) : []),
+            ...raw.filter((x) => x.kind === "solve"),
+            ...raw.filter((x) => x.kind === "quiz" && (pace === "thorough" || !solves)),
+          ];
       const steps = document.createElement("ul");
-      for (const step of Array.isArray(topic.steps) ? topic.steps.slice(0, 40) : []) {
-        if (!step || typeof step !== "object") continue;
+      for (const step of planned) {
+        if (step.kind === "summary") {
+          const item = document.createElement("li");
+          item.textContent = T.summary;
+          steps.append(item);
+          continue;
+        }
         const book = titles.get(step.material) || "";
         let text = "";
         if (step.kind === "read" && int(step.from)) text = T.read(int(step.from), int(step.to) || int(step.from)) + (typeof step.chapter === "string" && step.chapter ? ` (${step.chapter.slice(0, 120)})` : "");

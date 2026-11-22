@@ -51,16 +51,15 @@ async function sampleBook(file) {
 
 app.whenReady().then(async () => {
   const win = await window;
-  // The book beside the plan: an invented one, under its fingerprint like any book. Reading is
-  // left out of "efficient", so the sample's ticks on reading are taken back for these pictures.
+  // The book beside the plan: an invented one, under its fingerprint like any book. The first
+  // topic starts afresh in these pictures (the sample has ticks on it from before 0.6).
   const made = path.join(scratch, "book.pdf");
   await sampleBook(made);
   const hash = require("crypto").createHash("sha256").update(fs.readFileSync(made)).digest("hex");
   fs.copyFileSync(made, require("../src/files").pdfPath(hash));
   require("../src/store").change("sample-math", (e) => {
     e.materials.find((m) => m.id === "m1").hash = hash;
-    delete e.done["t1/r0"];
-    delete e.done["t2/r0"];
+    for (const id of ["t1/sum", "t1/r0", "t1/s0", "t1/s1", "t2/r0"]) delete e.done[id];
   });
   win.setContentSize(1360 * SCALE, 860 * SCALE);
   const js = (code) => win.webContents.executeJavaScript(code);
@@ -82,7 +81,7 @@ app.whenReady().then(async () => {
   const shot = async (name) => {
     await js(lights);
     await sleep(500);
-    const file = path.join(out, `${name}-${lang}-${theme}.png`);
+    const file = path.join(out, `learn-${name}${lang === "en" ? "" : "-" + lang}-${theme}.png`);
     fs.writeFileSync(file, await capture(win));
     console.log("shot", file);
   };

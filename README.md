@@ -3,16 +3,21 @@
 **Aced: know exactly what to do before your exam.**
 
 A study app for the Mac. You tell it which exam, when, how much time you have and which grade
-you want. You give it your book and your learning objectives. It gives you one list: what to
-read and which exercises from the book to solve, with page and number, in the book's order, and
-what is left out when the time is short. You tick off, the percentage moves, and at the end an
-exam on everything shows where you stand.
+you want. You give it your book and your learning objectives. It gives you one list: a short
+summary per topic instead of pages to read, the exercises from the book to solve right in the
+app (with a check, a hint and the worked solution), in the book's order, and what is left out
+when the time is short. The percentage moves as you go, and at the end an exam on everything
+shows where you stand.
 
 ![One exam on one screen: the plan, with the book beside it](docs/shots/exam-light.png)
 
 | Formula sheet | Helper | Final exam |
 |---|---|---|
 | ![The formulas the exam needs, each with its page](docs/shots/formulas-light.png) | ![A question about the book, answered with pages](docs/shots/helper-light.png) | ![Results only, marked, with a grade estimate](docs/shots/result-light.png) |
+
+| A summary per topic | *Efficient*: no reading | The book's exercise in the app |
+|---|---|---|
+| ![A topic's summary at its top: the key points with formulas, an example, what to do, and the pages for the details](docs/shots/learn-summary-light.png) | ![The plan in Efficient: a summary instead of the pages, then the exercises in the app](docs/shots/learn-efficient-light.png) | ![An exercise from the book in the app: its text with a link to the page, the result field, the check and the worked solution](docs/shots/learn-task-solution-light.png) |
 
 | Share | The web page on a phone | A friend opens it |
 |---|---|---|
@@ -29,6 +34,28 @@ answers around it were written by Claude Opus 5.5 through Claude Code in a real 
   as one checklist, topic by topic: what you need to be able to do, then the steps ("Read
   p. 255–256", "Solve p. 257: 3, 4, 7"). The next step is marked, a line shows where you are
   done for today, finished topics fold away. A tick is a switch: click again to take it back.
+- **A summary for every topic.** At the top of each topic, written by your AI from that topic's
+  pages and your learning objectives, nothing else: the key ideas, rules and formulas, one
+  worked example, and the two to four things to do, with links to the pages for the details. It
+  reads in two or three minutes instead of twenty pages. It is made once and kept, and it goes
+  along when you share the exam (your friend's Aced asks no AI for it). An exam made with an
+  earlier Aced gets its summaries the first time it opens.
+- **Plans that fit the pace.** *Efficient* never asks you to read pages: the summary, then the
+  exercises, and a check of two questions only where an exercise went wrong or you ticked it off
+  without the app. *Sprint* is the summary and the exercises that bring the most points.
+  *Thorough* adds only the pages the summary names as the ones that matter, and a check per
+  topic. Reading you ticked off in an earlier version stays ticked.
+- **The book's exercises in the app.** Every exercise of the plan opens beside the book: its
+  text taken over word for word, with a link to its page (and the part of the page with its
+  figure or table where it needs one), a field for the result, Check, a hint, and the worked
+  solution. You work on paper and type only the result: a number (`2,5` or `2.5`), several
+  numbers, a point (`2; -3`, `2|-3`, `S(2|-3)`), a choice, or an expression (`(x - 2)^2 - 3`
+  is the same as `x^2 - 4x + 1`). A wrong result comes back later in the plan; right ones count
+  toward the percentage, and a step whose exercises are all right ticks itself off.
+- **Every solution is checked before you see it.** Against the book's own answers where the
+  book prints them; else your AI solves the exercise a second time on its own, from its text
+  alone, and numbers are worked out once more on your Mac. A solution that does not hold says so
+  ("not confirmed, compare with the book") and never marks your result wrong.
 - **The book beside the plan.** Your book opens inside the app, next to the list. A step jumps to
   its page. The divider can be dragged, the panel hidden. You can write in it: pen,
   highlighter, text notes, eraser and undo, kept per page on your Mac, never in the PDF and
@@ -46,8 +73,10 @@ answers around it were written by Claude Opus 5.5 through Claude Code in a real 
   are not numbers (an equation, an interval) are marked by the AI, which is told to look at the
   result only. Afterwards: the worked solutions, a grade estimate, and the topics that went
   badly back on your list, with exercises from the book you have not done yet.
-- **Questions from the AI only where the book has none.** A topic without exercises in the book
-  gets a few questions written from your material, and they are labelled as such.
+- **Questions from the AI only where the book has none, or as a short check.** A topic without
+  exercises in the book gets a few questions written from your material, and so does the short
+  check of a topic (in *Thorough*, and in *Efficient* where an exercise went wrong). They are
+  labelled as such.
 - **Share an exam with friends.** One button on the exam screen opens Aced's own share window,
   where every way is one click. Five ways send the exam as an **Aced file** that opens in your
   friend's Aced (a double-click is enough): **AirDrop**, **Messages** and **Mail** open with
@@ -109,6 +138,9 @@ The AI is one you bring:
 
 What leaves your Mac, and where to:
 
+- **For the summaries and the exercises in the app**, once per topic: the text of that topic's
+  pages (what it says to read, the pages of its exercises, and pages that hold the book's
+  answers) with your learning objectives; for the second solving, only the exercises' text.
 - **To the provider you chose, and nowhere else:** the text of the pages a step needs, your
   learning objectives, the exam's name, date, time and target grade, your questions to the
   helper, and the results you type in an exam when they are not numbers. For a large book that
@@ -268,6 +300,8 @@ npm run sample   # the app on invented exams, nothing is saved
 | `npm test` | planner, results in every notation, page search, store (damaged file, backup, a file from 0.1), reference check, the engine and every key-based provider (pictures included) against a local stand-in server; every file format, made on this Mac, with the hostile kind (a zip bomb, an external entity, scripts and pictures from a server, a picture of 400 megapixels); and sharing: the sample exam sent from one fresh profile and opened in another, and hostile Aced files; links: locking and unlocking, hostile and broken links, the share service's limits and its 30 days, run against a service on this Mac; and what is written in a book, kept and checked |
 | `npm run smoke` | clicks through the app in a hidden window: an empty start up to a final exam (with a real file drop), the sample exams, a damaged data file, material handed over without the Finder (a folder, ⌘V of a screenshot, of files and of text, picture data from a browser), and sharing (the share window's Save file, PDF and web page, an Aced file opened from the Finder, its book added); then the share window without and with a share service, AirDrop, Messages, Mail and Copy file (with the Mac's part stood in for), a link made against a service on this Mac and opened by a friend, hostile and run-out links, and writing in the book with the mouse (zoom, undo, eraser, notes) |
 | `npm run checks` | keyboard only, the wizard's edges, time in total, percent and German scale, reduced motion |
+| `electron scripts/test-learn.js` | (part of `npm test`) typed results in every usual notation (points, a decimal comma, the minus sign `−`), expressions read without running them, the check of a solution before it is shown, the plan by pace, the percentage after an upgrade from 0.5, and summaries and exercises in a shared file, hostile ones included |
+| `electron scripts/shots-learn.js <outDir> <light\|dark> [en\|de]` | the pictures of a summary, the plan in *Efficient* and an exercise in the app, on the sample exam with an invented book |
 | `electron scripts/window-check.js` | opens a real window for a few seconds: traffic lights, minimum size, date field |
 | `electron scripts/e2e.js <book.pdf> <objectives.txt> <outDir>` | the whole path for real through Claude Code (costs tokens) |
 | `electron scripts/e2e-formats.js <outDir>` | the same for screenshots, a Word file with formulas and an Excel file: read, planned, the book at the right page, found by the helper (costs tokens) |
@@ -280,10 +314,14 @@ npm run sample   # the app on invented exams, nothing is saved
 Where things are:
 
 - `main.js`, `preload.js`: the window and everything it may ask for.
-- `src/engine.js`, `src/prompts.js`: from material to strategy, formula sheet, exam questions
-  and answers to the helper.
+- `src/engine.js`, `src/prompts.js`: from material to strategy, summaries, the book's exercises
+  as tasks (with the check of their solutions), formula sheet, exam questions and answers to the
+  helper.
 - `src/planner.js`: the plan: what fits, in which order, what is for today. No AI in it.
 - `src/answers.js`: is a typed result right? Numbers in every notation, decided on the Mac.
+- `src/tasks.js`, `src/expr.js`: the book's exercises as tasks: is a typed result right, what
+  follows (the step ticked off, a wrong one back later); expressions read by a small parser of
+  its own, never run as code.
 - `src/search.js`: finds the pages of a book a question is about.
 - `src/ai/`: the four providers behind one `ask()` that checks the answer against a schema.
 - `src/files.js`, `src/pdf-worker.js`, `src/ocr.js`, `native/ocr.swift`: the library, and reading

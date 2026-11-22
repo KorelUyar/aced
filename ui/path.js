@@ -437,7 +437,7 @@ function Figure({ exam, task }) {
  */
 function Summary({ exam, topic, task, show, tick, busy, fold }) {
   const sm = topic.summary;
-  const pages = sm.pages && sm.pages.length ? sm.pages : topic.steps.filter((st) => st.kind === "read").map((st) => ({ material: st.material, from: st.from, to: st.to, what: st.chapter }));
+  const pages = (sm.pages && sm.pages.length ? sm.pages : topic.steps.filter((st) => st.kind === "read").map((st) => ({ material: st.material, from: st.from, to: st.to, what: st.chapter }))).filter((p) => materialOf(exam, p.material));
   return html`<section class="summary-card" data-summary=${topic.id} aria-label=${t("summaryOf", topic.title)}>
     <header class="summary-head">
       <span class="can-label">${t("doSummary")}</span>
