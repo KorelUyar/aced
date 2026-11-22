@@ -33,13 +33,16 @@ function hashFile(file) {
 
 /** The hash of a file, or of a folder that is one document (an iWork package): its files' names and contents. */
 async function hashSource(source) {
-  if (!fs.statSync(source).isDirectory()) return hashFile(source);
+  if (!fs.lstatSync(source).isDirectory()) return hashFile(source);
   const hash = crypto.createHash("sha256");
+  // Links inside it are not part of it (see `withoutLinks`).
   const walk = async (d, prefix) => {
     for (const name of fs.readdirSync(d).sort()) {
       const p = path.join(d, name);
-      if (fs.statSync(p).isDirectory()) await walk(p, prefix + name + "/");
-      else hash.update(prefix + name + "\0" + (await hashFile(p)) + "\0");
+      const st = fs.lstatSync(p);
+      if (st.isSymbolicLink()) continue;
+      if (st.isDirectory()) await walk(p, prefix + name + "/");
+      else if (st.isFile()) hash.update(prefix + name + "\0" + (await hashFile(p)) + "\0");
     }
   };
   await walk(source, "");
@@ -211,13 +214,24 @@ function materialOf(hash, title, data, more = {}) {
     recognised: Boolean(data.recognised),
     ...(data.cut ? { cut: true } : {}),
     ...(data.partial ? { partial: true } : {}),
+    ...(data.missingPictures ? { missingPictures: data.missingPictures } : {}),
+    ...(data.hiddenSheets && data.hiddenSheets.length ? { hiddenSheets: data.hiddenSheets } : {}),
+    ...(data.leftOut ? { leftOut: data.leftOut } : {}),
     ...more,
   };
 }
 
 const titleOf = (file) => path.basename(file, path.extname(file)).replace(/[_]+/g, " ").trim() || path.basename(file);
 
-/** Copies what was added next to its PDF (once). A folder that is one document is copied whole. */
+/**
+ * Copies a file, or a folder that is one document, without any symbolic link in it: a link is
+ * not part of the document, and following one would copy whatever it points at.
+ */
+function withoutLinks(source, target) {
+  fs.cpSync(source, target, { recursive: true, dereference: false, verbatimSymlinks: true, filter: (from) => !fs.lstatSync(from).isSymbolicLink() });
+}
+
+/** Copies what was added next to its PDF (once). A folder that is one document is copied whole, without links. */
 function keepOriginals(hash, sources) {
   const target = originalsPath(hash);
   if (fs.existsSync(target)) return;
@@ -226,7 +240,7 @@ function keepOriginals(hash, sources) {
   fs.mkdirSync(tmp, { recursive: true });
   sources.forEach((source, i) => {
     const name = path.basename(source);
-    fs.cpSync(source, path.join(tmp, sources.length > 1 ? `${String(i + 1).padStart(3, "0")} ${name}` : name), { recursive: true, dereference: true });
+    withoutLinks(source, path.join(tmp, sources.length > 1 ? `${String(i + 1).padStart(3, "0")} ${name}` : name));
   });
   fs.renameSync(tmp, target);
 }
@@ -240,7 +254,7 @@ const dropTmp = (file) => fs.rmSync(path.dirname(file), { recursive: true, force
  */
 async function add(file, onProgress, signal, { lang = "en" } = {}) {
   const id = formats.identify(file);
-  if (!id.kind || id.kind === "folder") throw coded(id.why === "empty" ? "empty" : id.why === "zip" ? "zip" : "unsupported");
+  if (!id.kind || id.kind === "folder") throw coded(["empty", "zip", "link"].includes(id.why) ? id.why : "unsupported");
   if (id.kind === "picture") return addPictures([file], onProgress, signal, { lang });
   const title = titleOf(file);
   if (id.kind === "pdf") {
@@ -257,7 +271,7 @@ async function add(file, onProgress, signal, { lang = "en" } = {}) {
     const made = tmpPdf();
     try {
       const result = await require("./convert").toPdf({ files: [file], kind: id.kind, ext: id.ext, out: made, lang }, { signal });
-      data = await readInto(made, hash, onProgress, signal, { converted: true, extra: { cut: result.cut, partial: result.partial, missingPictures: result.missingPictures } });
+      data = await readInto(made, hash, onProgress, signal, { converted: true, extra: { cut: result.cut, partial: result.partial, missingPictures: result.missingPictures, hiddenSheets: result.hiddenSheets, leftOut: result.leftOut } });
       fs.copyFileSync(made, pdfPath(hash));
     } finally {
       dropTmp(made);
@@ -365,4 +379,4 @@ function prune({ hashes, answers }) {
   sweep("answers", answers);
 }
 
-module.exports = { init, add, addPictures, addText, decode, ensureText, readText, writeText, pdfPath, originalsPath, printedOffset, isScan, textless, sha, cached, remember, prune, hashFile };
+module.exports = { init, add, addPictures, addText, decode, ensureText, withoutLinks, readText, writeText, pdfPath, originalsPath, printedOffset, isScan, textless, sha, cached, remember, prune, hashFile };

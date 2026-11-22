@@ -11,6 +11,8 @@ export function describe(m, reading, model) {
   const source = m.from === "pictures" || !m.from || m.from === "pdf" ? "" : t("from_" + (["iwork", "textutil"].includes(m.from) ? m.format : m.from));
   const length = m.from === "pictures" ? t("picturesCount", m.pages) : SLIDES.has(m.from) || m.format === "key" ? t("slidesCount", m.pages) : t("pagesCount", m.pages);
   const parts = [source ? `${source}, ${length}` : length];
+  // Sheets that were hidden in the workbook are left out, and named.
+  if (m.hiddenSheets && m.hiddenSheets.length) parts.push(t("hiddenSheets", m.hiddenSheets));
   if (reading) return { text: parts.concat(t("readingWithAi", model ? modelName(model) : "")).join(", "), retry: false };
   if (m.read === "ai") {
     parts.push(t("readByAi", modelName(m.model)));

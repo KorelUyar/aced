@@ -276,6 +276,13 @@ async function attempt(exe, env, request, settingSources) {
   };
 }
 
+/**
+ * One request. Claude Code runs with none of the person's settings files (--setting-sources ""),
+ * so their hooks, plugins, MCP servers, skills and CLAUDE.md files stay out of a request that
+ * carries their pages and pictures. It works with the login Claude Code keeps itself (the
+ * claude.ai sign-in, or a key in the shell's environment). A login that works only through the
+ * person's settings (an API key helper) is not used: Aced says to sign in instead.
+ */
 async function complete(request) {
   const exe = await locate();
   if (!exe) throw coded("noClaudeCode");
@@ -285,19 +292,11 @@ async function complete(request) {
     failed = null;
     return answer;
   } catch (err) {
-    if (err.code !== "signIn") throw err;
-    // The login may come from the person's own settings (an API key helper, for example).
-    try {
-      const answer = await attempt(exe, env, request, "user");
-      failed = null;
-      return answer;
-    } catch (second) {
-      if (second.code === "signIn") {
-        const now = await status().catch(() => null);
-        failed = { reason: second.detail, expiresAt: now ? now.expiresAt : null };
-      }
-      throw second;
+    if (err.code === "signIn") {
+      const now = await status().catch(() => null);
+      failed = { reason: err.detail, expiresAt: now ? now.expiresAt : null };
     }
+    throw err;
   }
 }
 

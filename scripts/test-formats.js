@@ -105,6 +105,13 @@ app.whenReady().then(async () => {
       return { error: err.code || err.message };
     }
   };
+  const add_ = async (file) => {
+    try {
+      return await files.add(file, null, null, { lang: "de" });
+    } catch (err) {
+      return err.code || err.message;
+    }
+  };
   const kept = (item) => fs.existsSync(path.join(userData, "library", item.hash + ".pdf")) && fs.existsSync(path.join(userData, "originals", item.hash));
 
   // ---- Word with formulas in Word's own format: numbering, formulas as LaTeX, a table, two pages
@@ -236,6 +243,64 @@ app.whenReady().then(async () => {
     same((await add("Programm.exe")).error, "unsupported", "a program is not material");
   }
   same(hits, [], "nothing at all was loaded from the server");
+
+  // ---- symbolic links are never followed (a folder from an unpacked archive can hold one)
+  {
+    const { identify } = require("../src/formats");
+    const links = path.join(dir, "links");
+    fs.mkdirSync(links);
+    fs.symlinkSync(secret, path.join(links, "Kapitel 2.txt"));
+    same(identify(path.join(links, "Kapitel 2.txt")).why, "link", "a link to a file is a link, not the file");
+    same(await add_(path.join(links, "Kapitel 2.txt")), "link", "and adding it is refused");
+    // A Pages package whose preview PDF is a link to any PDF on the Mac.
+    const outside = path.join(dir, "elsewhere.pdf");
+    fs.copyFileSync(path.join(userData, "library", fs.readdirSync(path.join(userData, "library")).find((n) => n.endsWith(".pdf"))), outside);
+    const pkg = path.join(links, "Arbeitsblatt.pages");
+    fs.mkdirSync(path.join(pkg, "QuickLook"), { recursive: true });
+    fs.symlinkSync(outside, path.join(pkg, "QuickLook", "Preview.pdf"));
+    fs.writeFileSync(path.join(pkg, "Index.zip"), require("./fixtures/formats").zipOf([["Index/Document.iwa", require("./fixtures/formats").snappyFrame(Buffer.from([2, 8, 1]))]]));
+    fs.symlinkSync(path.dirname(secret), path.join(pkg, "Data"));
+    const pages = await add_(pkg);
+    ok(pages === "unsupported" || (typeof pages === "object" && !/TOP-SECRET/.test(text(pages)) && pages.from === "iwork"), "a package's preview that is a link is not read, nor a linked folder in it");
+    // An RTF package with a picture that is a link.
+    const rtfd = path.join(links, "Notizen.rtfd");
+    fs.mkdirSync(rtfd);
+    fs.writeFileSync(path.join(rtfd, "TXT.rtf"), "{\\rtf1\\ansi Aufgabe 3: Notizen mit Bild.\\par}");
+    fs.symlinkSync(secret, path.join(rtfd, "secret.txt"));
+    const notes = await add_(rtfd);
+    ok(typeof notes === "object" && /Aufgabe 3/.test(text(notes)) && !/TOP-SECRET/.test(text(notes)), "an RTF package is read without the link in it");
+    ok(typeof notes === "object" && !fs.readdirSync(path.join(userData, "originals", notes.hash, "Notizen.rtfd")).includes("secret.txt"), "and its copy beside the PDF has no link in it");
+  }
+  // ---- a text file that talks about PDFs stays a text file
+  {
+    const { identify } = require("../src/formats");
+    const md = path.join(dir, "PDF-Notizen.md");
+    fs.writeFileSync(md, "# Notizen\nEine PDF-Datei beginnt mit %PDF-1.7 und endet mit %%EOF.\n");
+    same(identify(md).kind, "text", "a .md that mentions %PDF- is text");
+    const real = path.join(dir, "eigentlich-pdf.txt");
+    fs.copyFileSync(path.join(dir, "elsewhere.pdf"), real);
+    same(identify(real).kind, "pdf", "a file that starts as a PDF is a PDF, whatever its ending");
+  }
+  // ---- what could not be shown, and what was hidden, is kept with the material
+  {
+    const { zipOf } = require("./fixtures/formats");
+    const emf = Buffer.concat([Buffer.from([1, 0, 0, 0]), Buffer.alloc(80)]);
+    const doc = path.join(dir, "Mit EMF.docx");
+    fs.writeFileSync(doc, zipOf([
+      ["_rels/.rels", `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`],
+      ["word/_rels/document.xml.rels", `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rImg" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/a.emf"/><Relationship Id="rAlt" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" Target="chunk.html"/><Relationship Id="rRtf" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" Target="chunk.rtf"/></Relationships>`],
+      ["word/document.xml", `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:v="urn:schemas-microsoft-com:vml"><w:body><w:p><w:r><w:t>Aufgabe 1: </w:t></w:r><w:moveTo w:id="1"><w:r><w:t>VERSCHOBEN berechne die Fläche.</w:t></w:r></w:moveTo><w:moveFrom w:id="2"><w:r><w:t>ALTER-ORT</w:t></w:r></w:moveFrom></w:p><w:p><w:r><w:pict><v:shape><v:imagedata r:id="rImg"/></v:shape></w:pict></w:r></w:p><w:altChunk r:id="rAlt"/><w:altChunk r:id="rRtf"/></w:body></w:document>`],
+      ["word/media/a.emf", emf],
+      ["word/chunk.html", "<html><body><p>Aufgabe 2: EINGEBETTET aus HTML.</p></body></html>"],
+      ["word/chunk.rtf", "{\\rtf1 Aufgabe 3}"],
+    ]));
+    const item = await add_(doc);
+    ok(typeof item === "object" && item.missingPictures === 1, "a picture that cannot be shown is counted on the material, so the app can say so");
+    ok(typeof item === "object" && /VERSCHOBEN/.test(text(item)) && !/ALTER-ORT/.test(text(item)), "moved text (a tracked change) is at its new place, not its old one");
+    ok(typeof item === "object" && /EINGEBETTET/.test(text(item)) && item.leftOut === 1, "an embedded web page is put in; an embedded RTF is counted as left out");
+    const sheets = await add_(fx["Noten.xlsx"]);
+    same(sheets.hiddenSheets, ["Hilfsblatt"], "a hidden sheet is named on the material");
+  }
 
   server.close();
   fs.rmSync(dir, { recursive: true, force: true });

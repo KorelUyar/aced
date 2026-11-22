@@ -66,7 +66,10 @@ function read(archive) {
 
   const sheets = [];
   for (const s of X.all(X.kid(wb, "sheets"), "sheet")) {
-    if (["hidden", "veryHidden"].includes(X.attr(s, "state"))) continue;
+    if (["hidden", "veryHidden"].includes(X.attr(s, "state"))) {
+      sheets.push({ name: X.attr(s, "name") || `Sheet ${sheets.length + 1}`, hidden: true, rows: [] });
+      continue;
+    }
     const rel = rels.get(X.attr(s, "id"));
     if (!rel || !rel.target || !archive.has(rel.target) || !/worksheet$/.test(rel.type)) continue;
     const { xml, more } = firstRows(archive.text(rel.target), LIMITS.rows);

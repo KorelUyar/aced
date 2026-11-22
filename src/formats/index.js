@@ -78,10 +78,13 @@ function looksLikeText(bytes) {
 function identify(file) {
   let stat;
   try {
-    stat = fs.statSync(file);
+    // A symbolic link is never followed, wherever it is: a folder from an unpacked archive
+    // can hold one that points at any file on this Mac.
+    stat = fs.lstatSync(file);
   } catch {
     return { kind: null, why: "missing" };
   }
+  if (stat.isSymbolicLink()) return { kind: null, why: "link" };
   const ext = extOf(file);
   if (stat.isDirectory()) return PACKAGES.has(ext) ? { kind: BY_EXT.get(ext), ext, package: true } : { kind: "folder" };
   if (!stat.isFile()) return { kind: null, why: "unsupported" };
@@ -89,11 +92,14 @@ function identify(file) {
   const bytes = head(file);
   const magic = bytes.subarray(0, 8);
   const isZip = magic[0] === 0x50 && magic[1] === 0x4b && (magic[2] === 3 || magic[2] === 5);
-  const isPdf = bytes.subarray(0, 1024).toString("latin1").includes("%PDF-");
+  // A PDF says so in its first bytes; some put a little before it. A text file may well
+  // mention "%PDF-" near its start: its ending only gives way to a file that starts as a PDF.
+  const startsPdf = bytes.subarray(0, 5).toString("latin1") === "%PDF-";
+  const isPdf = startsPdf || bytes.subarray(0, 1024).toString("latin1").includes("%PDF-");
   const isOle = magic.toString("hex") === "d0cf11e0a1b11ae1";
   const known = BY_EXT.get(ext);
   // The name decides, unless the bytes plainly say something else (a PDF named .doc, a picture without its ending).
-  if (isPdf && known !== "pdf") return { kind: "pdf", ext };
+  if (known !== "pdf" && (startsPdf || (isPdf && !known))) return { kind: "pdf", ext };
   if (known && known !== "text") return { kind: known, ext };
   if (/^(zip)$/.test(ext) || (isZip && !known)) {
     return { kind: null, why: ext === "zip" ? "zip" : "unsupported", ext };

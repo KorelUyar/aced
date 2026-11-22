@@ -39,7 +39,20 @@ contextBridge.exposeInMainWorld("aced", {
   // A dropped file: the page only has a File object, its place on disk is found here. One file
   // at a time, because a list of files does not come through to this side in one piece.
   pathOf: (file) => webUtils.getPathForFile(file),
-  addMaterial: (id, paths) => call("material:add", id, paths),
+  // Dropped files are added by the File objects the drop brought, never by a path the page
+  // names: a File made up by the page has no place on disk, so nothing else can be read.
+  addMaterial: (id, files) => {
+    const paths = [];
+    for (const file of Array.from(files || [])) {
+      try {
+        const where = typeof file === "object" && file ? webUtils.getPathForFile(file) : "";
+        if (where) paths.push(where);
+      } catch {
+        // not a File
+      }
+    }
+    return call("material:add", id, paths);
+  },
   // ⌘V: files copied in the Finder, a screenshot or picture on the clipboard, or text.
   pasteMaterial: (id) => call("material:paste", id),
   // Dropped data that has no place on disk (a picture dragged out of a browser): its bytes.

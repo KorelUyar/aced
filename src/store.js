@@ -74,7 +74,7 @@ function upgrade(exam) {
 function init({ dir, sample, systemLang = "en" }) {
   damaged = null;
   if (sample) {
-    data = { settings: { ...structuredClone(DEFAULT_SETTINGS), langFrom: "system", lang: systemLang }, exams: require("./sample").exams().map(upgrade) };
+    data = { settings: { ...structuredClone(DEFAULT_SETTINGS), langFrom: "system", lang: systemLang }, exams: require("./sample").exams(systemLang).map(upgrade) };
     return;
   }
   file = path.join(dir, "aced.json");

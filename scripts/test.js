@@ -618,6 +618,23 @@ async function providerChecks() {
   seesPictures = false;
   store.setSettings({ ai: { provider: "openai", model: "text-only-model" } });
   same(await ai.canSee({ samplePicture: sample }), false, "one whose model refuses pictures does not");
+  // Unclear answers are not kept: a server that cannot be reached, or refuses the key, says nothing about seeing.
+  const unreachable = await serve(() => {});
+  unreachable.close();
+  await new Promise((r) => setTimeout(r, 50));
+  store.setSettings({ ai: { provider: "openai", model: "vision-model", baseURL: unreachable.url + "/v1/" } });
+  ai.forgetSight();
+  await failsWith(ai.canSee({ samplePicture: sample }), "offline");
+  seesPictures = true;
+  store.setSettings({ ai: { provider: "openai", model: "vision-model", baseURL: local.url + "/v1/" } });
+  ai.forgetSight();
+  same(await ai.canSee({ samplePicture: sample }), true, "after being offline, the next try asks again (nothing was kept)");
+  const locked = await serve((req, body, res) => json(res, 401, { error: { message: "Incorrect API key provided" } }));
+  store.setSettings({ ai: { provider: "openai", model: "vision-model", baseURL: locked.url + "/v1/" } });
+  ai.forgetSight();
+  await failsWith(ai.canSee({ samplePicture: sample }), "badKey");
+  locked.close();
+  store.setSettings({ ai: { provider: "openai", model: "vision-model", baseURL: local.url + "/v1/" } });
   local.close();
   // 404: a model the server does not have, or an address that leads nowhere.
   const lost = await serve((req, body, res) =>

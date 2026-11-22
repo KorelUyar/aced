@@ -92,7 +92,12 @@ What leaves your Mac, and where to:
   With "another server", a small picture with two numbers on it goes there once, to find out
   whether its model can see.
 - **With "Claude Code on this Mac":** Aced starts the `claude` command on your Mac with all its
-  tools switched off, so it can only read the text and the pictures it is given and answer.
+  tools switched off, so it can only read the text and the pictures it is given and answer. It
+  starts it with none of your settings files (`--setting-sources ""`), so your hooks, plugins,
+  MCP servers, skills and `CLAUDE.md` files are not part of a request that carries your pages;
+  Claude Code's own built-in parts run as usual. It uses the login Claude Code keeps itself (the
+  claude.ai sign-in, or a key in your shell's environment). A login that works only through
+  your settings (an `apiKeyHelper`) is not used: Aced then says to sign in.
 - **With OpenRouter:** requests carry the app's name (`X-Title: Aced`), and the price for the
   estimate comes from OpenRouter's public model list.
 - **With "another server":** the address must start with `https://`; plain `http://` is only
@@ -148,8 +153,16 @@ them misbehaves for you, please [open an issue](https://github.com/KorelUyar/ace
   files and RTF through macOS's textutil. Pages, Numbers and Keynote files keep only a picture
   of their first page and their text where other apps can read them: Aced reads those and says
   so; for all of it, export a PDF from the app. Web pages, drawings and e-books are drawn with
-  scripts off and nothing loaded from the internet. A file that cannot be read gets a sentence
-  that says what to do instead.
+  scripts off and nothing loaded from the internet; a saved web page takes in only the pictures
+  right next to it and in its own `_files` folder. Sheets hidden in a workbook are left out and
+  named on the material, and a part of a Word file kept in another format (an embedded RTF, say)
+  is left out with a note. A file that cannot be read gets a sentence that says what to do
+  instead.
+- **Links are never followed.** A symbolic link in a dropped folder (an unpacked archive can
+  hold one pointing at any file on your Mac), dropped on its own, or inside a Pages or RTF
+  package is not read: Aced says it is only a link. A link dragged in or pasted (a bookmark,
+  "Copy Link", a `file://` address in text) is not opened either; only files themselves count,
+  dragged in or copied in the Finder.
 - **A small model gives a weak plan.** With a small local model, expect vague topics and page
   references that do not hold. Aced leaves out references to pages the model was not shown.
 - **The book is only a picture.** A PDF is untrusted: in the panel nothing in it can be clicked,

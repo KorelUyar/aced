@@ -199,6 +199,7 @@ function convertArchive(archive) {
   const noteNumbers = new Map();
   let missingPictures = 0;
   let pictureBytes = 0;
+  let leftOut = 0;
 
   const footnotes = new Map();
   for (const kind of ["footnotes", "endnotes"]) {
@@ -341,6 +342,7 @@ function convertArchive(archive) {
         case "hyperlink":
         case "fldSimple":
         case "ins":
+        case "moveTo":
         case "smartTag":
         case "customXml":
         case "dir":
@@ -424,13 +426,45 @@ function convertArchive(archive) {
     return `<table>${body}</table>`;
   }
 
+  /**
+   * A part of the document kept in another format (an "altChunk", which other programs write
+   * when they paste into Word): a web page or plain text is put in; anything else (RTF, another
+   * Word file) is counted, and the app says that part of the document was left out.
+   */
+  function altChunk(node) {
+    const rel = rels.get(X.attr(node, "id"));
+    if (!rel || !rel.target || !archive.has(rel.target)) {
+      leftOut++;
+      return "";
+    }
+    let bytes;
+    try {
+      bytes = archive.read(rel.target, 8 * 1024 * 1024);
+    } catch {
+      leftOut++;
+      return "";
+    }
+    const text = bytes.toString("utf8");
+    if (/\.html?$/i.test(rel.target) || /^\s*(<!doctype html|<html|<body|<p[\s>]|<div[\s>])/i.test(text)) {
+      // Its body only; the page that prints it runs no script and loads nothing.
+      const body = /<body[^>]*>([\s\S]*?)(<\/body>|$)/i.exec(text);
+      // (A picture it points to elsewhere would not load anyway: it is left out, not shown as a broken one.)
+      const html = (body ? body[1] : text).replace(/<\/?(script|style|link|meta|iframe|object|embed)\b[^>]*>/gi, "").replace(/<img\b(?![^>]*\bsrc\s*=\s*["']?data:)[^>]*>/gi, "");
+      return `<div class="alt-chunk">${html}</div>`;
+    }
+    if (/\.txt$/i.test(rel.target)) return `<pre style="font:inherit;white-space:pre-wrap">${esc(text)}</pre>`;
+    leftOut++;
+    return "";
+  }
+
   function blocks(node) {
     let out = "";
     for (const c of X.kids(node)) {
       if (c.local === "p") out += paragraph(c);
       else if (c.local === "tbl") out += table(c);
       else if (c.local === "sdt") out += blocks(X.kid(c, "sdtContent") || c);
-      else if (c.local === "customXml" || c.local === "ins") out += blocks(c);
+      else if (c.local === "customXml" || c.local === "ins" || c.local === "moveTo") out += blocks(c);
+      else if (c.local === "altChunk") out += altChunk(c);
       else if (c.local === "oMathPara") out += X.kids(c, "oMath").map((m) => M.marked({ ...M.fromOmml(m), a: { display: "block" } })).join("");
       else if (c.local === "AlternateContent") out += blocks(X.kid(c, "Fallback") || c);
     }
@@ -455,7 +489,7 @@ function convertArchive(archive) {
     const m = ["top", "right", "bottom", "left"].map((k) => Math.max(0.25, Math.min(2, Number(X.attr(pgMar, k) || 1134) / 1440)).toFixed(2) + "in");
     margin = m.join(" ");
   }
-  return { html: documentOf({ body: html, size, margin, css: ".label{font-weight:inherit}" }), missingPictures };
+  return { html: documentOf({ body: html, size, margin, css: ".label{font-weight:inherit}" }), missingPictures, leftOut };
 }
 
 module.exports = { convert, convertArchive, relsOf, mainPart };

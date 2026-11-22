@@ -241,7 +241,11 @@ function convert(file) {
 
   const out = [];
   for (const sheet of sheets) {
-    if (sheet.hidden || sheet.kind !== 0) continue;
+    if (sheet.kind !== 0) continue;
+    if (sheet.hidden) {
+      out.push({ name: sheet.name, hidden: true, rows: [] });
+      continue;
+    }
     const at = records.findIndex((r) => r.at === sheet.pos);
     if (at < 0) continue;
     const rows = [];

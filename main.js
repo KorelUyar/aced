@@ -312,6 +312,8 @@ handle("data:reveal", () => shell.showItemInFolder(path.join(app.getPath("userDa
 handle("settings:set", async (patch) => {
   const before = origin(store.settings().ai.baseURL);
   const next = store.setSettings(patch);
+  // Whether the AI can see is found out again for what is chosen now.
+  if (patch.ai) ai.forgetSight();
   // The key for "another server" belongs to that server: at a new address it is forgotten.
   if (origin(next.ai.baseURL) !== before) await secrets.set("openai", "");
   applyAppearance(next.appearance);
@@ -321,6 +323,7 @@ handle("settings:set", async (patch) => {
 handle("ai:key", async (provider, key) => {
   if (!["anthropic", "openrouter", "openai"].includes(provider)) throw coded("unknown");
   await secrets.set(provider, key);
+  ai.forgetSight();
   return ai.status();
 });
 handle("ai:test", () => ai.test());
@@ -354,14 +357,24 @@ const MOST_DOCUMENTS = 40; // of them, files other than pictures (each is read o
 const MOST_DEPTH = 4; // folders inside folders
 const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 
-/** The files behind what was dropped or chosen: folders opened (four deep), what macOS and Office leave in folders left out. */
+/**
+ * The files behind what was dropped or chosen: folders opened (four deep), what macOS and Office
+ * leave in folders left out. A symbolic link is never followed, at the top or inside a folder
+ * (an unpacked archive can hold one pointing at any file on this Mac): the person is told, once
+ * for all of them.
+ */
 function expand(paths, problems) {
   const out = [];
+  const links = [];
   let over = 0;
   const visit = (p, depth) => {
     const name = path.basename(p);
     if (depth > 0 && formats.isJunk(name)) return;
     const id = formats.identify(p);
+    if (id.why === "link") {
+      links.push(name);
+      return;
+    }
     if (id.kind === "folder") {
       if (depth >= MOST_DEPTH) return;
       let names = [];
@@ -381,6 +394,7 @@ function expand(paths, problems) {
     out.push({ file: p, ...id });
   };
   for (const p of paths) visit(p, 0);
+  if (links.length) problems.push({ title: links[0], code: links.length > 1 ? "links" : "link", detail: links.length > 1 ? links.slice(0, 6).map((n) => `“${n}”`).join(", ") + (links.length > 6 ? " …" : "") : "" });
   if (over) problems.push({ title: "", code: "tooMany", detail: String(MOST_FILES) });
   return out;
 }
@@ -405,7 +419,7 @@ async function inOrderTaken(pictures, signal) {
 /** An error while adding, as a code the interface has a sentence for. */
 const problemCode = (err) => {
   const code = err.code || err.message;
-  if (["unsupported", "empty", "zip", "protected", "tooLarge", "tooManyPixels"].includes(code)) return code;
+  if (["unsupported", "empty", "zip", "protected", "tooLarge", "tooManyPixels", "link"].includes(code)) return code;
   return /password/i.test(err.message) ? "protected" : "unreadable";
 };
 
@@ -433,6 +447,7 @@ function addFiles(id, paths, { names = new Map() } = {}) {
         if (item.cut) problems.push({ title, code: item.from === "xlsx" || item.from === "xls" || item.from === "ods" || item.from === "csv" ? "sheetCut" : "cut" });
         if (item.partial) problems.push({ title, code: "partial" });
         if (item.missingPictures) problems.push({ title, code: "missingPictures" });
+        if (item.leftOut) problems.push({ title, code: "leftOut" });
       }
     };
     if (pictures.length) {
@@ -466,7 +481,9 @@ function addFiles(id, paths, { names = new Map() } = {}) {
     }
     // Right after, in the background: the AI reads what is only pictures.
     readPictures(id);
-    return { exam: view(id), problems };
+    // The same sentence twice says nothing new.
+    const said = new Set();
+    return { exam: view(id), problems: problems.filter((p) => !said.has(JSON.stringify(p)) && said.add(JSON.stringify(p))) };
   });
 }
 
@@ -501,9 +518,15 @@ async function fromClipboard() {
     return {};
   }
   const read = async (item, type) => item.getType(type).catch(() => null);
+  // Files copied in the Finder come as a list of file addresses with the Finder's own list of
+  // file names beside it. A link (a bookmark, "Copy Link" in a browser, a file:// address in
+  // text) is not a file that was copied: its address is never opened, it stays text.
+  const raw = (item, name) => item.types.includes(`electron application/osclipboard;format="${name}"`);
+  const isLink = (item) =>
+    item.types.includes("electron application/bookmark") || raw(item, "WebURLsWithTitlesPboardType") || raw(item, "CorePasteboardFlavorType 0x75726C20") || raw(item, "CorePasteboardFlavorType 0x75726C6E");
   const files = [];
   for (const item of items) {
-    if (!item.types.includes("text/uri-list")) continue;
+    if (!item.types.includes("text/uri-list") || !raw(item, "NSFilenamesPboardType") || isLink(item)) continue;
     const list = await read(item, "text/uri-list");
     for (const line of String(list ? await list.text() : "").split(/\r?\n/)) {
       if (!line.startsWith("file://")) continue;
@@ -651,7 +674,9 @@ async function readEach(id, todo) {
         ...(priced && provider !== "claudeCode" ? { readCost: cost } : {}),
       });
     } catch (err) {
-      const code = err.code === "cancelled" ? "cancelled" : ["cannotSee", "noProvider", "offline", "noKey", "badKey", "signIn", "usageLimit", "noClaudeCode", "noCredit", "rateLimit"].includes(err.code) ? err.code : "failed";
+      const known = ["cannotSee", "noProvider", "offline", "noKey", "badKey", "signIn", "usageLimit", "noClaudeCode", "noCredit", "rateLimit"];
+      const busy = { slow: "offline", overloaded: "rateLimit", serverError: "rateLimit" };
+      const code = err.code === "cancelled" ? "cancelled" : known.includes(err.code) ? err.code : busy[err.code] || "failed";
       try {
         const m = store.exam(id).materials.find((x) => x.id === materialId);
         if (m) store.patchMaterials(m.hash, { read: "local", readFailed: code });
@@ -733,6 +758,9 @@ handle("material:restore", (id, item) => {
     model: word(item.model, /^[\w.:/@-]{1,120}$/),
     readCost: typeof item.readCost === "number" && Number.isFinite(item.readCost) ? item.readCost : undefined,
     readFailed: word(item.readFailed, /^[a-zA-Z]{1,30}$/),
+    hiddenSheets: Array.isArray(item.hiddenSheets) ? item.hiddenSheets.filter((n) => typeof n === "string").slice(0, 50).map((n) => n.slice(0, 100)) : undefined,
+    missingPictures: Number.isInteger(item.missingPictures) ? item.missingPictures : undefined,
+    leftOut: Number.isInteger(item.leftOut) ? item.leftOut : undefined,
     cut: item.cut === true || undefined,
     partial: item.partial === true || undefined,
   };

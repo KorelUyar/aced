@@ -37,7 +37,7 @@ function topic(id, title, share, why, skipCost, objectives, steps, material) {
 const empty = () => ({ done: {}, sets: {}, again: [], results: [], usage: { input: 0, cached: 0, output: 0, cost: 0 } });
 const formula = (name, latex, note, page) => ({ name, latex, note, material: "m1", page });
 
-function exams() {
+function exams(lang = "en") {
   const today = inDays(0);
   return [
     {
@@ -53,7 +53,8 @@ function exams() {
         book("m1", "Mathematik 1: Algebra und Funktionen", 312),
         // A Word worksheet, and screenshots of an exercise sheet that the AI has read.
         { ...book("m4", "Arbeitsblatt 7: Quadratische Gleichungen", 2), kind: "notes", from: "docx", format: "docx", chars: 1900 },
-        { ...book("m5", "Bildschirmfoto 2026-11-20 um 14.02.11 (3 Seiten)", 3), kind: "notes", from: "pictures", files: 3, recognised: true, read: "ai", model: "claude-opus-5-5", chars: 2400 },
+        // (Named as a Mac names screenshots, in the language of the app.)
+        { ...book("m5", lang === "de" ? "Bildschirmfoto 2026-11-20 um 14.02.11 (3 Seiten)" : "Screenshot 2026-11-20 at 14.02.11 (3 pages)", 3), kind: "notes", from: "pictures", files: 3, recognised: true, read: "ai", model: "claude-opus-5-5", chars: 2400 },
         text("m2", "objectives", "Lernziele Semesterprüfung"),
         text("m3", "oldExam", "Prüfung 2025, Serie A"),
       ],

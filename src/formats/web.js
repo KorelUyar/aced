@@ -27,27 +27,34 @@ function htmlText(bytes) {
 }
 
 /**
- * A saved web page. Pictures it refers to by a relative address, in its own folder or below
- * (a page saved "complete" keeps them in "<name>_files"), are put inside it; nothing outside
- * that folder is read, and addresses on the internet are left for the printer to refuse.
+ * A saved web page. Pictures it refers to by a relative address are put inside it when they
+ * are right next to it, or in the folder a browser saves them in ("<name>_files"); nothing else
+ * on the disk is read (no other folder, no link), and addresses on the internet are left for the
+ * printer to refuse.
  */
 function htmlFile(file, { landscape = false } = {}) {
   const bytes = fs.readFileSync(file);
   if (bytes.length > 50 * 1024 * 1024) throw coded("tooLarge");
   let html = htmlText(bytes);
   const folder = fs.realpathSync(path.dirname(file));
+  const base = path.basename(file, path.extname(file));
+  const allowed = new Set([folder, path.join(folder, base + "_files"), path.join(folder, base + "-Dateien"), path.join(folder, base + "_Dateien")]);
   let budget = 40 * 1024 * 1024;
   html = html.replace(/(<img\b[^>]*?\bsrc\s*=\s*)(["'])([^"']*)\2/gi, (whole, before, quote, src) => {
     if (!src || /^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("//")) return whole;
     let target;
     try {
-      target = fs.realpathSync(path.resolve(folder, decodeURIComponent(src.split(/[?#]/)[0])));
+      const named = path.resolve(folder, decodeURIComponent(src.split(/[?#]/)[0]));
+      if (fs.lstatSync(named).isSymbolicLink()) return whole;
+      target = fs.realpathSync(named);
     } catch {
       return whole;
     }
-    if (!target.startsWith(folder + path.sep)) return whole;
+    // Only right next to the page, or in its own "_files" folder (and folders inside that).
+    const where = path.dirname(target);
+    if (!allowed.has(where) && ![...allowed].some((dir) => dir !== folder && where.startsWith(dir + path.sep))) return whole;
     try {
-      const st = fs.statSync(target);
+      const st = fs.lstatSync(target);
       if (!st.isFile() || st.size > 10 * 1024 * 1024 || st.size > budget) return whole;
       const data = fs.readFileSync(target);
       const mime = mimeOf(data, target);

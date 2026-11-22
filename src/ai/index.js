@@ -139,10 +139,13 @@ async function test() {
 
 // ------------------------------------------------------------ can the chosen model see?
 
-const sight = new Map(); // "provider|model|address" -> true | false, for as long as the app runs
+const sight = new Map(); // "provider|model|address" -> true | false: only answers that are certain, for as long as the app runs
 let modelList = null; // OpenRouter's public list of models, fetched once
 
-/** OpenRouter's public list of models (prices, and what each one takes as input), or [] when it cannot be had. */
+/** Whether a model can see is asked again: after the AI, its model, its address or its key changed. */
+const forgetSight = () => sight.clear();
+
+/** OpenRouter's public list of models (prices, and what each one takes as input), or [] when it cannot be had now. */
 async function openRouterModels() {
   if (modelList) return modelList;
   try {
@@ -157,7 +160,13 @@ async function openRouterModels() {
 /**
  * Whether the chosen model can read pictures: true, false, or null when no AI is chosen.
  * Claude can (through Claude Code or a key). For OpenRouter its own list says so. Any other
- * server is shown a small picture with two numbers on it, once, and has to name them.
+ * server, or an OpenRouter model the list does not name, is shown a small picture with two
+ * numbers on it and has to name them.
+ *
+ * Only a certain answer is kept: the list said so, or the server answered the picture (named
+ * the numbers, or refused pictures). When the server cannot be reached, is busy or refuses the
+ * key, that is thrown as what it is ("offline", "badKey" …): it says nothing about seeing, and
+ * the next try asks again.
  */
 async function canSee({ signal, samplePicture } = {}) {
   await secrets.ready();
@@ -165,37 +174,42 @@ async function canSee({ signal, samplePicture } = {}) {
   if (!c.provider) return null;
   const id = `${c.provider}|${c.model}|${c.baseURL || ""}`;
   if (sight.has(id)) return sight.get(id);
-  let sees = null;
-  if (c.provider === "claudeCode" || c.provider === "anthropic") sees = true;
-  else if (c.provider === "openrouter") {
-    const found = (await openRouterModels()).find((m) => m.id === c.model);
-    if (found && found.architecture && Array.isArray(found.architecture.input_modalities)) sees = found.architecture.input_modalities.includes("image");
+  if (c.provider === "claudeCode" || c.provider === "anthropic") {
+    sight.set(id, true);
+    return true;
   }
-  if (sees === null && samplePicture) {
-    try {
-      const picture = await samplePicture();
-      const { text } = await call(c, {
-        model: c.model,
-        system: "You read pictures and answer with JSON only.",
-        material: "",
-        prompt: 'Which two numbers are written on this picture? Answer with JSON: {"text": "<the two numbers>"}.',
-        schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false },
-        schemaName: "sight",
-        maxTokens: 2000,
-        effort: "low",
-        signal,
-        images: [{ mediaType: "image/png", data: picture.toString("base64") }],
-      });
-      sees = /12/.test(text) && /34/.test(text);
-    } catch (err) {
-      if (err.code === "cancelled") throw err;
-      // A server that refuses pictures says so with an error; one that is offline is asked again next time.
-      if (["offline", "slow", "serverError", "overloaded", "rateLimit"].includes(err.code)) return false;
-      sees = false;
+  if (c.provider === "openrouter") {
+    const found = (await openRouterModels()).find((m) => m.id === c.model);
+    if (found && found.architecture && Array.isArray(found.architecture.input_modalities)) {
+      const sees = found.architecture.input_modalities.includes("image");
+      sight.set(id, sees);
+      return sees;
     }
   }
-  sight.set(id, Boolean(sees));
-  return Boolean(sees);
+  if (!samplePicture) return false;
+  const picture = await samplePicture();
+  let sees;
+  try {
+    const { text } = await call(c, {
+      model: c.model,
+      system: "You read pictures and answer with JSON only.",
+      material: "",
+      prompt: 'Which two numbers are written on this picture? Answer with JSON: {"text": "<the two numbers>"}.',
+      schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false },
+      schemaName: "sight",
+      maxTokens: 2000,
+      effort: "low",
+      signal,
+      images: [{ mediaType: "image/png", data: picture.toString("base64") }],
+    });
+    sees = /12/.test(text) && /34/.test(text);
+  } catch (err) {
+    // The server answered, and refused the request with the picture (400, 404, 413, 415, 422): it does not take pictures.
+    if (["provider", "noModel", "badAddress", "tooBig"].includes(err.code) && (!err.status || [400, 404, 413, 415, 422].includes(err.status))) sees = false;
+    else throw err;
+  }
+  sight.set(id, sees);
+  return sees;
 }
 
-module.exports = { init, config, status, ask, test, canSee, openRouterModels, PROVIDERS };
+module.exports = { init, config, status, ask, test, canSee, forgetSight, openRouterModels, PROVIDERS };

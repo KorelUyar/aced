@@ -14,23 +14,41 @@ const coded = (code) => Object.assign(new Error(code), { code });
 
 /** The parts of an iWork file, whether it is a zip or a folder ("package"). */
 function partsOf(file) {
-  const stat = fs.statSync(file);
+  const stat = fs.lstatSync(file);
   if (stat.isDirectory()) {
     const root = fs.realpathSync(file);
-    const read = (name) => {
+    /**
+     * A part of the package, or null. Never a symbolic link, and never anything that is not
+     * inside the package once every link on the way is resolved: a "QuickLook/Preview.pdf" that
+     * points elsewhere would turn any PDF on this Mac into the material.
+     */
+    const inside = (name) => {
       const target = path.join(root, name);
-      if (!target.startsWith(root + path.sep) || !fs.existsSync(target)) return null;
-      const st = fs.statSync(target);
-      return st.isFile() && st.size <= 96 * 1024 * 1024 ? fs.readFileSync(target) : null;
+      if (!target.startsWith(root + path.sep)) return null;
+      try {
+        const st = fs.lstatSync(target);
+        if (st.isSymbolicLink() || !st.isFile() || st.size > 96 * 1024 * 1024) return null;
+        return fs.realpathSync(target).startsWith(root + path.sep) ? target : null;
+      } catch {
+        return null;
+      }
+    };
+    const read = (name) => {
+      const target = inside(name);
+      return target ? fs.readFileSync(target) : null;
     };
     // Older packages keep the IWA files zipped inside, in Index.zip.
-    const inner = fs.existsSync(path.join(root, "Index.zip")) ? zip.open(path.join(root, "Index.zip")) : null;
+    const indexZip = inside("Index.zip");
+    const inner = indexZip ? zip.open(indexZip) : null;
     const names = [];
+    // Folders that are links are not gone into.
     const walk = (dir, prefix) => {
       for (const n of fs.readdirSync(dir)) {
         const p = path.join(dir, n);
-        if (fs.statSync(p).isDirectory()) walk(p, prefix + n + "/");
-        else names.push(prefix + n);
+        const st = fs.lstatSync(p);
+        if (st.isSymbolicLink()) continue;
+        if (st.isDirectory()) walk(p, prefix + n + "/");
+        else if (st.isFile()) names.push(prefix + n);
       }
     };
     walk(root, "");

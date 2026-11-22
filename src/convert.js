@@ -119,7 +119,14 @@ async function toPdf({ files, kind, ext, out, lang }, { signal } = {}) {
     let job = { kind, file: files[0], ext, lang, out: work };
     if (kind === "textutil") {
       const page = path.join(work, "page.html");
-      const { code } = await runTool("/usr/bin/textutil", ["-convert", "html", "-noload", "-output", page, "--", files[0]], { signal, limit: 120000 });
+      // An RTF with pictures is a folder (.rtfd): textutil reads a copy of it without links,
+      // so a picture in it can only be one that is really in it.
+      let source = files[0];
+      if (fs.lstatSync(source).isDirectory()) {
+        source = path.join(work, "source" + path.extname(files[0]));
+        require("./files").withoutLinks(files[0], source);
+      }
+      const { code } = await runTool("/usr/bin/textutil", ["-convert", "html", "-noload", "-output", page, "--", source], { signal, limit: 120000 });
       if (code !== 0 || !fs.existsSync(page)) throw coded("unreadable");
       job = { ...job, kind: "html", file: page };
     } else if (kind === "ppt") {
@@ -131,7 +138,7 @@ async function toPdf({ files, kind, ext, out, lang }, { signal } = {}) {
     const made = await inWorker(job, signal);
     if (made.pdf) fs.copyFileSync(made.pdf, out);
     else await print(made.page, out, { signal });
-    return { cut: made.cut, partial: made.partial, missingPictures: made.missingPictures, failed: [] };
+    return { cut: made.cut, partial: made.partial, missingPictures: made.missingPictures, hiddenSheets: made.hiddenSheets, leftOut: made.leftOut, failed: [] };
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }

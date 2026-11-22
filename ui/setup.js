@@ -28,28 +28,25 @@ export function Setup({ exam, run, app, toSettings }) {
     setProblems(found);
   };
   const fail = (err) => errorCode(err) !== "cancelled" && app.fail(err);
-  // What was dropped: files and folders by their place on disk. A picture dragged out of a
-  // browser or an app may come without one: then its bytes are sent. A picture that came only
-  // as a web address is not downloaded; the person is told how to get it in.
+  // What was dropped: files and folders, as the drop brought them. A picture dragged out of a
+  // browser or an app may come without a place on disk: then its bytes are sent. A link (to the
+  // web, or a file:// address) is never opened; the person is told how to get the file in.
   const drop = async (e) => {
     e.preventDefault();
     setOver(false);
     const dt = e.dataTransfer;
-    const paths = [];
+    const real = [];
     const loose = [];
     for (const file of Array.from(dt.files || [])) {
-      const where = api.pathOf(file);
-      if (where) paths.push(where);
+      if (api.pathOf(file)) real.push(file);
       else if (file.size > 0) loose.push(file);
     }
-    if (!paths.length && !loose.length) {
+    if (!real.length && !loose.length) {
       const uris = (dt.getData("text/uri-list") || "").split(/\r?\n/).filter((u) => u && !u.startsWith("#"));
-      const local = uris.filter((u) => u.startsWith("file://")).map((u) => decodeURIComponent(new URL(u).pathname));
-      if (local.length) paths.push(...local);
-      else if (uris.length) return setProblems([{ title: "", code: "webLink" }]);
+      if (uris.length) return setProblems([{ title: "", code: uris.every((u) => u.startsWith("file:")) ? "linkOnly" : "webLink" }]);
     }
     try {
-      if (paths.length) added(await api.addMaterial(exam.id, paths));
+      if (real.length) added(await api.addMaterial(exam.id, real));
       if (loose.length) {
         const items = await Promise.all(loose.slice(0, 20).map(async (file) => ({ name: file.name, type: file.type, data: new Uint8Array(await file.arrayBuffer()) })));
         added(await api.addBytes(exam.id, items));

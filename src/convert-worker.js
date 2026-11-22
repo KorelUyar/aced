@@ -10,7 +10,8 @@ const { sheetsToHtml, LIMITS } = require("./formats/sheet");
 const port = process.parentPort;
 
 function run({ kind, file, ext, lang }) {
-  const sheets = (list) => sheetsToHtml(list, { lang });
+  // Hidden sheets are left out, and named (they are often the solutions).
+  const sheets = (list) => ({ ...sheetsToHtml(list.filter((s) => !s.hidden), { lang }), hiddenSheets: list.filter((s) => s.hidden).map((s) => s.name) });
   switch (kind) {
     case "docx":
       return require("./formats/docx").convert(file);
@@ -73,7 +74,7 @@ port.on("message", ({ data }) => {
       page = path.join(data.out, "page.html");
       fs.writeFileSync(page, result.html);
     }
-    port.postMessage({ type: "done", page, pdf, cut: Boolean(result.cut), partial: Boolean(result.partial), missingPictures: result.missingPictures || 0 });
+    port.postMessage({ type: "done", page, pdf, cut: Boolean(result.cut), partial: Boolean(result.partial), missingPictures: result.missingPictures || 0, hiddenSheets: result.hiddenSheets || [], leftOut: result.leftOut || 0 });
   } catch (err) {
     port.postMessage({ type: "error", code: (err && err.code) || "damaged", message: String((err && err.message) || err).slice(0, 300) });
   }
