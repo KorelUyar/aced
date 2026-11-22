@@ -78,9 +78,10 @@ app.whenReady().then(async () => {
     const { examPage } = require("../src/export");
     // In the language of the sample's own (German) content: the page's labels follow the app's language.
     const page = await examPage(store.exam("sample-math"), { lang: "de" });
-    const htmlFile = path.join(out, "Mathematik Quadratische Funktionen.html");
+    // The page and the PDF are made in the scratch folder; only their pictures go to <outDir>.
+    const htmlFile = path.join(scratch, "Mathematik Quadratische Funktionen.html");
     fs.writeFileSync(htmlFile, page);
-    const pdf = path.join(out, "Mathematik Quadratische Funktionen.pdf");
+    const pdf = path.join(scratch, "Mathematik Quadratische Funktionen.pdf");
     await require("../src/print").print(htmlFile, pdf, { footer: require("../src/export").footerOf("de") });
     const pics = await require("../src/convert").pagePictures(pdf, out, { longSide: 1400, first: 1, last: 2 });
     for (const p of pics) fs.renameSync(p.file, path.join(out, `share-pdf-page${p.page}.jpg`));

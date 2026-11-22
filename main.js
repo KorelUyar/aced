@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog, session, protocol, net, clipboard } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog, session, protocol, net, clipboard, ShareMenu } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -10,6 +10,9 @@ const files = require("./src/files");
 const formats = require("./src/formats");
 const convert = require("./src/convert");
 const see = require("./src/see");
+const share = require("./src/share");
+const { examPage, footerOf } = require("./src/export");
+const { print } = require("./src/print");
 const ocr = require("./src/ocr");
 const secrets = require("./src/secrets");
 const planner = require("./src/planner");
@@ -134,6 +137,7 @@ function buildMenu() {
       label: de ? "Ablage" : "File",
       submenu: [
         { label: de ? "Neue Prüfung" : "New Exam", accelerator: "CmdOrCtrl+N", click: tell("new") },
+        { label: de ? "Geteilte Prüfung öffnen …" : "Open Shared Exam…", accelerator: "CmdOrCtrl+O", click: () => chooseShared() },
         ...(isMac ? [] : [{ label: de ? "Einstellungen …" : "Settings…", accelerator: "Ctrl+,", click: tell("settings") }, { type: "separator" }, { role: "quit" }]),
       ],
     },
@@ -166,6 +170,16 @@ function buildMenu() {
 }
 
 app.setName(brand.name);
+
+// An Aced file opened from the Finder (a double-click, or dropped on the Dock icon). Files that
+// come before the window is ready wait for it.
+const waiting = [];
+let ready = false;
+app.on("open-file", (e, file) => {
+  e.preventDefault();
+  if (ready) openShared([file]);
+  else waiting.push(file);
+});
 
 app.whenReady().then(() => {
   if (!single) return;
@@ -220,6 +234,8 @@ app.whenReady().then(() => {
   applyAppearance(store.settings().appearance);
   buildMenu();
   createWindow();
+  ready = true;
+  win.webContents.once("did-finish-load", () => waiting.length && openShared(waiting.splice(0)));
   // The first time after an install or an update, macOS needs about a minute to get its text
   // recognition ready. That is started now, quietly, so it is done by the time a book without
   // text is added. (Only in the installed app: test runs do not need it.)
@@ -232,6 +248,7 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => app.quit());
 // Nothing that was started outlives the app: requests are cancelled, Claude Code processes stopped.
 app.on("before-quit", () => {
+  for (const dir of shareDirs) fs.rmSync(dir, { recursive: true, force: true });
   for (const controller of jobs.keys()) controller.abort();
   claudeCode.stopAll();
 });
@@ -434,7 +451,16 @@ function addFiles(id, paths, { names = new Map() } = {}) {
     const problems = [];
     const lang = store.settings().lang;
     const shown = (file) => names.get(file) || path.basename(file);
-    const items = expand(paths, problems);
+    let items = expand(paths, problems);
+    // An Aced file is an exam a friend shared: it becomes an exam of its own.
+    const shared = items.filter((x) => x.ext === "aced");
+    items = items.filter((x) => x.ext !== "aced");
+    let opened = null;
+    if (shared.length) {
+      const r = await importShared(shared.map((x) => x.file), { signal });
+      problems.push(...r.problems);
+      opened = r.id;
+    }
     for (const it of items.filter((x) => !x.kind)) problems.push({ title: shown(it.file), code: it.why === "zip" || it.why === "empty" ? it.why : "unsupported" });
     const pictures = items.filter((x) => x.kind === "picture");
     const others = items.filter((x) => x.kind && x.kind !== "picture");
@@ -483,7 +509,7 @@ function addFiles(id, paths, { names = new Map() } = {}) {
     readPictures(id);
     // The same sentence twice says nothing new.
     const said = new Set();
-    return { exam: view(id), problems: problems.filter((p) => !said.has(JSON.stringify(p)) && said.add(JSON.stringify(p))) };
+    return { exam: view(id), problems: problems.filter((p) => !said.has(JSON.stringify(p)) && said.add(JSON.stringify(p))), opened: opened ? view(opened) : null };
   });
 }
 
@@ -767,6 +793,128 @@ handle("material:restore", (id, item) => {
   for (const k of Object.keys(extra)) if (extra[k] === undefined) delete extra[k];
   store.addMaterial(id, { id: String(materialId).slice(0, 8), hash, type: type === "pdf" ? "pdf" : "text", title: String(title).slice(0, 200), pages: Number(pages) || 1, chars: Number(chars) || 0, offset: Number(offset) || 0, scanned: Boolean(scanned), recognised: Boolean(recognised), ...extra }, kind);
   return view(id);
+});
+
+// ------------------------------------------------ sharing an exam
+
+const shareDirs = new Set(); // made for a share; deleted when the app quits (the share menu may still be reading them)
+const shareFolder = () => {
+  const dir = share.tempDir();
+  shareDirs.add(dir);
+  return dir;
+};
+
+/** The file to share: an Aced file, a PDF or a web page of the exam, in a folder of its own. Resolves to its path. */
+async function makeShare(id, output, chosen) {
+  const exam = store.exam(id);
+  if (!exam.strategy) throw coded("unknown");
+  const dir = shareFolder();
+  const lang = store.settings().lang;
+  if (output === "aced") {
+    const file = path.join(dir, share.fileName(exam.name, "aced"));
+    const known = new Set(exam.materials.map((m) => m.id));
+    const bytes = share.pack(exam, {
+      chosen: (Array.isArray(chosen) ? chosen : []).filter((m) => known.has(m)),
+      appVersion: app.getVersion(),
+      pdfOf: (m) => (fs.existsSync(files.pdfPath(m.hash)) ? fs.readFileSync(files.pdfPath(m.hash)) : null),
+      textOf: (m) => files.readText(m.hash),
+    });
+    fs.writeFileSync(file, bytes);
+    return file;
+  }
+  const page = await examPage(exam, { lang });
+  const html = path.join(dir, share.fileName(exam.name, "html"));
+  fs.writeFileSync(html, page);
+  if (output === "web") return html;
+  const pdf = path.join(dir, share.fileName(exam.name, "pdf"));
+  await print(html, pdf, { footer: footerOf(lang) });
+  fs.rmSync(html, { force: true });
+  return pdf;
+}
+
+/**
+ * Shares an exam: `how` is "menu" (macOS's share menu: AirDrop, Messages, Mail …) or "save"
+ * (a place the person chooses). Resolves to { saved: name } or { shown: true } or { cancelled }.
+ */
+handle("share:send", async (id, options) => {
+  const output = ["aced", "pdf", "web"].includes(options && options.output) ? options.output : "aced";
+  const file = await makeShare(id, output, options && options.materials);
+  if (options && options.how === "save") {
+    const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath("documents"), path.basename(file)) });
+    if (r.canceled || !r.filePath) return { cancelled: true };
+    fs.copyFileSync(file, r.filePath);
+    return { saved: path.basename(r.filePath) };
+  }
+  if (process.platform === "darwin" && ShareMenu) {
+    new ShareMenu({ filePaths: [file] }).popup({ window: win });
+    return { shown: true };
+  }
+  shell.showItemInFolder(file);
+  return { shown: true };
+});
+
+const today_ = () => planner.todayIso();
+
+/**
+ * Opens Aced files a friend sent: each becomes a new exam at 0%, with the material that came
+ * along added the way any file is, and the books that did not come along waiting for the
+ * person's own copy (found at once when this Mac already has the same file). Resolves to the
+ * id of the last exam made, and the problems ([{ title, code, detail }]).
+ */
+async function importShared(paths, { signal } = {}) {
+  const problems = [];
+  let last = null;
+  for (const file of paths) {
+    try {
+      last = await share.importExam(file, { store, files, lang: store.settings().lang, today: today_(), signal });
+      readPictures(last);
+    } catch (err) {
+      if (err.code === "cancelled") break;
+      problems.push({ title: path.basename(file), code: err.code === "newer" ? "aceNewer" : err.code === "tooLarge" ? "tooLarge" : "aceDamaged", detail: err.detail || "" });
+    }
+  }
+  return { id: last, problems };
+}
+
+/** Aced files from the Finder or the menu: imported, and the window goes to the new exam. */
+async function openShared(paths) {
+  const { id, problems } = await importShared(paths.filter((p) => typeof p === "string"));
+  tell("opened", { id, exam: id ? view(id) : null, problems });
+}
+
+async function chooseShared() {
+  if (!win || win.isDestroyed()) return;
+  const r = await dialog.showOpenDialog(win, { properties: ["openFile", "multiSelections"], filters: [{ name: "Aced", extensions: ["aced"] }, { name: "*", extensions: ["*"] }] });
+  if (!r.canceled && r.filePaths.length) openShared(r.filePaths);
+}
+
+/**
+ * The person's own copy of a book that a shared exam names: chosen in a dialog, or dropped
+ * (`files` from a drop). It takes the book's place in the plan. The same file (same SHA-256)
+ * fits at once; another one is compared by its pages and title, and called another edition when
+ * they differ.
+ */
+handle("material:supply", async (id, materialId, paths) => {
+  const exam = store.exam(id);
+  const wanted = exam.materials.find((m) => m.id === materialId && m.missing);
+  if (!wanted) throw coded("unknown");
+  let file = Array.isArray(paths) && typeof paths[0] === "string" ? paths[0] : null;
+  if (!file) {
+    const r = await dialog.showOpenDialog(win, { properties: ["openFile"] });
+    if (r.canceled || !r.filePaths.length) return { exam: view(id), problems: [] };
+    file = r.filePaths[0];
+  }
+  return run(id, "read", async (signal, say) => {
+    const { edition, item, expect } = await share.supplyBook(id, materialId, file, {
+      store,
+      files,
+      lang: store.settings().lang,
+      signal,
+      onProgress: (done, total, phase, state) => say({ stage: "read", phase, state, title: wanted.title, done, total }),
+    });
+    readPictures(id);
+    return { exam: view(id), problems: edition === "other" ? [{ title: item.title, code: "otherEdition", detail: `${item.pages}|${expect.pages}` }] : [] };
+  });
 });
 
 // ------------------------------------------------ analysis

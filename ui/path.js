@@ -61,6 +61,12 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
     api.formulas(exam.id).then(app.putExam, (err) => errorCode(err) !== "cancelled" && setSheetError(err));
   };
   const toSettings = () => app.nav({ name: "settings", id: exam.id, from: { name: "exam", id: exam.id } });
+  // The person's own copy of a book this shared exam names: chosen, or dropped on the book panel.
+  const supply = (materialId, dropped) =>
+    api.supplyBook(exam.id, materialId, dropped).then(({ exam: next, problems }) => {
+      app.putExam(next);
+      if (problems && problems.length) app.notify(t("problem_" + problems[0].code, problems[0].title, problems[0].detail));
+    }, (err) => errorCode(err) !== "cancelled" && app.fail(err));
 
   useEffect(() => {
     // The step that is up is in view when the exam opens.
@@ -104,7 +110,8 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
         ${exam.shared &&
         html`<div class="plan-note shared-note" role="note">
           <p>${t("sharedNote", longDate(exam.shared.on, "short"))}${exam.materials.some((m) => m.missing) ? " " + t("sharedAddBooks", exam.materials.filter((m) => m.missing).map((m) => m.title)) : ""}</p>
-          ${exam.materials.some((m) => m.missing) && html`<div class="row-start"><button class="btn second" id="addCopy">${t("addYourCopy")}</button></div>`}
+          ${exam.materials.some((m) => m.missing) &&
+          html`<div class="row-start"><button class="btn second" id="addCopy" disabled=${Boolean(run)} onClick=${() => supply(exam.materials.find((m) => m.missing).id)}>${t("addYourCopy")}</button></div>`}
         </div>`}
         ${(exam.missing || s.stale) &&
         html`<p class="plan-note" role="note">
@@ -201,7 +208,7 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
                   if (step.kind === "solve" && step.unconfirmed && step.unconfirmed.length && !task.done) {
                     notes.push(html`<li class="step-note" key=${task.id + "-note"}>${t("unconfirmed", step.unconfirmed)}</li>`);
                   }
-                  // Where today's share ends: one line across the list, like the finish of a lap.
+                  // Where today's steps end: one line across the list, like the finish of a lap.
                   if (task.id === plan.today.end) notes.push(html`<li class="day-end" key="day-end"><span>${t("todayEnd")}</span></li>`);
                   return notes;
                 })}
@@ -223,7 +230,7 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
       <aside class="side">
         ${panel === "book" &&
         (book && book.missing
-          ? html`<${MissingBook} material=${book} />`
+          ? html`<${MissingBook} material=${book} supply=${supply} busy=${Boolean(run)} />`
           : book
           ? html`<${Book} material=${book} page=${at.page} jump=${at.jump} onPage=${(page) => setAt((old) => (old.page === page && old.material === book.id ? old : { ...old, material: book.id, page }))} />`
           : html`<section><header class="side-head"><strong>${t("panel_book")}</strong></header><div class="side-body"><p class="muted">${t("noBook")}</p></div></section>`)}
@@ -237,18 +244,33 @@ export function Path({ exam, run, panel, setPanel, helper, setHelper, talk, ask,
  * knows it by its SHA-256, so the same file fits at once; another file is checked by its page
  * count and title, and called another edition when they do not match.
  */
-function MissingBook({ material }) {
+function MissingBook({ material, supply, busy }) {
+  const [over, setOver] = useState(false);
+  const drop = (e) => {
+    e.preventDefault();
+    setOver(false);
+    const real = Array.from(e.dataTransfer.files || []).filter((f) => api.pathOf(f));
+    if (real.length) supply(material.id, real);
+  };
   return html`<section class="book missing-book">
     <header class="side-head"><strong>${material.title}</strong></header>
     <div class="side-body">
-      <div class="drop first add-copy">
+      <div
+        class=${"drop first add-copy" + (over ? " over" : "")}
+        onDragOver=${(e) => {
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave=${() => setOver(false)}
+        onDrop=${drop}
+      >
         <${Icon} name="book" size=${22} />
         <div>
           <strong>${t("addCopyTitle", material.title)}</strong>
           <p>${t("addCopyText", material.pages)}</p>
         </div>
       </div>
-      <div class="row-start"><button class="btn second">${t("chooseFiles")}</button></div>
+      <div class="row-start"><button class="btn second" id="chooseCopy" disabled=${busy} onClick=${() => supply(material.id)}>${t("chooseFiles")}</button></div>
       <p class="muted add-copy-note">${t("addCopyEdition")}</p>
     </div>
   </section>`;

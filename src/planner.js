@@ -1,6 +1,6 @@
 // The plan, worked out locally from the strategy: one ordered list of steps (read these pages,
 // solve these exercises), what does not fit into the time, how much of it is done, and what
-// today's share is. No AI and no clock in here: every function gets `today` (YYYY-MM-DD), so
+// is for today. No AI and no clock in here: every function gets `today` (YYYY-MM-DD), so
 // the same input always gives the same plan, and the plan re-forms by itself when the person
 // falls behind or gets ahead.
 //

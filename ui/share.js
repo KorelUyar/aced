@@ -4,6 +4,8 @@ import { html, useState, useEffect, Icon } from "./bits.js";
 import { t } from "./i18n.js";
 import { describe } from "./material.js";
 
+const api = window.aced;
+
 const OUTPUTS = ["aced", "pdf", "web"];
 
 /** What goes along by default: the person's own notes, worksheets and screenshots; not books (big, and the friend has their own). */
@@ -25,7 +27,23 @@ export function Share({ exam, close, app }) {
       return next;
     });
   const books = exam.materials.filter((m) => m.kind === "book" && m.from !== "pictures");
-  const send = (how) => app.notify(t(how === "save" ? "shareSaved" : "shareSent", t("shareOut_" + output)));
+  const [busy, setBusy] = useState(false);
+  const send = (how) => {
+    setBusy(true);
+    api.shareExam(exam.id, { output, materials: [...chosen], how }).then(
+      (r) => {
+        setBusy(false);
+        if (r.saved) {
+          app.notify(t("shareSaved", r.saved));
+          close();
+        } else if (r.shown) close();
+      },
+      (err) => {
+        setBusy(false);
+        app.fail(err);
+      },
+    );
+  };
 
   return html`<div class="overlay" role="presentation" onClick=${(e) => e.target === e.currentTarget && close()}>
     <section class="share view" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
@@ -71,8 +89,8 @@ export function Share({ exam, close, app }) {
 
       <div class="row-end">
         <button class="btn plain" onClick=${close}>${t("cancel")}</button>
-        <button class="btn second" id="shareSave" onClick=${() => send("save")}>${t("shareSaveAs")}</button>
-        <button class="btn primary" id="shareSend" onClick=${() => send("share")}>${t("shareSend")}</button>
+        <button class="btn second" id="shareSave" disabled=${busy} onClick=${() => send("save")}>${t("shareSaveAs")}</button>
+        <button class="btn primary" id="shareSend" disabled=${busy} onClick=${() => send("menu")}>${busy ? t("shareMaking") : t("shareSend")}</button>
       </div>
     </section>
   </div>`;

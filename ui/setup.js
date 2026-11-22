@@ -23,9 +23,14 @@ export function Setup({ exam, run, app, toSettings }) {
     if (pasting && box.current) box.current.focus();
   }, [Boolean(pasting)]);
 
-  const added = ({ exam: next, problems: found }) => {
+  const added = ({ exam: next, problems: found, opened }) => {
     app.putExam(next);
     setProblems(found);
+    // An Aced file among them: the exam it holds is new, and the window goes there.
+    if (opened) {
+      app.putExam(opened);
+      app.nav({ name: "exam", id: opened.id });
+    }
   };
   const fail = (err) => errorCode(err) !== "cancelled" && app.fail(err);
   // What was dropped: files and folders, as the drop brought them. A picture dragged out of a

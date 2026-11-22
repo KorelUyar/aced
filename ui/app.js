@@ -40,6 +40,14 @@ function App() {
     const stopRuns = api.onRuns(setRuns);
     // The AI read pictures of an exam's material in the background: the exam as it is now.
     const stopExam = api.onExam((next) => setState((s) => (s ? { ...s, exams: s.exams.map((e) => (e.id === next.id ? next : e)) } : s)));
+    // An exam a friend shared, opened from the Finder or the menu: shown at once.
+    const stopOpened = api.onOpened(({ exam, problems }) => {
+      if (exam) {
+        setState((s) => (s ? { ...s, exams: [exam, ...s.exams.filter((e) => e.id !== exam.id)] } : s));
+        setRoute({ name: "exam", id: exam.id, n: (moves.current += 1) });
+      }
+      if (problems && problems.length) setToast({ text: t("problem_" + problems[0].code, problems[0].title, problems[0].detail) });
+    });
     const stopMenu = api.onMenu((what) => {
       const from = routeNow.current;
       if (what === "settings" && from.name !== "settings") setRoute({ name: "settings", id: from.id, from, n: (moves.current += 1) });
@@ -49,6 +57,7 @@ function App() {
       window.removeEventListener("focus", reload);
       stopRuns();
       stopExam();
+      stopOpened();
       stopMenu();
     };
   }, []);

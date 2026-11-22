@@ -2,7 +2,7 @@
 //
 //   node_modules/.bin/electron scripts/test.js
 //
-// - the planner (grades, what fits, what is left out, the order, today's share, what an exam puts back)
+// - the planner (grades, what fits, what is left out, the order, what is for today, what an exam puts back)
 // - results typed by the student compared with the expected ones (numbers in every notation)
 // - the search through the pages of a book, the store (damaged file, backup, language, kept ticks)
 // - the check of exercise numbers against page text
@@ -116,7 +116,7 @@ function plannerChecks() {
   ok(plan.reachable && plan.reach === 5.5, "a 5 is in reach with 90% covered");
   ok(plan.days.every((d) => d.tasks.reduce((sum, t) => sum + t.minutes, 0) <= 40 * 1.6), "no day is overloaded");
   same([plan.percent, plan.next], [0, "t3/r0"], "nothing done: the first step of the first chapter is up");
-  same(plan.today, { steps: 1, minutes: 24, end: "t3/r0" }, "today's share is the next steps, as far as today's minutes reach");
+  same(plan.today, { steps: 1, minutes: 24, end: "t3/r0" }, "today's steps are the next ones, as far as today's minutes reach");
   ok(plan.stages[0].tasks[0].today && !plan.stages[0].tasks[1].today);
 
   // Too little time for the target: the plan says so.

@@ -456,7 +456,7 @@ app.whenReady().then(async () => {
       await until(`document.querySelectorAll('.stage').length >= 5`);
       assert.match(await text(".left-out"), /Left out, because the time does not reach: Satz von Vieta/);
       assert.ok(await has(".stage.folded"), "a finished topic is folded away");
-      assert.ok(await has(".day-end"), "one line shows where today's share ends");
+      assert.ok(await has(".day-end"), "one line shows where today is done");
       assert.ok(await has(".stage.current .own-formulas .katex"), "formulas are drawn");
       await click(".tabs.panels button:nth-child(2)");
       await until(`document.querySelectorAll('.formula').length === 5`);

@@ -14,6 +14,10 @@ exam on everything shows where you stand.
 |---|---|---|
 | ![The formulas the exam needs, each with its page](docs/shots/formulas-light.png) | ![A question about the book, answered with pages](docs/shots/helper-light.png) | ![Results only, marked, with a grade estimate](docs/shots/result-light.png) |
 
+| Share | The web page on a phone | A friend opens it |
+|---|---|---|
+| ![The Share dialog: an Aced file, a PDF or a web page, and which material goes along](docs/shots/share-dialog-light.png) | ![The exam as a web page, on a phone](docs/shots/share-web-phone-light.png) | ![The shared exam at 0%, waiting for the friend's copy of the book](docs/shots/share-friend-light.png) |
+
 More pictures, light and dark: [`docs/shots`](docs/shots) ([all on one sheet](docs/shots/overview.png)).
 The book in the pictures is OpenStax *College Algebra 2e* ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
 [openstax.org](https://openstax.org/details/books/college-algebra-2e)); the plan, formulas and
@@ -23,8 +27,8 @@ answers around it were written by Claude Opus 5.5 through Claude Code in a real 
 
 - **One screen per exam.** How much of the plan is done, as a large number. Under it the plan
   as one checklist, topic by topic: what you need to be able to do, then the steps ("Read
-  p. 255–256", "Solve p. 257: 3, 4, 7"). The next step is marked, a line shows where today's
-  share ends, finished topics fold away. A tick is a switch: click again to take it back.
+  p. 255–256", "Solve p. 257: 3, 4, 7"). The next step is marked, a line shows where you are
+  done for today, finished topics fold away. A tick is a switch: click again to take it back.
 - **The book beside the plan.** Your book opens inside the app, next to the list. A step jumps to
   its page. The divider can be dragged, the panel hidden.
 - **Formula sheet.** The formulas this exam needs, large, grouped by topic, each with a link to
@@ -42,6 +46,15 @@ answers around it were written by Claude Opus 5.5 through Claude Code in a real 
   badly back on your list, with exercises from the book you have not done yet.
 - **Questions from the AI only where the book has none.** A topic without exercises in the book
   gets a few questions written from your material, and they are labelled as such.
+- **Share an exam with friends.** One button on the exam screen: send the exam as an **Aced
+  file** that opens in your friend's Aced (a double-click is enough), as a **PDF** to read or
+  print, or as a **web page** that opens on any phone or computer, also offline. Then the Mac's
+  own share menu (AirDrop, Messages, Mail …), or "Save as…". Your friend starts at 0%: your
+  ticks, results and answers stay with you. Your own notes, worksheets and screenshots can go
+  along; books stay out by default (they are big, and your friend should use their own copy).
+  When your friend adds their copy of the book, Aced knows the same file by its fingerprint
+  (SHA-256) at once; another file is compared by its pages and title, and Aced says when it
+  looks like another edition.
 - **New exam.** Five questions: which exam, when, how much time (per day or in total), the grade
   you aim for (Swiss 1 to 6, German 1 to 6, or percent) and a pace: *Sprint* (little time, only
   what brings the most points), *Thorough* (everything) or *Efficient* (the best grade for the
@@ -135,7 +148,7 @@ them misbehaves for you, please [open an issue](https://github.com/KorelUyar/ace
   exercise number on the page it was cited on, moves it if it is on a neighbouring page, and
   says so under the step when it cannot find it.
 - **The grade after the final exam is an estimate.** The questions are written by the AI from
-  your material, not by whoever sets your exam; the share of points per topic is the model's
+  your material, not by whoever sets your exam; the part of the points each topic is worth is the model's
   judgement from your objectives and old exams.
 - **A formula on the sheet can be wrong.** It is written by the AI. Each one links to its page:
   check it against the book before you rely on it. Formulas in a PDF are often pictures, so
@@ -158,6 +171,13 @@ them misbehaves for you, please [open an issue](https://github.com/KorelUyar/ace
   named on the material, and a part of a Word file kept in another format (an embedded RTF, say)
   is left out with a note. A file that cannot be read gets a sentence that says what to do
   instead.
+- **A shared Aced file is checked like any file from outside.** It is a zip with the plan as
+  JSON and the material as PDFs, read with the same limits as an Office file; every field is
+  checked and cut to size, nothing in it may name a place on your Mac, its material goes through
+  the same reading as a file you add, and a damaged file or one from a newer Aced gets a
+  sentence instead of an exam. What never goes into an Aced file, a PDF or a web page: your
+  ticks, results and answers, your AI settings and keys, the names of your files and folders,
+  and who you are. The PDF and the web page carry a small "Made with Aced · uyarid.com" line.
 - **Links are never followed.** A symbolic link in a dropped folder (an unpacked archive can
   hold one pointing at any file on your Mac), dropped on its own, or inside a Pages or RTF
   package is not read: Aced says it is only a link. A link dragged in or pasted (a bookmark,
@@ -217,8 +237,8 @@ npm run sample   # the app on invented exams, nothing is saved
 
 | | |
 |---|---|
-| `npm test` | planner, results in every notation, page search, store (damaged file, backup, a file from 0.1), reference check, the engine and every key-based provider (pictures included) against a local stand-in server; and every file format, made on this Mac, with the hostile kind (a zip bomb, an external entity, scripts and pictures from a server, a picture of 400 megapixels) |
-| `npm run smoke` | clicks through the app in a hidden window: an empty start up to a final exam (with a real file drop), the sample exams, a damaged data file, and material handed over without the Finder (a folder, ⌘V of a screenshot, of files and of text, picture data from a browser) |
+| `npm test` | planner, results in every notation, page search, store (damaged file, backup, a file from 0.1), reference check, the engine and every key-based provider (pictures included) against a local stand-in server; every file format, made on this Mac, with the hostile kind (a zip bomb, an external entity, scripts and pictures from a server, a picture of 400 megapixels); and sharing: the sample exam sent from one fresh profile and opened in another, and hostile Aced files |
+| `npm run smoke` | clicks through the app in a hidden window: an empty start up to a final exam (with a real file drop), the sample exams, a damaged data file, material handed over without the Finder (a folder, ⌘V of a screenshot, of files and of text, picture data from a browser), and sharing (the Share dialog, an Aced file opened from the Finder, its book added) |
 | `npm run checks` | keyboard only, the wizard's edges, time in total, percent and German scale, reduced motion |
 | `electron scripts/window-check.js` | opens a real window for a few seconds: traffic lights, minimum size, date field |
 | `electron scripts/e2e.js <book.pdf> <objectives.txt> <outDir>` | the whole path for real through Claude Code (costs tokens) |
@@ -233,7 +253,7 @@ Where things are:
 - `main.js`, `preload.js`: the window and everything it may ask for.
 - `src/engine.js`, `src/prompts.js`: from material to strategy, formula sheet, exam questions
   and answers to the helper.
-- `src/planner.js`: the plan: what fits, in which order, today's share. No AI in it.
+- `src/planner.js`: the plan: what fits, in which order, what is for today. No AI in it.
 - `src/answers.js`: is a typed result right? Numbers in every notation, decided on the Mac.
 - `src/search.js`: finds the pages of a book a question is about.
 - `src/ai/`: the four providers behind one `ask()` that checks the answer against a schema.
@@ -242,6 +262,8 @@ Where things are:
 - `src/convert.js`, `src/convert-worker.js`, `src/formats/`, `src/print.js`: every other format to
   a PDF (the readers run in a process of their own; pages are printed with scripts off).
 - `src/see.js`: the AI reading pictures.
+- `src/share.js`, `src/export.js`, `ui/share.js`: sharing: the Aced file (written and read),
+  and the exam as one page (the PDF and the web page).
 - `src/store.js`, `src/secrets.js`: what is kept, and the keys.
 - `ui/`: the interface. Plain HTML, CSS and JavaScript modules, no bundler; Preact with htm,
   KaTeX, pdf.js and the Archivo typeface are vendored in `ui/vendor`. `ui/i18n.js` holds all

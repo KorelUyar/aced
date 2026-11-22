@@ -57,6 +57,21 @@ contextBridge.exposeInMainWorld("aced", {
   pasteMaterial: (id) => call("material:paste", id),
   // Dropped data that has no place on disk (a picture dragged out of a browser): its bytes.
   addBytes: (id, items) => call("material:bytes", id, items),
+  // Sharing: the Aced file, the PDF or the web page, through the share menu or saved.
+  shareExam: (id, options) => call("share:send", id, options),
+  // The person's own copy of a book a shared exam names: from a drop (File objects), or chosen.
+  supplyBook: (id, materialId, files) => {
+    const paths = [];
+    for (const file of Array.from(files || [])) {
+      try {
+        const where = typeof file === "object" && file ? webUtils.getPathForFile(file) : "";
+        if (where) paths.push(where);
+      } catch {
+        // not a File
+      }
+    }
+    return call("material:supply", id, materialId, paths);
+  },
   // "Read with AI": another try for pictures the AI could not read.
   seeMaterial: (id, materialId) => call("material:see", id, materialId),
   addText: (id, kind, title, text) => call("material:text", id, kind, title, text),
@@ -75,6 +90,8 @@ contextBridge.exposeInMainWorld("aced", {
   onMenu: on("menu"),
   // An exam changed without the window asking (the AI has read a picture).
   onExam: on("exam"),
+  // An Aced file was opened from the Finder or the menu: { id, exam, problems }.
+  onOpened: on("opened"),
 
   formulas: (id) => call("formulas", id),
   help: (id, question, context) => call("help", id, question, context),

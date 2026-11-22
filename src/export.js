@@ -138,7 +138,7 @@ footer { margin-top: 36px; color: var(--muted); font-size: 12px; text-align: cen
   body { font-size: 10.5pt; background: #fff; }
   main { max-width: none; padding: 0; }
   h1 { font-size: 24pt; }
-  .topic { border-radius: 8px; padding: 9px 12px 6px; }
+  .topic { border-radius: 8px; padding: 9px 12px 6px; break-inside: avoid; }
   .formulas { break-before: page; }
   footer { display: none; }
 }
