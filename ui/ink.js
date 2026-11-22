@@ -20,7 +20,7 @@ const WIDTH = { pen: 20, hl: 150 }; // in units: about 1 and 8 points on an A4 p
 const ERASE = 90; // how near the eraser has to come, in units
 const TOOLS = ["pen", "hl", "text", "eraser"];
 
-const books = new Map(); // hash -> the book's ink (see inkOf); kept while the app runs, so coming back is instant
+const books = new Map(); // hash -> the book's ink (see inkOf), while a panel shows the book
 let writing = null; // ends the text note being written: writing(true) keeps it, writing(false) drops the change
 
 /** One book's ink: loaded once, kept page by page; the history of changes for undo. */
@@ -29,7 +29,12 @@ function inkOf(hash) {
   const book = { hash, pages: new Map(), layers: new Map(), undo: [], redo: [], waiting: new Map(), listeners: new Set() };
   book.ready = api.inkLoad(hash).then(
     (all) => {
-      for (const [n, page] of Object.entries(all || {})) book.pages.set(Number(n), page);
+      for (const [key, page] of Object.entries(all || {})) {
+        // (what was written before this came in goes on top of it)
+        const n = Number(key);
+        const now = book.pages.get(n);
+        book.pages.set(n, now ? { s: [...page.s, ...now.s], n: [...page.n, ...now.n] } : page);
+      }
       for (const layer of book.layers.values()) layer.draw();
     },
     () => {},
@@ -326,14 +331,21 @@ export function useInk(hash, box) {
   if (!ctl.current) ctl.current = { tool: null, colour: { pen: 0, hl: 0 } };
   const [, redraw] = useState(0);
   const [tool, setTool] = useState(null);
-  const book = inkOf(hash);
+  // The same book's ink for as long as this panel shows it (the pages drawn hold on to it).
+  const held = useRef(null);
+  if (!held.current || held.current.hash !== hash) held.current = inkOf(hash);
+  const book = held.current;
 
   useEffect(() => {
+    // (a panel closing just now may have let go of it)
+    books.set(hash, book);
     const listener = () => redraw((x) => x + 1);
     book.listeners.add(listener);
     return () => {
       book.listeners.delete(listener);
       keepNow(book);
+      // The book closed: it is read anew next time (its ink may have gone with an exam meanwhile).
+      if (!book.listeners.size && books.get(hash) === book) books.delete(hash);
     };
   }, [hash]);
   useEffect(() => {
