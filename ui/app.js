@@ -36,6 +36,8 @@ function App() {
     // Coming back to the window on another day: the plan has moved on.
     window.addEventListener("focus", reload);
     const stopRuns = api.onRuns(setRuns);
+    // The AI read pictures of an exam's material in the background: the exam as it is now.
+    const stopExam = api.onExam((next) => setState((s) => (s ? { ...s, exams: s.exams.map((e) => (e.id === next.id ? next : e)) } : s)));
     const stopMenu = api.onMenu((what) => {
       const from = routeNow.current;
       if (what === "settings" && from.name !== "settings") setRoute({ name: "settings", id: from.id, from, n: (moves.current += 1) });
@@ -44,6 +46,7 @@ function App() {
     return () => {
       window.removeEventListener("focus", reload);
       stopRuns();
+      stopExam();
       stopMenu();
     };
   }, []);

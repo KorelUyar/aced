@@ -1,12 +1,15 @@
-const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog, session, protocol, net } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog, session, protocol, net, clipboard } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { pathToFileURL } = require("url");
+const { pathToFileURL, fileURLToPath } = require("url");
 const brand = require("./src/brand");
 const store = require("./src/store");
 const move = require("./src/move");
 const files = require("./src/files");
+const formats = require("./src/formats");
+const convert = require("./src/convert");
+const see = require("./src/see");
 const ocr = require("./src/ocr");
 const secrets = require("./src/secrets");
 const planner = require("./src/planner");
@@ -22,7 +25,12 @@ require("./src/ai/anthropic").ignoreEnvironment();
 
 // The book is drawn inside the app's own page (ui/book.js). Its bytes come through this
 // address, which serves nothing but the copies of PDFs in the app's library.
-protocol.registerSchemesAsPrivileged([{ scheme: "aced-book", privileges: { supportFetchAPI: true, stream: true, corsEnabled: true } }]);
+// Files that are not PDFs are printed to one by a locked-down hidden page, served from
+// "aced-print" (see src/print.js), which only ever hands out the page being printed.
+protocol.registerSchemesAsPrivileged([
+  { scheme: "aced-book", privileges: { supportFetchAPI: true, stream: true, corsEnabled: true } },
+  { scheme: "aced-print", privileges: { standard: true, secure: true } },
+]);
 
 // Only one copy of the app at a time: two would overwrite each other's file.
 const single = app.requestSingleInstanceLock();
@@ -277,9 +285,20 @@ async function run(id, kind, fn) {
   }
 }
 const today = () => planner.todayIso();
-const view = (id) => store.view(store.exam(id));
+// The material the AI is reading right now, per exam (see "material: the AI reads pictures").
+const reading = new Map(); // exam id -> Set of material ids
+const decorate = (v) => ({ ...v, reading: [...(reading.get(v.id) || [])] });
+const view = (id) => decorate(store.view(store.exam(id)));
+/** Something changed in an exam without the window asking (the AI read a picture): the window gets the exam anew. */
+const tellExam = (id) => {
+  try {
+    tell("exam", view(id));
+  } catch {
+    // the exam was deleted meanwhile
+  }
+};
 
-handle("state", async () => ({ settings: store.settings(), exams: store.exams(), ai: await ai.status(), runs: Object.fromEntries(runs), damaged: store.problem() }));
+handle("state", async () => ({ settings: store.settings(), exams: store.exams().map(decorate), ai: await ai.status(), runs: Object.fromEntries(runs), damaged: store.problem() }));
 
 // The data file could not be read: the person chooses the backup or an empty start. The
 // unreadable file is kept under another name either way.
@@ -310,8 +329,8 @@ handle("claude:status", () => claudeCode.status());
 handle("claude:signIn", () => claudeCode.signIn(store.settings().lang));
 handle("claude:setup", () => shell.openExternal(claudeCode.SETUP_PAGE));
 
-handle("exam:create", (draft) => store.view(store.createExam(draft)));
-handle("exam:edit", (id, draft) => store.view(store.editExam(id, draft)));
+handle("exam:create", (draft) => decorate(store.view(store.createExam(draft))));
+handle("exam:edit", (id, draft) => decorate(store.view(store.editExam(id, draft))));
 handle("exam:delete", (id) => {
   for (const [controller, examId] of jobs) if (examId === id) controller.abort();
   store.deleteExam(id);
@@ -327,38 +346,312 @@ const GUESS = [
   ["slides", /folien|slides|pr(ä|ae)sentation|foliensatz/i],
   ["notes", /notiz|notes|zusammenfassung|summary|skript/i],
 ];
+const SLIDES = new Set(["pptx", "ppt", "odp"]);
+const guessKind = (item, title) => (item.pages > 40 ? "book" : (GUESS.find(([, re]) => re.test(title)) || [SLIDES.has(item.from) || item.format === "key" ? "slides" : "book"])[0]);
 
-/** Adds files. Whatever could not be added, or was there already, comes back as `problems` with a reason each. */
-function addFiles(id, paths) {
+const MOST_FILES = 200; // files taken from one drop, choice, paste or folder
+const MOST_DOCUMENTS = 40; // of them, files other than pictures (each is read on its own)
+const MOST_DEPTH = 4; // folders inside folders
+const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+
+/** The files behind what was dropped or chosen: folders opened (four deep), what macOS and Office leave in folders left out. */
+function expand(paths, problems) {
+  const out = [];
+  let over = 0;
+  const visit = (p, depth) => {
+    const name = path.basename(p);
+    if (depth > 0 && formats.isJunk(name)) return;
+    const id = formats.identify(p);
+    if (id.kind === "folder") {
+      if (depth >= MOST_DEPTH) return;
+      let names = [];
+      try {
+        names = fs.readdirSync(p);
+      } catch {
+        problems.push({ title: name, code: "unreadable" });
+        return;
+      }
+      for (const n of names.sort(natural)) visit(path.join(p, n), depth + 1);
+      return;
+    }
+    if (out.length >= MOST_FILES) {
+      over++;
+      return;
+    }
+    out.push({ file: p, ...id });
+  };
+  for (const p of paths) visit(p, 0);
+  if (over) problems.push({ title: "", code: "tooMany", detail: String(MOST_FILES) });
+  return out;
+}
+
+/** Pictures in the order they were taken: the time in the picture, else when the file was made, then by name. */
+async function inOrderTaken(pictures, signal) {
+  const info = await convert.pictureInfo(pictures.map((p) => p.file), signal).catch(() => []);
+  return pictures
+    .map((p, i) => {
+      const taken = info[i] && info[i].taken ? Date.parse(info[i].taken) : NaN;
+      let made = NaN;
+      try {
+        made = fs.statSync(p.file).birthtimeMs;
+      } catch {
+        // gone meanwhile: it fails later, with its name
+      }
+      return { ...p, time: Number.isFinite(taken) ? taken : made };
+    })
+    .sort((a, b) => (a.time || 0) - (b.time || 0) || natural(path.basename(a.file), path.basename(b.file)));
+}
+
+/** An error while adding, as a code the interface has a sentence for. */
+const problemCode = (err) => {
+  const code = err.code || err.message;
+  if (["unsupported", "empty", "zip", "protected", "tooLarge", "tooManyPixels"].includes(code)) return code;
+  return /password/i.test(err.message) ? "protected" : "unreadable";
+};
+
+/**
+ * Adds files: folders are opened, pictures added together become one document (in the order
+ * they were taken), everything else is read file by file. Whatever could not be added, or
+ * was there already, comes back as `problems` with a reason each. `names`: what to call files
+ * that have no name of their own (a pasted screenshot). Pictures are read by the AI right after.
+ */
+function addFiles(id, paths, { names = new Map() } = {}) {
   return run(id, "read", async (signal, say) => {
     const problems = [];
-    for (const file of paths.slice(0, 20)) {
-      const title = path.basename(file);
+    const lang = store.settings().lang;
+    const shown = (file) => names.get(file) || path.basename(file);
+    const items = expand(paths, problems);
+    for (const it of items.filter((x) => !x.kind)) problems.push({ title: shown(it.file), code: it.why === "zip" || it.why === "empty" ? it.why : "unsupported" });
+    const pictures = items.filter((x) => x.kind === "picture");
+    const others = items.filter((x) => x.kind && x.kind !== "picture");
+    if (others.length > MOST_DOCUMENTS) problems.push({ title: "", code: "tooMany", detail: String(MOST_DOCUMENTS) });
+    const progress = (title) => (done, total, phase, state) => say({ stage: "read", phase, state, title, done, total });
+    const keep = (item, title) => {
+      const already = store.addMaterial(id, item, guessKind(item, title));
+      if (already) problems.push({ title, code: "duplicate", detail: already });
+      else {
+        if (item.cut) problems.push({ title, code: item.from === "xlsx" || item.from === "xls" || item.from === "ods" || item.from === "csv" ? "sheetCut" : "cut" });
+        if (item.partial) problems.push({ title, code: "partial" });
+        if (item.missingPictures) problems.push({ title, code: "missingPictures" });
+      }
+    };
+    if (pictures.length) {
+      const ordered = await inOrderTaken(pictures, signal);
+      const title = shown(ordered[0].file);
       try {
-        say({ stage: "read", phase: "read", title, done: 0, total: 0 });
-        const item = await files.add(file, (done, total, phase, state) => say({ stage: "read", phase, state, title, done, total }), signal);
-        const guess = item.pages > 40 ? "book" : (GUESS.find(([, re]) => re.test(title)) || ["book"])[0];
-        const already = store.addMaterial(id, item, guess);
-        if (already) problems.push({ title, code: "duplicate", detail: already });
-        else if (item.cut) problems.push({ title, code: "cut" });
+        say({ stage: "read", phase: "convert", title, done: 0, total: 0 });
+        const item = await files.addPictures(ordered.map((p) => p.file), progress(title), signal, { lang });
+        for (const f of item.failed) problems.push({ title: shown(f.file), code: f.why === "large" ? "tooManyPixels" : "unreadable", detail: f.size });
+        delete item.failed;
+        // A pasted picture is named for what it is, not for the file it was kept in on the way.
+        const first = ordered.find((p) => names.has(p.file));
+        if (first) item.title = item.title.replace(path.basename(first.file, path.extname(first.file)), names.get(first.file));
+        keep(item, item.title);
       } catch (err) {
-        if (err.code === "cancelled") break;
-        const code = ["unsupported", "empty"].includes(err.message) ? err.message : /password/i.test(err.message) ? "protected" : "unreadable";
-        problems.push({ title, code });
+        if (err.code === "cancelled") return { exam: view(id), problems };
+        problems.push({ title, code: problemCode(err), detail: err.detail || "" });
       }
     }
+    for (const it of others.slice(0, MOST_DOCUMENTS)) {
+      const title = shown(it.file);
+      try {
+        say({ stage: "read", phase: it.kind === "pdf" ? "read" : "convert", title, done: 0, total: 0 });
+        const item = await files.add(it.file, progress(title), signal, { lang });
+        if (names.has(it.file)) item.title = names.get(it.file);
+        keep(item, title);
+      } catch (err) {
+        if (err.code === "cancelled") break;
+        problems.push({ title, code: problemCode(err), detail: err.detail || "" });
+      }
+    }
+    // Right after, in the background: the AI reads what is only pictures.
+    readPictures(id);
     return { exam: view(id), problems };
   });
 }
 
 handle("material:choose", async (id) => {
-  const r = await dialog.showOpenDialog(win, {
-    properties: ["openFile", "multiSelections"],
-    filters: [{ name: "PDF, text", extensions: ["pdf", "txt", "md"] }],
-  });
+  // Every file can be chosen, and folders too: what cannot be read is said, not hidden.
+  const r = await dialog.showOpenDialog(win, { properties: ["openFile", "openDirectory", "multiSelections"] });
   return r.canceled ? { exam: view(id), problems: [] } : addFiles(id, r.filePaths);
 });
 handle("material:add", (id, paths) => addFiles(id, (Array.isArray(paths) ? paths : []).filter((p) => typeof p === "string" && p)));
+
+// Pasted and dropped data that is not a file on disk (a screenshot on the clipboard, a picture
+// dragged out of a browser) is kept in a folder of the app's own until it has been added.
+const pasteFolder = () => fs.mkdtempSync(path.join(app.getPath("temp"), "aced-pasted-"));
+const safeName = (name, fallback) => String(name || "").replace(/[\/:\u0000-\u001f]/g, " ").replace(/^\.+/, "").trim().slice(0, 120) || fallback;
+const EXT_OF_TYPE = { "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/heic": ".heic", "image/tiff": ".tiff", "image/bmp": ".bmp", "image/svg+xml": ".svg", "application/pdf": ".pdf", "text/plain": ".txt", "text/html": ".html" };
+const pastedName = (lang) => {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${lang === "de" ? "Eingefügtes Bild" : "Pasted picture"} ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
+};
+
+/** Files copied in the Finder (⌘C): all of them, from the list the Finder puts on the clipboard. */
+function clipboardFiles() {
+  if (process.platform !== "darwin") return [];
+  const found = [];
+  try {
+    const list = clipboard.read("NSFilenamesPboardType");
+    for (const m of String(list || "").matchAll(/<string>([^<]+)<\/string>/g)) found.push(m[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'"));
+  } catch {
+    // no list of files on the clipboard
+  }
+  if (!found.length) {
+    try {
+      const url = clipboard.read("public.file-url");
+      if (url && url.startsWith("file://")) found.push(fileURLToPath(url));
+    } catch {
+      // nor a single file
+    }
+  }
+  return found.filter((p) => fs.existsSync(p));
+}
+
+/**
+ * ⌘V on the material: files copied in the Finder are added as files; a picture (a screenshot
+ * taken with ⌃⇧⌘4, a picture copied in Preview, Photos or a browser) is added as a picture;
+ * text comes back so the window can open it in the box for pasted text.
+ */
+handle("material:paste", async (id) => {
+  const copied = clipboardFiles();
+  if (copied.length) return addFiles(id, copied);
+  const image = clipboard.readImage();
+  if (!image.isEmpty()) {
+    const folder = pasteFolder();
+    const name = pastedName(store.settings().lang);
+    const file = path.join(folder, "pasted.png");
+    fs.writeFileSync(file, image.toPNG());
+    try {
+      return await addFiles(id, [file], { names: new Map([[file, name]]) });
+    } finally {
+      fs.rmSync(folder, { recursive: true, force: true });
+    }
+  }
+  const text = clipboard.readText();
+  if (text.trim()) return { exam: view(id), problems: [], text: text.slice(0, 3000000) };
+  return { exam: view(id), problems: [{ title: "", code: "emptyClipboard" }] };
+});
+
+/**
+ * Dropped data without a place on disk: a picture dragged out of a browser or an app that
+ * hands over the picture itself. At most 20 items of 60 MB each; they are written to the app's
+ * own folder and added like files. (No path comes from the window here: only the bytes.)
+ */
+handle("material:bytes", async (id, items) => {
+  if (!Array.isArray(items) || !items.length || items.length > 20) throw coded("unknown");
+  const folder = pasteFolder();
+  try {
+    const names = new Map();
+    const paths = items.map((item, i) => {
+      const data = item && item.data;
+      if (!(data instanceof Uint8Array) || data.length === 0 || data.length > 60 * 1024 * 1024) throw coded("unknown");
+      const shownName = safeName(item.name, pastedName(store.settings().lang));
+      const ext = path.extname(shownName) || EXT_OF_TYPE[String(item.type || "").toLowerCase()] || "";
+      const file = path.join(folder, `${i + 1}${ext}`);
+      fs.writeFileSync(file, data);
+      names.set(file, path.basename(shownName, path.extname(shownName)) || shownName);
+      return file;
+    });
+    return await addFiles(id, paths, { names });
+  } finally {
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+// ------------------------------------------------ material: the AI reads pictures
+
+const readings = new Map(); // exam id -> the reading under way (a promise), so a run can wait for it
+
+/**
+ * Has the AI read the pictures of an exam's material, one document after the other, in the
+ * background: the material just added, or (`ids`) the ones the person asked for again.
+ * Nothing is asked of the person first (a document has at most twenty pages). The window is
+ * told about every change. When the AI cannot see, fails or is not reachable, the text read on
+ * this Mac stays, and the material says so.
+ */
+function readPictures(id, ids = null) {
+  let exam;
+  try {
+    exam = store.exam(id);
+  } catch {
+    return;
+  }
+  const todo = exam.materials.filter((m) => see.eligible(m) && m.read !== "ai" && (ids ? ids.includes(m.id) : m.read === undefined)).map((m) => m.id);
+  if (!todo.length) return;
+  const mine = reading.get(id) || new Set();
+  todo.forEach((m) => mine.add(m));
+  reading.set(id, mine);
+  tellExam(id);
+  const before = readings.get(id) || Promise.resolve();
+  const job = before.then(() => readEach(id, todo));
+  readings.set(id, job);
+  job.finally(() => {
+    if (readings.get(id) === job) readings.delete(id);
+  });
+}
+
+async function readEach(id, todo) {
+  for (const materialId of todo) {
+    const controller = new AbortController();
+    jobs.set(controller, id);
+    try {
+      const m = store.exam(id).materials.find((x) => x.id === materialId);
+      if (!m) continue;
+      const text = files.readText(m.hash);
+      // Read by an AI before (in another exam, or before an undo): nothing to ask again.
+      if (text && text.reader === "ai") {
+        store.patchMaterials(m.hash, { read: "ai", model: text.model, readFailed: undefined });
+        continue;
+      }
+      const { provider, model: chosen } = ai.config();
+      const price = models.price(provider, chosen);
+      let cost = 0;
+      let priced = false;
+      const usage = usageOf(id);
+      const onUsage = (u) => {
+        usage(u);
+        if (typeof u.cost === "number") {
+          cost += u.cost;
+          priced = true;
+        } else if (price) {
+          cost += models.cost(price, u);
+          priced = true;
+        }
+      };
+      const { pages, model } = await see.read(m, { signal: controller.signal, onUsage, onKey: (key) => store.addAnswer(id, key) });
+      files.writeText(m.hash, { ...(text || { outline: [] }), pages, recognised: true, reader: "ai", model });
+      store.patchMaterials(m.hash, {
+        read: "ai",
+        model,
+        readFailed: undefined,
+        chars: pages.reduce((sum, p) => sum + p.length, 0),
+        scanned: files.textless(pages),
+        offset: files.printedOffset(pages),
+        ...(priced && provider !== "claudeCode" ? { readCost: cost } : {}),
+      });
+    } catch (err) {
+      const code = err.code === "cancelled" ? "cancelled" : ["cannotSee", "noProvider", "offline", "noKey", "badKey", "signIn", "usageLimit", "noClaudeCode", "noCredit", "rateLimit"].includes(err.code) ? err.code : "failed";
+      try {
+        const m = store.exam(id).materials.find((x) => x.id === materialId);
+        if (m) store.patchMaterials(m.hash, { read: "local", readFailed: code });
+      } catch {
+        // the exam is gone
+      }
+    } finally {
+      jobs.delete(controller);
+      reading.get(id)?.delete(materialId);
+      tellExam(id);
+    }
+  }
+}
+
+/** "Read with AI": another try for material the AI could not read. */
+handle("material:see", (id, materialId) => {
+  readPictures(id, [String(materialId)]);
+  return view(id);
+});
 
 /** A title for pasted text: its own first words, so two pasted texts can be told apart. */
 const titleOf = (text, fallback) => {
@@ -403,37 +696,55 @@ handle("material:retext", (id, materialId, text) => {
   });
   return view(id);
 });
-handle("material:kind", (id, materialId, kind) => store.view(store.setMaterialKind(id, materialId, kind)));
+handle("material:kind", (id, materialId, kind) => decorate(store.view(store.setMaterialKind(id, materialId, kind))));
 // Removing keeps the files until the app is next started, so "Undo" can bring the material back.
 handle("material:remove", (id, materialId) => {
   const removed = store.exam(id).materials.find((m) => m.id === materialId) || null;
-  return { exam: store.view(store.removeMaterial(id, materialId)), removed };
+  return { exam: decorate(store.view(store.removeMaterial(id, materialId))), removed };
 });
 handle("material:restore", (id, item) => {
   if (!item || !/^[a-f0-9]{64}$/.test(String(item.hash)) || !files.readText(item.hash)) throw coded("unknown");
   const { id: materialId, kind, hash, type, title, pages, chars, offset, scanned, recognised } = item;
-  store.addMaterial(id, { id: String(materialId).slice(0, 8), hash, type: type === "pdf" ? "pdf" : "text", title: String(title).slice(0, 200), pages: Number(pages) || 1, chars: Number(chars) || 0, offset: Number(offset) || 0, scanned: Boolean(scanned), recognised: Boolean(recognised) }, kind);
+  const word = (v, re) => (typeof v === "string" && re.test(v) ? v : undefined);
+  const extra = {
+    from: word(item.from, /^[a-z]{2,10}$/),
+    format: word(item.format, /^[a-z0-9]{1,10}$/),
+    files: Number.isInteger(item.files) ? item.files : undefined,
+    read: word(item.read, /^(ai|local)$/),
+    model: word(item.model, /^[\w.:/@-]{1,120}$/),
+    readCost: typeof item.readCost === "number" && Number.isFinite(item.readCost) ? item.readCost : undefined,
+    readFailed: word(item.readFailed, /^[a-zA-Z]{1,30}$/),
+    cut: item.cut === true || undefined,
+    partial: item.partial === true || undefined,
+  };
+  for (const k of Object.keys(extra)) if (extra[k] === undefined) delete extra[k];
+  store.addMaterial(id, { id: String(materialId).slice(0, 8), hash, type: type === "pdf" ? "pdf" : "text", title: String(title).slice(0, 200), pages: Number(pages) || 1, chars: Number(chars) || 0, offset: Number(offset) || 0, scanned: Boolean(scanned), recognised: Boolean(recognised), ...extra }, kind);
   return view(id);
 });
 
 // ------------------------------------------------ analysis
 
-let prices = null; // OpenRouter's public price list, fetched once when an estimate needs it
+/** A model's price from OpenRouter's public list (fetched once, when an estimate needs it). */
 async function openRouterPrice(model) {
   try {
-    if (!prices) {
-      const res = await fetch("https://openrouter.ai/api/v1/models", { signal: AbortSignal.timeout(6000) });
-      prices = (await res.json()).data || [];
-    }
-    const p = prices.find((m) => m.id === model)?.pricing;
+    const p = (await ai.openRouterModels()).find((m) => m.id === model)?.pricing;
     return p ? [Number(p.prompt) * 1e6, Number(p.completion) * 1e6] : null;
   } catch {
     return null;
   }
 }
 
-/** The text of every PDF of an exam is on disk again (it is re-read from the library copy if it was lost). */
+/**
+ * The text of every material of an exam is there: the AI has finished reading pictures (a
+ * plan made meanwhile would use the weaker text read on this Mac), and a PDF whose text was
+ * lost is read again from the library.
+ */
 async function ensureTexts(id, signal, say) {
+  if (readings.has(id)) {
+    say({ stage: "seeing" });
+    await Promise.race([readings.get(id).catch(() => {}), new Promise((resolve) => signal.addEventListener("abort", resolve))]);
+    if (signal.aborted) throw coded("cancelled");
+  }
   for (const m of store.exam(id).materials) {
     await files.ensureText(m, (done, total, phase, state) => say({ stage: "read", phase, state, title: m.title, done, total }), signal);
   }
@@ -442,7 +753,7 @@ async function ensureTexts(id, signal, say) {
 /** What a strategy was made from: the material, the exam's own numbers and the model. The same again gives the same strategy. */
 function basisOf(exam) {
   const { provider, model } = ai.config();
-  return files.sha(JSON.stringify([exam.materials.map((m) => [m.hash, m.kind]), exam.name, exam.date, exam.time, exam.scale, exam.target, exam.pace, provider, model]));
+  return files.sha(JSON.stringify([exam.materials.map((m) => (m.read === "ai" ? [m.hash, m.kind, "ai"] : [m.hash, m.kind])), exam.name, exam.date, exam.time, exam.scale, exam.target, exam.pace, provider, model]));
 }
 
 handle("analysis:estimate", async (id) => {
@@ -467,6 +778,8 @@ handle("analysis:estimate", async (id) => {
     costMax: price ? cost(est.inputMax) * 1.6 : null,
     // Nothing has changed since the strategy was made: running it again would give the same one.
     unchanged: Boolean(exam.strategy && !exam.strategy.stale && exam.strategy.basis === basisOf(exam)),
+    // Pages the AI is still reading: the plan waits for them.
+    reading: exam.materials.filter((m) => (reading.get(id) || new Set()).has(m.id)).reduce((sum, m) => sum + m.pages, 0),
     ticked: exam.strategy ? exam.strategy.topics.flatMap((t) => t.steps).filter((step) => exam.done[step.id]).length : 0,
   };
 });
@@ -501,7 +814,7 @@ handle("analysis:run", (id, options) =>
 /** Takes the last new strategy back: the plan before it, with its ticks, results and formula sheet. */
 handle("strategy:undo", (id) => {
   if (runs.has(id)) throw coded("busy");
-  return store.view(store.undoStrategy(id));
+  return decorate(store.view(store.undoStrategy(id)));
 });
 
 /** Stops what is running for one exam (or everything, when no exam is named). */
@@ -532,6 +845,7 @@ handle("help", async (id, question, context) => {
   try {
     const exam = store.exam(id);
     if (!exam.strategy) throw coded("unknown");
+    if (readings.has(id)) await readings.get(id).catch(() => {});
     for (const m of exam.materials) await files.ensureText(m, () => {}, controller.signal);
     const earlier = Array.isArray(context && context.earlier) ? context.earlier.filter((x) => x && typeof x.question === "string" && typeof x.answer === "string").slice(-3) : [];
     return await engine.help(exam, question, { earlier, now: String((context && context.now) || "").slice(0, 300) }, tracked(id, controller.signal));
@@ -548,12 +862,12 @@ handle("task:done", (id, taskId) => {
   const task = taskOf(store.exam(id), taskId);
   // Questions are done by answering them, not by a tick.
   if (!task || task.kind === "quiz") throw coded("unknown");
-  return store.view(store.change(id, (e) => (e.done[taskId] = { date: today(), minutes: task.minutes, at: Date.now() })));
+  return decorate(store.view(store.change(id, (e) => (e.done[taskId] = { date: today(), minutes: task.minutes, at: Date.now() }))));
 });
 handle("task:undo", (id, taskId) => {
   const task = taskOf(store.exam(id), taskId);
   if (!task || task.kind === "quiz") throw coded("unknown");
-  return store.view(store.change(id, (e) => delete e.done[taskId]));
+  return decorate(store.view(store.change(id, (e) => delete e.done[taskId])));
 });
 
 // ------------------------------------------------ the final exam, and questions on a topic
@@ -687,7 +1001,7 @@ handle("set:submit", async (id, key, typed) => {
   const marks = SAMPLE ? require("./src/sample").marks(set, typed) : await run(id, "marks", (signal) => engine.mark(set.questions, typed, tracked(id, signal)));
   store.change(id, (e) => settle(e, key, resultOf(e, set, typed, marks)));
   const exam = store.exam(id);
-  return { exam: store.view(exam), set: shown(exam, exam.sets[key]) };
+  return { exam: decorate(store.view(exam)), set: shown(exam, exam.sets[key]) };
 });
 
 /** "My result was right": the person overrules a mark. The points, the grade and the list follow. */
@@ -702,5 +1016,5 @@ handle("set:overrule", (id, key, questionId) => {
     settle(e, key, resultOf(e, e.sets[key], r.typed, marks, r.at));
   });
   const after = store.exam(id);
-  return { exam: store.view(after), set: shown(after, after.sets[key]) };
+  return { exam: decorate(store.view(after)), set: shown(after, after.sets[key]) };
 });

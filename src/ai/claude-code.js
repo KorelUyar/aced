@@ -227,10 +227,14 @@ if [ $? -eq 0 ]; then echo; echo "${say[2]}"; else echo; echo "${say[3]}"; fi
 // ------------------------------------------------------------ a request
 
 async function attempt(exe, env, request, settingSources) {
-  const { model, system, material, prompt, schema, effort, signal } = request;
+  const { model, system, material, prompt, schema, effort, signal, images } = request;
+  // Pictures cannot go in as plain text: then the question is one message in Claude Code's
+  // stream format, with the pictures as image blocks, and the answer comes back as a stream.
+  // Every tool stays off either way.
+  const seeing = Boolean(images && images.length);
   const args = [
     "-p",
-    "--output-format", "json",
+    ...(seeing ? ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] : ["--output-format", "json"]),
     "--json-schema", JSON.stringify(schema),
     "--model", model,
     "--effort", effort,
@@ -241,12 +245,24 @@ async function attempt(exe, env, request, settingSources) {
     "--no-session-persistence",
     "--disable-slash-commands",
   ];
-  const { out, err } = await run(exe, env, args, (material ? material + "\n\n" : "") + prompt, signal);
+  const text = (material ? material + "\n\n" : "") + prompt;
+  const input = seeing
+    ? JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: [...images.map((i) => ({ type: "image", source: { type: "base64", media_type: i.mediaType, data: i.data } })), { type: "text", text }],
+        },
+      }) + "\n"
+    : text;
+  const { out, err } = await run(exe, env, args, input, signal);
   let json;
   try {
-    json = JSON.parse(out);
+    // A stream ends with its result; plain output is the result.
+    json = seeing ? out.trim().split("\n").map((line) => JSON.parse(line)).reverse().find((m) => m.type === "result") : JSON.parse(out);
+    if (!json) throw new Error("no result");
   } catch {
-    throw problemOf(out || err || "no output", model);
+    throw problemOf(out.slice(-2000) || err || "no output", model);
   }
   if (json.is_error) throw problemOf(json.result || "error", model);
   const u = json.usage || {};

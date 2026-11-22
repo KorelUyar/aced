@@ -2,6 +2,7 @@
 // is exam material go in here, and the strategy is worked out from here. A new exam lands on
 // this view; later it sits behind "Material and settings".
 import { html, useState, useEffect, useRef, Icon, RunNote, thousands, money, modelName, minutes, grade, daysUntil } from "./bits.js";
+import { describe } from "./material.js";
 import { t, errorCode, longDate } from "./i18n.js";
 import { ClaudeState, Problem } from "./claude.js";
 
@@ -27,12 +28,54 @@ export function Setup({ exam, run, app, toSettings }) {
     setProblems(found);
   };
   const fail = (err) => errorCode(err) !== "cancelled" && app.fail(err);
-  const drop = (e) => {
+  // What was dropped: files and folders by their place on disk. A picture dragged out of a
+  // browser or an app may come without one: then its bytes are sent. A picture that came only
+  // as a web address is not downloaded; the person is told how to get it in.
+  const drop = async (e) => {
     e.preventDefault();
     setOver(false);
-    const paths = Array.from(e.dataTransfer.files || [], (file) => api.pathOf(file)).filter(Boolean);
-    if (paths.length) api.addMaterial(exam.id, paths).then(added, fail);
+    const dt = e.dataTransfer;
+    const paths = [];
+    const loose = [];
+    for (const file of Array.from(dt.files || [])) {
+      const where = api.pathOf(file);
+      if (where) paths.push(where);
+      else if (file.size > 0) loose.push(file);
+    }
+    if (!paths.length && !loose.length) {
+      const uris = (dt.getData("text/uri-list") || "").split(/\r?\n/).filter((u) => u && !u.startsWith("#"));
+      const local = uris.filter((u) => u.startsWith("file://")).map((u) => decodeURIComponent(new URL(u).pathname));
+      if (local.length) paths.push(...local);
+      else if (uris.length) return setProblems([{ title: "", code: "webLink" }]);
+    }
+    try {
+      if (paths.length) added(await api.addMaterial(exam.id, paths));
+      if (loose.length) {
+        const items = await Promise.all(loose.slice(0, 20).map(async (file) => ({ name: file.name, type: file.type, data: new Uint8Array(await file.arrayBuffer()) })));
+        added(await api.addBytes(exam.id, items));
+      }
+    } catch (err) {
+      fail(err);
+    }
   };
+  // ⌘V anywhere on this view, except in a text field: files copied in the Finder, a
+  // screenshot (⌃⇧⌘4) or a copied picture are added; copied text opens the box for text.
+  const paste = useRef(null);
+  paste.current = (e) => {
+    const target = e.target;
+    if (target && (target.closest("input, textarea, select, [contenteditable]") || pasting)) return;
+    e.preventDefault();
+    if (run) return;
+    api.pasteMaterial(exam.id).then((r) => {
+      if (r.text !== undefined) setPasting({ id: null, text: r.text });
+      else added(r);
+    }, fail);
+  };
+  useEffect(() => {
+    const listener = (e) => paste.current(e);
+    document.addEventListener("paste", listener);
+    return () => document.removeEventListener("paste", listener);
+  }, []);
   const remove = (m) =>
     api.removeMaterial(exam.id, m.id).then(({ exam: next, removed }) => {
       app.putExam(next);
@@ -116,26 +159,31 @@ export function Setup({ exam, run, app, toSettings }) {
               <div>
                 <strong>${t("dropHere")}</strong>
                 <p>${t("dropHint")}</p>
+                <p class="paste-hint">${t("pasteHint")}</p>
               </div>
               <button class="btn second" id="chooseFiles" disabled=${Boolean(run)} onClick=${() => api.chooseMaterial(exam.id).then(added, fail)}>${t("chooseFiles")}</button>`}
       </div>
-      ${problems.map((p) => html`<p class=${"problem" + (p.code === "duplicate" || p.code === "cut" ? " mild" : "")} role="alert">${t("problem_" + p.code, p.title, p.detail)}</p>`)}
+      ${problems.map((p) => html`<p class=${"problem" + (["duplicate", "cut", "sheetCut", "partial", "missingPictures"].includes(p.code) ? " mild" : "")} role="alert">${t("problem_" + p.code, p.title, p.detail)}</p>`)}
 
       ${exam.materials.length > 0 &&
       html`<ul class="materials">
-        ${exam.materials.map(
-          (m) =>
-            html`<li key=${m.id} class=${m.scanned ? "scanned" : ""}>
+        ${exam.materials.map((m) => {
+          const reading = (exam.reading || []).includes(m.id);
+          const line = describe(m, reading, app.ai && app.ai.model);
+          return html`<li key=${m.id} class=${m.scanned && !reading ? "scanned" : ""}>
               <div>
                 ${m.type === "text" ? html`<button class="link strong" title=${t("viewText")} onClick=${() => openText(m)}>${m.title}</button>` : html`<strong>${m.title}</strong>`}
-                <span>${m.scanned ? t("scannedNote") : m.type === "pdf" ? t("pagesCount", m.pages) + (m.recognised ? ", " + t("recognisedNote") : "") : t("pastedText")}</span>
+                <span class=${reading ? "reading" : ""}>
+                  ${reading && html`<span class="spinner small" aria-hidden="true"></span>`}${line.text}
+                  ${line.retry && !run && html`${" "}<button class="link" onClick=${() => api.seeMaterial(exam.id, m.id).then(app.putExam, app.fail)}>${t("readWithAi")}</button>`}
+                </span>
               </div>
               <select aria-label=${t("kindOf", m.title)} value=${m.kind} onChange=${(e) => api.setMaterialKind(exam.id, m.id, e.target.value).then(app.putExam, app.fail)}>
                 ${KINDS.map((k) => html`<option value=${k}>${t("kind_" + k)}</option>`)}
               </select>
               <button class="mini" title=${t("remove")} aria-label=${t("removeThis", m.title)} onClick=${() => remove(m)}><${Icon} name="x" size=${14} /></button>
-            </li>`,
-        )}
+            </li>`;
+        })}
       </ul>`}
 
       ${pasting
@@ -247,6 +295,7 @@ function Estimate({ est, exam, onStart, onCancel, onAgain, toSettings }) {
     ${est.finds && html`<p>${t("estFinds")}</p>`}
     ${est.noObjectives && html`<p>${t("estNoObjectives")}</p>`}
     ${est.scanned.length > 0 && html`<p>${t("estScanned", est.scanned.join(", "))}</p>`}
+    ${est.reading > 0 && html`<p>${t("estReading", est.reading)}</p>`}
     ${est.unchanged && html`<p class="warn">${t("estUnchanged")}</p>`}
     ${exam.strategy && est.ticked > 0 && html`<p class="warn">${t("estTicked", est.ticked)}</p>`}
     <div class="row-end">

@@ -14,6 +14,8 @@ function helper() {
 }
 
 const available = () => Boolean(helper());
+/** The helper's place on disk (for its other tasks: pictures to PDF, pages to pictures). */
+const helperPath = () => helper();
 
 const cancelled = () => Object.assign(new Error("cancelled"), { code: "cancelled" });
 
@@ -110,4 +112,4 @@ async function prepare(signal) {
   return recogniser;
 }
 
-module.exports = { available, read, prepare };
+module.exports = { available, read, prepare, helperPath };

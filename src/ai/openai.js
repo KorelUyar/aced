@@ -93,19 +93,23 @@ async function post(url, key, body, signal, extraHeaders, openrouter) {
  * `flavour` is "openrouter" (prompt caching markers, usage with cost, only providers that can
  * do structured output) or "plain" (nothing beyond the common format).
  */
-async function complete({ key, baseURL, flavour, model, system, material, prompt, schema, schemaName, signal }) {
+async function complete({ key, baseURL, flavour, model, system, material, prompt, schema, schemaName, signal, images }) {
   if (!baseURL) throw coded("noServer");
   if (!model) throw coded("noModel", "");
   const openrouter = flavour === "openrouter";
   if (openrouter && !key) throw coded("noKey");
   const url = baseURL.replace(/\/+$/, "") + "/chat/completions";
+  // Pictures go along as image parts, before the text, in every way of asking below.
+  const pictures = (images || []).map((i) => ({ type: "image_url", image_url: { url: `data:${i.mediaType};base64,${i.data}` } }));
+  const withPictures = (text) => (pictures.length ? [...pictures, { type: "text", text }] : text);
   const user =
     openrouter && material
       ? [
+          ...pictures,
           { type: "text", text: material, cache_control: { type: "ephemeral" } },
           { type: "text", text: prompt },
         ]
-      : (material ? material + "\n\n" : "") + prompt;
+      : withPictures((material ? material + "\n\n" : "") + prompt);
   // No limit on the length of the answer is sent: every model has its own, and one that thinks
   // before it answers needs room that a number chosen here could take away.
   const base = {
@@ -124,7 +128,7 @@ async function complete({ key, baseURL, flavour, model, system, material, prompt
     ...b,
     messages: [
       b.messages[0],
-      { role: "user", content: (material ? material + "\n\n" : "") + prompt + "\n\nAnswer with one JSON object that follows this JSON Schema, and nothing else:\n" + JSON.stringify(schema) },
+      { role: "user", content: withPictures((material ? material + "\n\n" : "") + prompt + "\n\nAnswer with one JSON object that follows this JSON Schema, and nothing else:\n" + JSON.stringify(schema)) },
     ],
   });
   const tries = [

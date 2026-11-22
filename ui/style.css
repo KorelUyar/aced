@@ -1003,6 +1003,25 @@ mark {
   max-width: 52ch;
 }
 
+.drop p.paste-hint {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+/* The AI reading a material in the background: a small spinner in its line. */
+.spinner.small {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-width: 2px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.materials span .link {
+  font-size: inherit;
+}
+
 .materials {
   list-style: none;
   padding: 0;

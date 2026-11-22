@@ -28,7 +28,7 @@ function apiProblem(err) {
   return coded("provider", said ? said.slice(0, 200) : `HTTP ${status}`);
 }
 
-async function complete({ key, baseURL, model, system, material, prompt, schema, maxTokens, effort, cache, signal }) {
+async function complete({ key, baseURL, model, system, material, prompt, schema, maxTokens, effort, cache, signal, images }) {
   if (!key) throw coded("noKey");
   ignoreEnvironment();
   const client = new Anthropic({ apiKey: key, authToken: null, baseURL: baseURL || "https://api.anthropic.com", maxRetries: 2 });
@@ -41,6 +41,8 @@ async function complete({ key, baseURL, model, system, material, prompt, schema,
       {
         role: "user",
         content: [
+          // Pictures of pages first, then what is asked about them.
+          ...(images || []).map((i) => ({ type: "image", source: { type: "base64", media_type: i.mediaType, data: i.data } })),
           // Where the same pages will be asked about again soon (quizzes on a topic), the material
           // is marked for caching: writing it costs a quarter more once, reading it a fraction.
           ...(material ? [{ type: "text", text: material, ...(cache ? { cache_control: { type: "ephemeral" } } : {}) }] : []),

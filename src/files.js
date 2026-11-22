@@ -1,10 +1,17 @@
-// The person's material on disk: a copy of every file they add, and the text read from it.
-// Everything is named by the SHA-256 of the file, so the same book is only read once.
+// The person's material on disk: for everything they add, a PDF in the library (the file
+// itself when it is a PDF, else one made from it, see convert.js), the original next to it,
+// and the text read from the PDF. Everything is named by a SHA-256 of what was added, so the
+// same file is only read once. The text always comes from the PDF, so page 7 of the text is
+// page 7 in the book panel, whatever the file was.
 const { utilityProcess } = require("electron");
 const crypto = require("crypto");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const ocr = require("./ocr");
+const formats = require("./formats");
+const { unmark } = require("./formats/math");
+const { decode } = require("./formats/text");
 
 let root = null;
 const dir = (name) => {
@@ -24,11 +31,28 @@ function hashFile(file) {
   });
 }
 
+/** The hash of a file, or of a folder that is one document (an iWork package): its files' names and contents. */
+async function hashSource(source) {
+  if (!fs.statSync(source).isDirectory()) return hashFile(source);
+  const hash = crypto.createHash("sha256");
+  const walk = async (d, prefix) => {
+    for (const name of fs.readdirSync(d).sort()) {
+      const p = path.join(d, name);
+      if (fs.statSync(p).isDirectory()) await walk(p, prefix + name + "/");
+      else hash.update(prefix + name + "\0" + (await hashFile(p)) + "\0");
+    }
+  };
+  await walk(source, "");
+  return hash.digest("hex");
+}
+
 const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const pdfPath = (hash) => path.join(dir("library"), hash + ".pdf");
 // (Not "cache": Chromium keeps its own "Cache" folder in the same place, and on a Mac the two
 // names are the same folder. What is in here must not vanish when the browser cache is cleared.)
 const textPath = (hash) => path.join(dir("texts"), hash + ".json");
+// What was added, as it was added: a Word file next to the PDF made from it.
+const originalsPath = (hash) => path.join(dir("originals"), hash);
 
 function readText(hash) {
   try {
@@ -43,7 +67,10 @@ function writeJson(file, value) {
   fs.renameSync(file + ".tmp", file);
 }
 
-const coded = (code) => Object.assign(new Error(code), { code });
+/** Replaces the text of a material (when an AI has read its pages, see see.js). */
+const writeText = (hash, data) => writeJson(textPath(hash), data);
+
+const coded = (code, detail) => Object.assign(new Error(code), { code, detail });
 
 /**
  * Reads a PDF in a separate process. Resolves to { pages: [text], outline: [{title, page, depth}] }.
@@ -122,89 +149,162 @@ function isScan(pages) {
   return empty / pages.length > 0.7 || chars / pages.length < 80;
 }
 
-/** Adds a file to the library and reads its text. Returns what the store keeps about it. */
-async function add(file, onProgress, signal) {
-  const ext = path.extname(file).toLowerCase();
-  const title = path.basename(file, path.extname(file)).replace(/[_]+/g, " ").trim();
-  if (ext === ".pdf") {
+/** No text that could be used, even after recognition. (A page or two with one line of real text is short, not a scan.) */
+const textless = (pages) => {
+  const chars = pages.reduce((sum, p) => sum + p.length, 0);
+  return isScan(pages) && !(pages.length <= 3 && chars >= 10);
+};
+
+/**
+ * Reads the text of a PDF (`file`) and keeps it under `hash`. Pages without text are read with
+ * text recognition. `converted`: the PDF was made by this app, so its formulas carry their
+ * LaTeX (see formats/math.js).
+ */
+async function readInto(file, hash, onProgress, signal, { converted = false, extra = {} } = {}) {
+  let data = await readPdf(file, (done, total) => onProgress?.(done, total, "read"), signal);
+  if (converted) data.pages = data.pages.map(unmark);
+  // No text in it: a scan, a picture, or letters drawn as shapes. Read the pages with text
+  // recognition. A PDF this app made from a document has the document's own text: that is only
+  // recognised again when there is none at all (a drawing without words, say).
+  if ((converted ? textless(data.pages) : isScan(data.pages)) && ocr.available()) {
+    // Said at once, before the helper has even started: until now the last thing on screen
+    // was "page N of N" of the step before, for as long as the first page took.
+    onProgress?.(0, data.pages.length, "recognise");
+    try {
+      // `state`: "preparing" while macOS gets its recogniser ready (about a minute, the
+      // first time), then which one reads the whole file: "accurate" or "fast".
+      let recogniser;
+      const pages = await ocr.read(
+        file,
+        (done, total, state) => {
+          if (state && state !== "preparing") recogniser = state;
+          onProgress?.(done, total, "recognise", state);
+        },
+        signal,
+      );
+      // The recognised text counts when it is real text, or when the file had none of its own
+      // (a screenshot with one line on it). A short file with text of its own keeps that text.
+      const letters = (list) => list.join("").replace(/\s/g, "").length;
+      if (!isScan(pages) || (textless(data.pages) && letters(pages) > letters(data.pages))) data = { pages, outline: data.outline, recognised: true, recogniser };
+    } catch (err) {
+      if (err.code === "cancelled") throw err;
+      // recognition failed: the file stays what it is, a PDF without text
+    }
+  }
+  data = { ...data, ...extra };
+  writeJson(textPath(hash), data);
+  return data;
+}
+
+/** What the store keeps about a material made from a PDF and its text. */
+function materialOf(hash, title, data, more = {}) {
+  const chars = data.pages.reduce((sum, p) => sum + p.length, 0);
+  return {
+    hash,
+    type: "pdf",
+    title,
+    pages: data.pages.length,
+    chars,
+    offset: printedOffset(data.pages),
+    // Still no text after everything: it is left out, and the person is told.
+    scanned: textless(data.pages),
+    recognised: Boolean(data.recognised),
+    ...(data.cut ? { cut: true } : {}),
+    ...(data.partial ? { partial: true } : {}),
+    ...more,
+  };
+}
+
+const titleOf = (file) => path.basename(file, path.extname(file)).replace(/[_]+/g, " ").trim() || path.basename(file);
+
+/** Copies what was added next to its PDF (once). A folder that is one document is copied whole. */
+function keepOriginals(hash, sources) {
+  const target = originalsPath(hash);
+  if (fs.existsSync(target)) return;
+  const tmp = target + ".tmp";
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.mkdirSync(tmp, { recursive: true });
+  sources.forEach((source, i) => {
+    const name = path.basename(source);
+    fs.cpSync(source, path.join(tmp, sources.length > 1 ? `${String(i + 1).padStart(3, "0")} ${name}` : name), { recursive: true, dereference: true });
+  });
+  fs.renameSync(tmp, target);
+}
+
+const tmpPdf = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aced-pdf-")), "made.pdf");
+const dropTmp = (file) => fs.rmSync(path.dirname(file), { recursive: true, force: true });
+
+/**
+ * Adds a file to the library and reads its text. Returns what the store keeps about it.
+ * `lang` is the language of the notes the app writes on pages it makes ("only rows 1 to 1000").
+ */
+async function add(file, onProgress, signal, { lang = "en" } = {}) {
+  const id = formats.identify(file);
+  if (!id.kind || id.kind === "folder") throw coded(id.why === "empty" ? "empty" : id.why === "zip" ? "zip" : "unsupported");
+  if (id.kind === "picture") return addPictures([file], onProgress, signal, { lang });
+  const title = titleOf(file);
+  if (id.kind === "pdf") {
     const hash = await hashFile(file);
     let data = readText(hash);
-    if (!data) {
-      data = await readPdf(file, (done, total) => onProgress?.(done, total, "read"), signal);
-      // No text in it: a scan, or letters drawn as shapes. Read the pages with text recognition.
-      if (isScan(data.pages) && ocr.available()) {
-        // Said at once, before the helper has even started: until now the last thing on screen
-        // was "page N of N" of the step before, for as long as the first page took.
-        onProgress?.(0, data.pages.length, "recognise");
-        try {
-          // `state`: "preparing" while macOS gets its recogniser ready (about a minute, the
-          // first time), then which one reads the whole file: "accurate" or "fast".
-          let recogniser;
-          const pages = await ocr.read(
-            file,
-            (done, total, state) => {
-              if (state && state !== "preparing") recogniser = state;
-              onProgress?.(done, total, "recognise", state);
-            },
-            signal,
-          );
-          if (!isScan(pages)) data = { pages, outline: data.outline, recognised: true, recogniser };
-        } catch (err) {
-          if (err.code === "cancelled") throw err;
-          // recognition failed: the file stays what it is, a PDF without text
-        }
-      }
-      writeJson(textPath(hash), data);
-    }
+    if (!data) data = await readInto(file, hash, onProgress, signal);
     if (!fs.existsSync(pdfPath(hash))) fs.copyFileSync(file, pdfPath(hash));
-    const chars = data.pages.reduce((sum, p) => sum + p.length, 0);
-    return {
-      hash,
-      type: "pdf",
-      title,
-      pages: data.pages.length,
-      chars,
-      offset: printedOffset(data.pages),
-      // Still no text after everything: it is left out, and the person is told. (A page or two
-      // with one line of real text is short, not a scan.)
-      scanned: isScan(data.pages) && !(data.pages.length <= 3 && chars >= 10),
-      recognised: Boolean(data.recognised),
-    };
+    return materialOf(hash, title, data, { from: "pdf" });
   }
-  if ([".txt", ".md", ".markdown", ".text"].includes(ext)) return addText(decode(fs.readFileSync(file)), title);
-  throw new Error("unsupported");
+  const hash = await hashSource(file);
+  let data = readText(hash);
+  if (!data || !fs.existsSync(pdfPath(hash))) {
+    onProgress?.(0, 0, "convert");
+    const made = tmpPdf();
+    try {
+      const result = await require("./convert").toPdf({ files: [file], kind: id.kind, ext: id.ext, out: made, lang }, { signal });
+      data = await readInto(made, hash, onProgress, signal, { converted: true, extra: { cut: result.cut, partial: result.partial, missingPictures: result.missingPictures } });
+      fs.copyFileSync(made, pdfPath(hash));
+    } finally {
+      dropTmp(made);
+    }
+    keepOriginals(hash, [file]);
+  }
+  return materialOf(hash, title, data, { from: id.kind, format: id.ext });
 }
 
 /**
- * Makes sure the text of a PDF that was added earlier is still there, and reads it again from
- * the copy in the library if it is not.
+ * Pictures added together become one document, one page per picture, in the order given.
+ * Named after the first, with the number of pages. Pictures that cannot be read are left out
+ * and come back in `failed` ([{ file, why }]).
+ */
+async function addPictures(pictures, onProgress, signal, { lang = "en" } = {}) {
+  const hashes = [];
+  for (const file of pictures) hashes.push(await hashFile(file));
+  const hash = pictures.length === 1 ? hashes[0] : sha("pictures:" + hashes.join(","));
+  let data = readText(hash);
+  let failed = [];
+  if (!data || !fs.existsSync(pdfPath(hash))) {
+    onProgress?.(0, pictures.length, "convert");
+    const made = tmpPdf();
+    try {
+      const result = await require("./convert").toPdf({ files: pictures, kind: "picture", out: made, lang }, { signal });
+      failed = result.failed.map((f) => ({ file: pictures[f.index], why: f.why, size: f.width ? `${f.width} × ${f.height}` : "" }));
+      data = await readInto(made, hash, onProgress, signal, { converted: false, extra: { pictures: pictures.length - failed.length } });
+      fs.copyFileSync(made, pdfPath(hash));
+    } finally {
+      dropTmp(made);
+    }
+    keepOriginals(hash, pictures.filter((_, i) => !failed.some((f) => f.file === pictures[i])));
+  }
+  const n = data.pages.length;
+  const first = titleOf(pictures.find((p) => !failed.some((f) => f.file === p)) || pictures[0]);
+  const title = n > 1 ? `${first} (${lang === "de" ? `${n} Seiten` : `${n} pages`})` : first;
+  return { ...materialOf(hash, title, data, { from: "pictures", files: data.pictures || pictures.length }), failed };
+}
+
+/**
+ * Makes sure the text of material that was added earlier is still there, and reads it again
+ * from the PDF in the library if it is not.
  */
 async function ensureText(material, onProgress, signal) {
   if (material.type !== "pdf" || readText(material.hash) || !fs.existsSync(pdfPath(material.hash))) return false;
-  await add(pdfPath(material.hash), onProgress, signal);
+  await readInto(pdfPath(material.hash), material.hash, onProgress, signal, { converted: Boolean(material.from && !["pdf", "pictures"].includes(material.from)) });
   return true;
-}
-
-/**
- * A text file as text, whatever it was saved as: UTF-8 (with or without a mark at the start),
- * UTF-16 (which Windows and TextEdit both write), or the Western European encoding of older
- * files, in which every byte is a letter.
- */
-function decode(bytes) {
-  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder("utf-16le").decode(bytes.subarray(2));
-  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder("utf-16be").decode(bytes.subarray(2));
-  // UTF-16 without a mark: every other byte of ordinary text is zero.
-  const sample = bytes.subarray(0, 2000);
-  let zeroEven = 0;
-  let zeroOdd = 0;
-  sample.forEach((b, i) => b === 0 && (i % 2 ? zeroOdd++ : zeroEven++));
-  if (sample.length >= 8 && zeroOdd > sample.length * 0.3 && zeroEven < sample.length * 0.05) return new TextDecoder("utf-16le").decode(bytes);
-  if (sample.length >= 8 && zeroEven > sample.length * 0.3 && zeroOdd < sample.length * 0.05) return new TextDecoder("utf-16be").decode(bytes);
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return new TextDecoder("windows-1252").decode(bytes);
-  }
 }
 
 const TEXT_LIMIT = 3000000; // characters of one text; what is beyond is left out, and the person is told
@@ -227,7 +327,7 @@ function inPages(text) {
   return pages;
 }
 
-/** Pasted text and text files (learning objectives, notes) are kept the same way as a book: as pages of text. */
+/** Pasted text (learning objectives, notes) is kept as pages of text. */
 function addText(text, title) {
   const whole = String(text).replace(/\u0000/g, "").replace(/\r\n?/g, "\n").trim();
   const clean = whole.slice(0, TEXT_LIMIT);
@@ -250,18 +350,19 @@ function cached(key) {
 const remember = (key, value) => writeJson(aiPath(key), value);
 
 /**
- * Deletes what no exam uses any more: copies of PDFs, the text read from them, and kept
+ * Deletes what no exam uses any more: PDFs, originals, the text read from them, and kept
  * answers. `hashes` and `answers` are the ones still in use.
  */
 function prune({ hashes, answers }) {
   const sweep = (folder, keep) => {
     for (const name of fs.readdirSync(dir(folder))) {
-      if (!keep.has(name.replace(/\.(pdf|json)$/, ""))) fs.rmSync(path.join(dir(folder), name), { force: true });
+      if (!keep.has(name.split(".")[0])) fs.rmSync(path.join(dir(folder), name), { recursive: true, force: true });
     }
   };
   sweep("library", hashes);
   sweep("texts", hashes);
+  sweep("originals", hashes);
   sweep("answers", answers);
 }
 
-module.exports = { init, add, addText, decode, ensureText, readText, pdfPath, printedOffset, sha, cached, remember, prune };
+module.exports = { init, add, addPictures, addText, decode, ensureText, readText, writeText, pdfPath, originalsPath, printedOffset, isScan, textless, sha, cached, remember, prune, hashFile };

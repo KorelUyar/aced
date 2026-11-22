@@ -57,7 +57,9 @@ export function RunNote({ run, onCancel, brief }) {
       ? t("stage_" + run.stage)
       : run.phase === "recognise" && run.state === "preparing"
         ? t("preparing", run.title || "")
-        : t(run.phase === "recognise" ? "recognising" : "reading", run.title || "", run.done || 0, run.total || 0);
+        : run.phase === "convert"
+          ? t("converting", run.title || "")
+          : t(run.phase === "recognise" ? "recognising" : "reading", run.title || "", run.done || 0, run.total || 0);
   if (brief) return html`<span class="run-brief"><span class="spinner" aria-hidden="true"></span>${text}</span>`;
   return html`<div class="running" role="status" data-kind=${run.kind}>
     <span class="spinner" aria-hidden="true"></span>

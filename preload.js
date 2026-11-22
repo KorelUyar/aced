@@ -40,6 +40,12 @@ contextBridge.exposeInMainWorld("aced", {
   // at a time, because a list of files does not come through to this side in one piece.
   pathOf: (file) => webUtils.getPathForFile(file),
   addMaterial: (id, paths) => call("material:add", id, paths),
+  // ⌘V: files copied in the Finder, a screenshot or picture on the clipboard, or text.
+  pasteMaterial: (id) => call("material:paste", id),
+  // Dropped data that has no place on disk (a picture dragged out of a browser): its bytes.
+  addBytes: (id, items) => call("material:bytes", id, items),
+  // "Read with AI": another try for pictures the AI could not read.
+  seeMaterial: (id, materialId) => call("material:see", id, materialId),
   addText: (id, kind, title, text) => call("material:text", id, kind, title, text),
   readText: (id, materialId) => call("material:read", id, materialId),
   changeText: (id, materialId, text) => call("material:retext", id, materialId, text),
@@ -54,6 +60,8 @@ contextBridge.exposeInMainWorld("aced", {
   onRuns: on("runs"),
   // A choice from the app's menu: "settings" or "new".
   onMenu: on("menu"),
+  // An exam changed without the window asking (the AI has read a picture).
+  onExam: on("exam"),
 
   formulas: (id) => call("formulas", id),
   help: (id, question, context) => call("help", id, question, context),

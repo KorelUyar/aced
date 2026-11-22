@@ -1,11 +1,21 @@
-// aced-ocr: reads the text of a PDF whose pages are pictures or outlines (a scan, or a book
-// saved from a web reader that draws its letters as shapes). Uses the text recognition built
-// into macOS (Vision), on this Mac: nothing is sent anywhere.
+// aced-ocr: the part of Aced that uses macOS itself, on this Mac (nothing is sent anywhere).
 //
 //   aced-ocr <file.pdf> [first-page] [last-page]
-//   aced-ocr --prepare          only gets the recogniser ready (see below), reads nothing
+//       reads the text of a PDF whose pages are pictures or outlines (a scan, or a book saved
+//       from a web reader that draws its letters as shapes), with the text recognition built
+//       into macOS (Vision)
+//   aced-ocr --prepare
+//       only gets the recogniser ready (see below), reads nothing
+//   aced-ocr --info <picture>...
+//       what each picture is: its size in pixels, how many pages it has, when it was taken
+//   aced-ocr --images <out.pdf> <picture>...
+//       one PDF with a page for every picture (for every page of a TIFF), in the order given
+//   aced-ocr --render <file.pdf> <long-side> <out-folder> [first-page] [last-page]
+//       every page as a JPEG of at most <long-side> pixels: what an AI that can see is shown
+//   aced-ocr --sample <out.png>
+//       a small picture with one line of print, to find out whether an AI can see
 //
-// Prints one line of JSON per step, as it goes:
+// Prints one line of JSON per step, as it goes. For reading a PDF:
 //   {"page":0,"total":90}                           at once: the file is open, nothing is read yet
 //   {"page":0,"total":90,"preparing":true}          every two seconds while macOS gets its recogniser ready
 //   {"page":0,"total":90,"recogniser":"accurate"}   which recogniser reads this file: "accurate" or "fast"
@@ -13,27 +23,22 @@
 // A line without "text" only says where the work stands.
 import CoreText
 import Foundation
+import ImageIO
 import PDFKit
+import UniformTypeIdentifiers
 import Vision
 
 setvbuf(stdout, nil, _IOLBF, 0)
 
-let args = CommandLine.arguments
-let onlyPrepare = args.count == 2 && args[1] == "--prepare"
-let doc = args.count >= 2 && !onlyPrepare ? PDFDocument(url: URL(fileURLWithPath: args[1])) : nil
-guard onlyPrepare || doc != nil else {
-    FileHandle.standardError.write("cannot open the PDF\n".data(using: .utf8)!)
-    exit(2)
-}
-let total = doc?.pageCount ?? 0
-let first = max(1, args.count >= 3 ? Int(args[2]) ?? 1 : 1)
-let last = min(total, args.count >= 4 ? Int(args[3]) ?? total : total)
-
-func emit(_ page: Int, _ more: [String: Any] = [:]) {
-    let object = more.merging(["page": page, "total": total]) { $1 }
+func say(_ object: [String: Any]) {
     if let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), let line = String(data: data, encoding: .utf8) {
         print(line)
     }
+}
+
+func fail(_ message: String, _ code: Int32 = 2) -> Never {
+    FileHandle.standardError.write("\(message)\n".data(using: .utf8)!)
+    exit(code)
 }
 
 func whiteCanvas(_ width: Int, _ height: Int) -> CGContext? {
@@ -44,11 +49,12 @@ func whiteCanvas(_ width: Int, _ height: Int) -> CGContext? {
     return context
 }
 
-/// The page as a picture, about `longSide` pixels on its long side.
-func render(_ page: PDFPage, longSide: CGFloat) -> CGImage? {
+/// The page as a picture, about `longSide` pixels on its long side, and never more than
+/// `most` pixels per point of the page.
+func render(_ page: PDFPage, longSide: CGFloat, most: CGFloat = 4) -> CGImage? {
     let bounds = page.bounds(for: .mediaBox)
     guard bounds.width > 0, bounds.height > 0 else { return nil }
-    let scale = min(4.0, longSide / max(bounds.width, bounds.height))
+    let scale = min(most, longSide / max(bounds.width, bounds.height))
     guard let context = whiteCanvas(Int(bounds.width * scale), Int(bounds.height * scale)) else { return nil }
     // a scan is usually smaller than this and gets enlarged: smoothly, not in blocks
     context.interpolationQuality = .high
@@ -58,7 +64,14 @@ func render(_ page: PDFPage, longSide: CGFloat) -> CGImage? {
     return context.makeImage()
 }
 
-/// A small picture with one line of print: what a recogniser is tried on before the file.
+func write(_ image: CGImage, to path: String, type: UTType, quality: Double = 0.86) -> Bool {
+    guard let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, type.identifier as CFString, 1, nil) else { return false }
+    CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+    return CGImageDestinationFinalize(destination)
+}
+
+/// A small picture with one line of print: what a recogniser is tried on before the file, and
+/// what an AI is shown to find out whether it can see.
 let sampleWord = "pages"
 func sample() -> CGImage? {
     guard let context = whiteCanvas(900, 120) else { return nil }
@@ -70,6 +83,136 @@ func sample() -> CGImage? {
     CTLineDraw(CTLineCreateWithAttributedString(text), context)
     return context.makeImage()
 }
+
+// ------------------------------------------------------------ pictures
+
+/// Larger pictures are not read: decoding one would take gigabytes. (A 48-megapixel photo is well below.)
+let mostPixels = 120_000_000
+/// The long side of a picture's page in the PDF, in pixels: enough for the book panel and for
+/// reading, and a photo does not make the file huge.
+let pageLongSide = 4096
+
+struct Picture {
+    let source: CGImageSource
+    let width: Int
+    let height: Int
+    let indexes: [Int]
+    let dpi: Double
+    let lossless: Bool
+}
+
+func open(_ path: String) -> Picture? {
+    guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+    let count = CGImageSourceGetCount(source)
+    guard count > 0 else { return nil }
+    let type = (CGImageSourceGetType(source) as String?) ?? ""
+    // Every page of a TIFF (a scanner writes several pages into one), the main picture of
+    // anything else (the first frame of a GIF, the photo of a HEIC with its depth maps).
+    let isTiff = UTType(type)?.conforms(to: .tiff) ?? false
+    let primary = CGImageSourceGetPrimaryImageIndex(source)
+    let indexes = isTiff ? Array(0..<count) : [primary < count ? primary : 0]
+    guard let props = CGImageSourceCopyPropertiesAtIndex(source, indexes[0], nil) as? [CFString: Any] else { return nil }
+    let width = (props[kCGImagePropertyPixelWidth] as? Int) ?? 0
+    let height = (props[kCGImagePropertyPixelHeight] as? Int) ?? 0
+    let dpi = (props[kCGImagePropertyDPIWidth] as? Double) ?? 72
+    // Screenshots and drawings stay sharp; photos are stored as JPEG.
+    let lossless = [UTType.png, UTType.gif, UTType.bmp].contains { UTType(type)?.conforms(to: $0) ?? false }
+    return Picture(source: source, width: width, height: height, indexes: indexes, dpi: dpi, lossless: lossless)
+}
+
+/// When the picture was taken, from its EXIF data ("2026-11-22T12:40:15"), or nil.
+func takenAt(_ picture: Picture) -> String? {
+    guard let props = CGImageSourceCopyPropertiesAtIndex(picture.source, picture.indexes[0], nil) as? [CFString: Any],
+          let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any],
+          let value = (exif[kCGImagePropertyExifDateTimeOriginal] ?? exif[kCGImagePropertyExifDateTimeDigitized]) as? String else { return nil }
+    let parts = value.split(whereSeparator: { $0 == ":" || $0 == " " })
+    guard parts.count >= 6 else { return nil }
+    return "\(parts[0])-\(parts[1])-\(parts[2])T\(parts[3]):\(parts[4]):\(parts[5])"
+}
+
+/// One page of a picture, turned upright as the camera recorded it and made no larger than `pageLongSide`.
+func pageImage(_ picture: Picture, _ index: Int) -> CGImage? {
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceShouldCacheImmediately: true,
+        kCGImageSourceThumbnailMaxPixelSize: min(pageLongSide, max(picture.width, picture.height, 1)),
+    ]
+    guard let image = CGImageSourceCreateThumbnailAtIndex(picture.source, index, options as CFDictionary) else { return nil }
+    if picture.lossless { return image }
+    // A JPEG-backed picture goes into the PDF as JPEG, not as raw pixels.
+    let data = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return image }
+    CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.86] as CFDictionary)
+    guard CGImageDestinationFinalize(destination), let provider = CGDataProvider(data: data) else { return image }
+    return CGImage(jpegDataProviderSource: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) ?? image
+}
+
+func info(_ paths: [String]) {
+    for (i, path) in paths.enumerated() {
+        guard let picture = open(path) else {
+            say(["file": i, "failed": "unreadable"])
+            continue
+        }
+        var line: [String: Any] = ["file": i, "width": picture.width, "height": picture.height, "pages": picture.indexes.count]
+        if let taken = takenAt(picture) { line["taken"] = taken }
+        say(line)
+    }
+}
+
+func images(_ out: String, _ paths: [String]) {
+    guard let context = CGContext(URL(fileURLWithPath: out) as CFURL, mediaBox: nil, [kCGPDFContextCreator: "Aced"] as CFDictionary) else { fail("cannot write the PDF") }
+    var pages = 0
+    for (i, path) in paths.enumerated() {
+        autoreleasepool {
+            guard let picture = open(path) else { return say(["file": i, "failed": "unreadable"]) }
+            guard picture.width > 0, picture.height > 0 else { return say(["file": i, "failed": "unreadable"]) }
+            guard picture.width * picture.height <= mostPixels else {
+                return say(["file": i, "failed": "large", "width": picture.width, "height": picture.height])
+            }
+            var added = 0
+            for index in picture.indexes {
+                guard let image = pageImage(picture, index) else { continue }
+                // The page is as large as the picture would show on a screen: a screenshot at
+                // its own size, a photo at a size that fits a page. Only the proportions matter
+                // to the book panel, which fits a page to its width.
+                let density = picture.dpi >= 100 ? picture.dpi : 144
+                var w = Double(image.width) * 72 / density
+                var h = Double(image.height) * 72 / density
+                let long = max(w, h)
+                let fit = long > 1400 ? 1400 / long : long < 400 ? 400 / long : 1
+                w *= fit
+                h *= fit
+                var box = CGRect(x: 0, y: 0, width: w, height: h)
+                context.beginPage(mediaBox: &box)
+                context.interpolationQuality = .high
+                context.draw(image, in: box)
+                context.endPage()
+                added += 1
+            }
+            pages += added
+            say(added > 0 ? ["file": i, "pages": added] : ["file": i, "failed": "unreadable"])
+        }
+    }
+    context.closePDF()
+    say(["done": true, "pages": pages])
+}
+
+func renderPages(_ file: String, _ longSide: CGFloat, _ folder: String, _ first: Int, _ last: Int) {
+    guard let doc = PDFDocument(url: URL(fileURLWithPath: file)) else { fail("cannot open the PDF") }
+    let total = doc.pageCount
+    for number in max(1, first)...max(1, min(last, total)) where number <= total {
+        autoreleasepool {
+            // Two pixels per point: a picture's own pixels (see `images`), a scanned page at 144
+            // dpi. Enlarging further would only cost the AI more without showing it more.
+            guard let page = doc.page(at: number - 1), let image = render(page, longSide: longSide, most: 2) else { return say(["page": number, "total": total, "failed": true]) }
+            let path = "\(folder)/page-\(number).jpg"
+            say(write(image, to: path, type: .jpeg) ? ["page": number, "total": total, "file": path, "width": image.width, "height": image.height] : ["page": number, "total": total, "failed": true])
+        }
+    }
+}
+
+// ------------------------------------------------------------ text recognition
 
 /// Runs text recognition on one picture and waits for it. That can take long once: the first
 /// time this helper uses the accurate recogniser (and again after an update of the helper or of
@@ -128,7 +271,7 @@ func lines(_ observations: [VNRecognizedTextObservation]) -> String {
 
 // Only in a developer build (swiftc -D DEBUG): ACED_OCR_DEBUG=<folder> also saves each page's
 // picture there, and ACED_OCR_LEVEL=fast skips the accurate recogniser. The helper that ships
-// takes no settings and cannot be told to write files anywhere.
+// takes no settings and cannot be told to write files anywhere it is not asked to.
 #if DEBUG
 let debugFolder = ProcessInfo.processInfo.environment["ACED_OCR_DEBUG"]
 let onlyFast = ProcessInfo.processInfo.environment["ACED_OCR_LEVEL"] == "fast"
@@ -137,38 +280,65 @@ let debugFolder: String? = nil
 let onlyFast = false
 #endif
 
-emit(0)
-
-// macOS has two recognisers. Which one reads this file is decided here, once, before the first
-// page: the accurate one if it reads the sample, else the fast one (fine for clean print, weak
-// on small or pale print). Never the one for some pages and the other for the rest: an earlier
-// version gave the accurate one 15 to 60 seconds per page, then stopped it and switched, so
-// the same book came out well or badly depending on whether macOS had its models ready (and
-// stopping it threw away the model macOS was building, so the next run waited again).
-let patience: TimeInterval = 300
-var level = VNRequestTextRecognitionLevel.fast
-if !onlyFast, let picture = sample(), let read = recognise(picture, level: .accurate, limit: patience, waiting: { emit(0, ["preparing": true]) }),
-   lines(read).contains(sampleWord) {
-    level = .accurate
-} else if !onlyFast {
-    FileHandle.standardError.write("the accurate recogniser is not usable here; the fast one reads this file\n".data(using: .utf8)!)
-}
-emit(0, ["recogniser": level == .accurate ? "accurate" : "fast"])
-
-// Measured on scans and on drawn pages: the accurate recogniser reads as well at 2400 pixels
-// as at more; the fast one finds a few more exercise numbers at 3200 (and is unusable below 1600).
-let longSide: CGFloat = level == .accurate ? 2400 : 3200
-
-for number in first...max(first, last) where number <= total {
-    autoreleasepool {
-        guard let page = doc?.page(at: number - 1), let image = render(page, longSide: longSide) else { return emit(number, ["text": ""]) }
-        if let folder = debugFolder,
-           let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: "\(folder)/page-\(number).png") as CFURL, "public.png" as CFString, 1, nil) {
-            CGImageDestinationAddImage(destination, image, nil)
-            CGImageDestinationFinalize(destination)
-        }
-        // A page that cannot be read stays empty; the pages after it are read the same way as before.
-        let read = recognise(image, level: level, limit: patience, waiting: { emit(number - 1) })
-        emit(number, ["text": read.map(lines) ?? ""])
+func readPdf(_ doc: PDFDocument?, first: Int, last: Int) {
+    let total = doc?.pageCount ?? 0
+    func emit(_ page: Int, _ more: [String: Any] = [:]) {
+        say(more.merging(["page": page, "total": total]) { $1 })
     }
+    emit(0)
+
+    // macOS has two recognisers. Which one reads this file is decided here, once, before the first
+    // page: the accurate one if it reads the sample, else the fast one (fine for clean print, weak
+    // on small or pale print). Never the one for some pages and the other for the rest: an earlier
+    // version gave the accurate one 15 to 60 seconds per page, then stopped it and switched, so
+    // the same book came out well or badly depending on whether macOS had its models ready (and
+    // stopping it threw away the model macOS was building, so the next run waited again).
+    let patience: TimeInterval = 300
+    var level = VNRequestTextRecognitionLevel.fast
+    if !onlyFast, let picture = sample(), let read = recognise(picture, level: .accurate, limit: patience, waiting: { emit(0, ["preparing": true]) }),
+       lines(read).contains(sampleWord) {
+        level = .accurate
+    } else if !onlyFast {
+        FileHandle.standardError.write("the accurate recogniser is not usable here; the fast one reads this file\n".data(using: .utf8)!)
+    }
+    emit(0, ["recogniser": level == .accurate ? "accurate" : "fast"])
+
+    // Measured on scans and on drawn pages: the accurate recogniser reads as well at 2400 pixels
+    // as at more; the fast one finds a few more exercise numbers at 3200 (and is unusable below 1600).
+    let longSide: CGFloat = level == .accurate ? 2400 : 3200
+
+    for number in first...max(first, last) where number <= total {
+        autoreleasepool {
+            guard let page = doc?.page(at: number - 1), let image = render(page, longSide: longSide) else { return emit(number, ["text": ""]) }
+            if let folder = debugFolder { _ = write(image, to: "\(folder)/page-\(number).png", type: .png) }
+            // A page that cannot be read stays empty; the pages after it are read the same way as before.
+            let read = recognise(image, level: level, limit: patience, waiting: { emit(number - 1) })
+            emit(number, ["text": read.map(lines) ?? ""])
+        }
+    }
+}
+
+// ------------------------------------------------------------ what was asked for
+
+let args = Array(CommandLine.arguments.dropFirst())
+switch args.first {
+case "--prepare" where args.count == 1:
+    readPdf(nil, first: 1, last: 0)
+case "--info" where args.count >= 2:
+    info(Array(args.dropFirst()))
+case "--images" where args.count >= 3:
+    images(args[1], Array(args.dropFirst(2)))
+case "--render" where args.count >= 4:
+    renderPages(args[1], CGFloat(Double(args[2]) ?? 2000), args[3], args.count >= 5 ? Int(args[4]) ?? 1 : 1, args.count >= 6 ? Int(args[5]) ?? Int.max : Int.max)
+case "--sample" where args.count == 2:
+    guard let picture = sample(), write(picture, to: args[1], type: .png) else { fail("cannot write the picture") }
+    say(["file": args[1]])
+case let file? where !file.hasPrefix("--"):
+    guard let doc = PDFDocument(url: URL(fileURLWithPath: file)) else { fail("cannot open the PDF") }
+    let total = doc.pageCount
+    let first = max(1, args.count >= 2 ? Int(args[1]) ?? 1 : 1)
+    let last = min(total, args.count >= 3 ? Int(args[2]) ?? total : total)
+    readPdf(doc, first: first, last: last)
+default:
+    fail("usage: aced-ocr <file.pdf> [first] [last] | --prepare | --info <picture>... | --images <out.pdf> <picture>... | --render <file.pdf> <long-side> <folder> [first] [last] | --sample <out.png>")
 }

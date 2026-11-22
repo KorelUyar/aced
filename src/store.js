@@ -247,6 +247,27 @@ function addMaterial(id, item, kind) {
   return already;
 }
 
+/**
+ * Changes every material made from the same file, in every exam (they share their text): what
+ * read it, and what was read. A key set to undefined is removed. A plan made from the old text
+ * is marked as out of date.
+ */
+function patchMaterials(hash, patch) {
+  let changed = false;
+  for (const exam of data.exams) {
+    for (const m of exam.materials) {
+      if (m.hash !== hash) continue;
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined) delete m[key];
+        else m[key] = value;
+      }
+      if (exam.strategy && patch.chars !== undefined) exam.strategy.stale = true;
+      changed = true;
+    }
+  }
+  if (changed) save();
+}
+
 function setMaterialKind(id, materialId, kind) {
   return change(id, (exam) => {
     const m = exam.materials.find((x) => x.id === materialId);
@@ -514,6 +535,7 @@ module.exports = {
   editExam,
   deleteExam,
   addMaterial,
+  patchMaterials,
   setMaterialKind,
   removeMaterial,
   setStrategy,

@@ -75,11 +75,13 @@ function call(c, request) {
  * `cache: true` marks the material for the provider's own cache, where it has one.
  * `onUsage({input, cached, output, cost?})` is called for every request that was really sent.
  */
-async function ask({ name, system, material = "", prompt, schema, maxTokens = 32000, effort = "medium", cache = false, usable }, { signal, onUsage, onKey, fresh } = {}) {
+async function ask({ name, system, material = "", prompt, schema, maxTokens = 32000, effort = "medium", cache = false, usable, images }, { signal, onUsage, onKey, fresh } = {}) {
   await secrets.ready();
   const c = config();
   if (!c.provider) throw coded("noProvider");
-  const key = files.sha(JSON.stringify([c.provider, c.model, system, material, prompt, schema]));
+  // Pictures count by what they show: their bytes are part of the question.
+  const seen = images && images.length ? images.map((i) => files.sha(i.data)) : undefined;
+  const key = files.sha(JSON.stringify([c.provider, c.model, system, material, prompt, schema, ...(seen ? [seen] : [])]));
   onKey?.(key); // lets the caller note which kept answers belong to which exam
   // An answer is kept only when it could be used (`usable` returns what is wrong with it, or
   // ""): an empty one must not come back from the disk for ever. `fresh` asks again regardless.
@@ -100,6 +102,7 @@ async function ask({ name, system, material = "", prompt, schema, maxTokens = 32
       effort,
       cache,
       signal,
+      ...(images && images.length ? { images } : {}),
     });
     onUsage?.(usage);
     try {
@@ -134,4 +137,65 @@ async function test() {
   return validate(schema, parse(text)).ok === true;
 }
 
-module.exports = { init, config, status, ask, test, PROVIDERS };
+// ------------------------------------------------------------ can the chosen model see?
+
+const sight = new Map(); // "provider|model|address" -> true | false, for as long as the app runs
+let modelList = null; // OpenRouter's public list of models, fetched once
+
+/** OpenRouter's public list of models (prices, and what each one takes as input), or [] when it cannot be had. */
+async function openRouterModels() {
+  if (modelList) return modelList;
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/models", { signal: AbortSignal.timeout(6000) });
+    modelList = (await res.json()).data || [];
+  } catch {
+    return [];
+  }
+  return modelList;
+}
+
+/**
+ * Whether the chosen model can read pictures: true, false, or null when no AI is chosen.
+ * Claude can (through Claude Code or a key). For OpenRouter its own list says so. Any other
+ * server is shown a small picture with two numbers on it, once, and has to name them.
+ */
+async function canSee({ signal, samplePicture } = {}) {
+  await secrets.ready();
+  const c = config();
+  if (!c.provider) return null;
+  const id = `${c.provider}|${c.model}|${c.baseURL || ""}`;
+  if (sight.has(id)) return sight.get(id);
+  let sees = null;
+  if (c.provider === "claudeCode" || c.provider === "anthropic") sees = true;
+  else if (c.provider === "openrouter") {
+    const found = (await openRouterModels()).find((m) => m.id === c.model);
+    if (found && found.architecture && Array.isArray(found.architecture.input_modalities)) sees = found.architecture.input_modalities.includes("image");
+  }
+  if (sees === null && samplePicture) {
+    try {
+      const picture = await samplePicture();
+      const { text } = await call(c, {
+        model: c.model,
+        system: "You read pictures and answer with JSON only.",
+        material: "",
+        prompt: 'Which two numbers are written on this picture? Answer with JSON: {"text": "<the two numbers>"}.',
+        schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false },
+        schemaName: "sight",
+        maxTokens: 2000,
+        effort: "low",
+        signal,
+        images: [{ mediaType: "image/png", data: picture.toString("base64") }],
+      });
+      sees = /12/.test(text) && /34/.test(text);
+    } catch (err) {
+      if (err.code === "cancelled") throw err;
+      // A server that refuses pictures says so with an error; one that is offline is asked again next time.
+      if (["offline", "slow", "serverError", "overloaded", "rateLimit"].includes(err.code)) return false;
+      sees = false;
+    }
+  }
+  sight.set(id, Boolean(sees));
+  return Boolean(sees);
+}
+
+module.exports = { init, config, status, ask, test, canSee, openRouterModels, PROVIDERS };
