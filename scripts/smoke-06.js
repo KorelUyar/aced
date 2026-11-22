@@ -182,6 +182,29 @@ app.whenReady().then(async () => {
     assert.match(await js(`document.querySelector('.sw-link.done small').textContent`), /works until/);
     await click(".sw-close");
 
+    // ------------------------------------------------ the link page and a plan that unpacks to far too much
+    step = "the link page";
+    {
+      const zipOf = require("../src/share").zipOf;
+      const bomb = zipOf([["aced.json", Buffer.alloc(40 * 1048576, 0x20)]]);
+      bomb.writeUInt32LE(100, bomb.lastIndexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])) + 24); // it says it is small
+      const made = await link.make(bomb, { host: process.env.ACED_LINK_HOST });
+      const page = new BrowserWindow({ show: false, webPreferences: { partition: "link-page" } });
+      let gone = null;
+      page.webContents.once("render-process-gone", (_e, d) => (gone = d.reason));
+      await page.loadURL(made.url);
+      const shown = async () => page.webContents.executeJavaScript(`[document.getElementById('when').textContent, document.getElementById('plan').hidden, document.getElementById('open').hidden]`);
+      const end = Date.now() + 20000;
+      let seen = await shown();
+      while (!/too big/.test(seen[0]) && Date.now() < end && !gone) {
+        await sleep(200);
+        seen = await shown();
+      }
+      assert.equal(gone, null, "the page lives");
+      assert.deepEqual(seen, ["The plan is too big to show here. Open it in Aced.", true, false], "said calmly, with “Open in Aced” still there");
+      page.destroy();
+    }
+
     // ------------------------------------------------ the friend opens the link
     step = "the friend opens the link";
     const { id, key } = link.parse(url, process.env.ACED_LINK_HOST);
@@ -245,8 +268,17 @@ app.whenReady().then(async () => {
     assert.equal(await js(`document.querySelectorAll('.leaf[data-page="${page}"] .ink-hl path').length`), 1);
     const hash = bookItem.hash;
     const saved = async () => (await js(`window.aced.inkLoad(${JSON.stringify(hash)})`))[page] || { s: [], n: [] };
-    await sleep(600);
-    let ink = await saved();
+    /** What is kept for the page, once it is `want` (it is written a moment after a change), or as it is after 10 s. */
+    const keptAs = async (want) => {
+      const end = Date.now() + 10000;
+      let ink = await saved();
+      while (JSON.stringify(want(ink)[0]) !== JSON.stringify(want(ink)[1]) && Date.now() < end) {
+        await sleep(150);
+        ink = await saved();
+      }
+      return ink;
+    };
+    let ink = await keptAs((k) => [k.s.map((s) => s.t), ["pen", "hl"]]);
     assert.deepEqual(ink.s.map((s) => s.t), ["pen", "hl"], "kept on this Mac");
     assert.ok(ink.s[0].p.length >= 20 && Math.abs(ink.s[0].p[0] - 2000) < 40, "in the page's own units");
     // zoom: the line grows with the page
@@ -277,10 +309,10 @@ app.whenReady().then(async () => {
     await until(`!!document.querySelector('.leaf[data-page="${page}"] .ink-note:not(.editing)')`);
     assert.equal(await js(`document.querySelector('.leaf[data-page="${page}"] .ink-note').textContent`), "Prüfung <b>nicht fett</b>", "a note is text, never markup");
     assert.equal(await js(`document.querySelector('.leaf[data-page="${page}"] .ink-note b')`), null);
-    // the eraser takes the pen line it crosses, and nothing else
-    await drag([P(0.5, 0.25), P(0.5, 0.3), P(0.5, 0.35)]);
-    await sleep(600);
-    ink = await saved();
+    // the eraser takes the pen line it crosses, and nothing else: also in one quick sweep, where
+    // the line lies between where it was put down and where it was let go
+    await drag([P(0.5, 0.25), P(0.5, 0.35)]);
+    ink = await keptAs((k) => [k.s.map((s) => s.t), ["hl"]]);
     assert.deepEqual([ink.s.map((s) => s.t), ink.n.map((n) => n.text)], [["hl"], ["Prüfung <b>nicht fett</b>"]]);
     await click("#ink-done");
     assert.equal(await js(`!!document.querySelector('.ink-bar')`), false);

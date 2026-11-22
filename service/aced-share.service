@@ -17,8 +17,11 @@ Environment=NODE_ENV=production
 Environment=BIND=127.0.0.1
 Environment=PORT=8790
 Environment=DATA_DIR=/var/lib/aced-share
-# Behind a proxy or tunnel that names the visitor's address in a header:
-#Environment=CLIENT_IP_HEADER=x-forwarded-for
+# Behind a tunnel or proxy on this machine that names the visitor in a header it sets itself
+# (Cloudflare's tunnel: cf-connecting-ip), so the limits count per visitor. The header counts
+# only on connections from TRUSTED_PROXIES; never use a header the visitor can write.
+#Environment=CLIENT_IP_HEADER=cf-connecting-ip
+#Environment=TRUSTED_PROXIES=127.0.0.1,::1
 DynamicUser=yes
 StateDirectory=aced-share
 StateDirectoryMode=0700

@@ -15,14 +15,21 @@
 // Settings, from the environment (all optional):
 //   PORT=8790  BIND=127.0.0.1  DATA_DIR=./data  KEEP_DAYS=30  MAX_MB=25  MAX_TOTAL_MB=4096
 //   UPLOADS_PER_HOUR=30  FETCHES_PER_MINUTE=60      per visitor
-//   CLIENT_IP_HEADER   behind a proxy or tunnel: the request header that carries the visitor's
-//                      address (for example cf-connecting-ip). Without it, the connection's.
+//   CLIENT_IP_HEADER   behind a proxy or tunnel: the header in which it names the visitor's
+//                      address, one address it sets itself (cf-connecting-ip, for example).
+//   TRUSTED_PROXIES    the addresses that proxy connects from (127.0.0.1,::1 for a tunnel on
+//                      the same machine). The header counts only on connections from there, and
+//                      only its last value (the one the proxy added); anything else, and a
+//                      header that is not one plain address, counts as the connection's address.
+// The limits count per visitor, so the service must be reachable through the proxy only: it
+// listens on 127.0.0.1 unless BIND says otherwise.
 // Nothing about the visitors is written down: no log of addresses, ids or files.
 "use strict";
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const net = require("net");
 
 const MAGIC = Buffer.from("ACD1", "latin1"); // what every locked Aced file starts with
 const SMALLEST = MAGIC.length + 12 + 16 + 1; // magic, nonce, tag and one byte
@@ -44,6 +51,7 @@ function settings(env = process.env) {
     uploadsPerHour: number("UPLOADS_PER_HOUR", 30),
     fetchesPerMinute: number("FETCHES_PER_MINUTE", 60),
     ipHeader: (env.CLIENT_IP_HEADER || "").toLowerCase(),
+    trustedProxies: String(env.TRUSTED_PROXIES || "").split(",").map((a) => a.trim()).filter(Boolean),
   };
 }
 
@@ -140,9 +148,16 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
   timer.unref();
 
   let busy = 0; // uploads under way
+  const sending = new Map(); // visitor -> their uploads under way
+  const plain = (address) => String(address || "?").replace(/^::ffff:(?=\d+\.)/, "");
+  const trusted = new Set((config.trustedProxies || []).map(plain));
+  /** Who is asking: the connection's address, or the one a trusted proxy names (see TRUSTED_PROXIES). */
   const visitor = (req) => {
-    const said = config.ipHeader && req.headers[config.ipHeader];
-    return (typeof said === "string" && said.split(",")[0].trim().slice(0, 64)) || req.socket.remoteAddress || "?";
+    const peer = plain(req.socket.remoteAddress);
+    if (!config.ipHeader || !trusted.has(peer)) return peer;
+    const said = req.headers[config.ipHeader];
+    const last = typeof said === "string" ? said.split(",").pop().trim() : "";
+    return net.isIP(last) ? plain(last) : peer;
   };
   const send = (res, status, body, headers = {}) => {
     const data = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === "string" ? body : JSON.stringify(body));
@@ -152,7 +167,10 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
   const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
 
   async function upload(req, res) {
-    if (!uploads.take(visitor(req))) return send(res, 429, { error: "busy" }, { "Retry-After": "600" });
+    const who = visitor(req);
+    // Two uploads at a time per visitor: one sender cannot hold every place.
+    if ((sending.get(who) || 0) >= 2) return send(res, 429, { error: "busy" }, { "Retry-After": "30" });
+    if (!uploads.take(who)) return send(res, 429, { error: "busy" }, { "Retry-After": "600" });
     if (String(req.headers["content-type"] || "").split(";")[0].trim() !== "application/octet-stream") return send(res, 415, { error: "type" });
     const length = req.headers["content-length"] === undefined ? null : Number(req.headers["content-length"]);
     if (length !== null && (!Number.isInteger(length) || length > config.maxBytes)) return send(res, 413, { error: "large" }, { Connection: "close" });
@@ -160,6 +178,9 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
     if (total + (length || 0) > config.maxTotal) return send(res, 507, { error: "full" });
     if (busy >= 8) return send(res, 503, { error: "busy" }, { "Retry-After": "30" });
     busy++;
+    sending.set(who, (sending.get(who) || 0) + 1);
+    // An upload that stops sending is dropped after a few seconds, and its place is free again.
+    req.setTimeout(config.idleMs || 10e3, () => req.destroy(new Error("idle")));
     const part = path.join(config.dataDir, `.part-${crypto.randomBytes(9).toString("hex")}`);
     const out = fs.createWriteStream(part, { mode: 0o600 });
     let size = 0;
@@ -213,6 +234,9 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
       if (!res.headersSent) send(res, 400, { error: "bad" });
     } finally {
       busy--;
+      if ((sending.get(who) || 0) <= 1) sending.delete(who);
+      else sending.set(who, sending.get(who) - 1);
+      if (req.socket) req.socket.setTimeout(0);
     }
   }
 
@@ -246,7 +270,8 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
       if (read && (route === "/" || (route.startsWith("/s/") && ID.test(route.slice(3))))) {
         return send(res, 200, page, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": PAGE_POLICY, "Cache-Control": "no-cache" });
       }
-      if (read && pages[route]) return send(res, 200, pages[route].body, { "Content-Type": pages[route].type, "Cache-Control": "public, max-age=3600" });
+      // (the page's script and style are asked for anew like the page, so the three always fit)
+      if (read && pages[route]) return send(res, 200, pages[route].body, { "Content-Type": pages[route].type, "Cache-Control": route === "/icon.svg" ? "public, max-age=3600" : "no-cache" });
       if (read && route === "/healthz") return send(res, 200, "ok", { "Content-Type": "text/plain" });
       return send(res, read || req.method === "POST" ? 404 : 405, { error: "none" });
     } catch (err) {
@@ -254,9 +279,10 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
       if (!res.headersSent) send(res, 500, { error: "server" });
     }
   });
-  // Slow senders do not hold the service: a request has 2 minutes, its head 15 seconds.
+  // Slow senders do not hold the service: a request has 2 minutes, its head 10 seconds, and an
+  // upload that stops sending goes after 10 seconds (above).
   server.requestTimeout = 120e3;
-  server.headersTimeout = 15e3;
+  server.headersTimeout = 10e3;
   server.keepAliveTimeout = 5e3;
   await new Promise((resolve) => server.listen(config.port, config.bind, resolve));
   const port = server.address().port;

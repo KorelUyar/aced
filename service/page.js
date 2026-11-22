@@ -28,6 +28,7 @@
         brokenText: "Ein Teil des Links fehlt oder wurde verändert. Kopiere ihn nochmals ganz oder lass dir einen neuen schicken.",
         offline: "Die Prüfung konnte nicht geholt werden",
         offlineText: "Prüf deine Verbindung und lade die Seite neu.",
+        big: "Der Plan ist zu gross, um ihn hier zu zeigen. Öffne ihn in Aced.",
         none: "Hier öffnen sich Prüfungen, die jemand mit Aced geteilt hat.",
         examOn: (d) => `Prüfung am ${d}`,
         read: (a, b) => (a === b ? `Lesen: S. ${a}` : `Lesen: S. ${a}–${b}`),
@@ -55,6 +56,7 @@
         brokenText: "A part of the link is missing or was changed. Copy all of it again, or ask for a new one.",
         offline: "The exam could not be fetched",
         offlineText: "Check your connection and load the page again.",
+        big: "The plan is too big to show here. Open it in Aced.",
         none: "Exams someone shared with Aced open here.",
         examOn: (d) => `Exam on ${d}`,
         read: (a, b) => (a === b ? `Read p. ${a}` : `Read pp. ${a}–${b}`),
@@ -103,6 +105,34 @@
     return Uint8Array.from(s, (c) => c.charCodeAt(0));
   };
 
+  // The most of the plan this page unpacks, whatever the file says about itself.
+  const MOST = 8 * 1048576;
+  const big = () => Object.assign(new Error("big"), { big: true });
+
+  /** Unpacks deflated bytes, a part at a time, and stops at MOST. */
+  async function inflate(data) {
+    const reader = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+    const parts = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > MOST) {
+        reader.cancel().catch(() => {});
+        throw big();
+      }
+      parts.push(value);
+    }
+    const out = new Uint8Array(size);
+    let at = 0;
+    for (const part of parts) {
+      out.set(part, at);
+      at += part.length;
+    }
+    return out;
+  }
+
   /** The text of "aced.json" in the Aced file (a zip), read from its central directory. */
   async function acedJson(zip) {
     const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
@@ -128,13 +158,16 @@
       const name = new TextDecoder().decode(zip.subarray(at + 46, at + 46 + nameLength));
       at += 46 + nameLength + extra + comment;
       if (name !== "aced.json") continue;
-      if (size > 16 * 1048576 || view.getUint32(local, true) !== 0x04034b50) throw new Error("zip");
+      if (size > MOST) throw big();
+      if (view.getUint32(local, true) !== 0x04034b50) throw new Error("zip");
       const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
       const data = zip.subarray(start, start + packed);
-      if (method === 0) return new TextDecoder().decode(data);
+      if (method === 0) {
+        if (data.length > MOST) throw big();
+        return new TextDecoder().decode(data);
+      }
       if (method !== 8) throw new Error("zip");
-      const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-      return new TextDecoder().decode(await new Response(stream).arrayBuffer());
+      return new TextDecoder().decode(await inflate(data));
     }
     throw new Error("zip");
   }
@@ -220,8 +253,10 @@
       const lock = await crypto.subtle.importKey("raw", bytesOf(key), "AES-GCM", false, ["decrypt"]);
       const zip = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: blob.subarray(4, 16), additionalData: new Uint8Array(MAGIC), tagLength: 128 }, lock, blob.subarray(16)));
       show(JSON.parse(await acedJson(zip)));
-    } catch {
-      problem(T.broken, T.brokenText);
+    } catch (err) {
+      // Too big to show here: Aced itself can still open it (and checks it on its own terms).
+      if (err && err.big) $("when").textContent = T.big;
+      else problem(T.broken, T.brokenText);
     }
   })();
 })();
