@@ -14,7 +14,13 @@
 //
 // Settings, from the environment (all optional):
 //   PORT=8790  BIND=127.0.0.1  DATA_DIR=./data  KEEP_DAYS=30  MAX_MB=25  MAX_TOTAL_MB=4096
-//   UPLOADS_PER_HOUR=30  FETCHES_PER_MINUTE=60      per visitor
+//   UPLOADS_PER_HOUR=30  UPLOAD_MB_PER_DAY=150       per visitor: uploads, and what they send
+//   FETCHES_PER_MINUTE=60  DOWNLOAD_MB_PER_HOUR=1024 per visitor: fetches, and what they get
+//   ALL_UPLOAD_MB_PER_HOUR=300  ALL_UPLOAD_MB_PER_DAY=1024   what all visitors send together
+//   MIN_UPLOAD_KB_S=40  UPLOAD_GRACE_S=15   an upload slower than this on average, after the
+//                      first seconds, is dropped (a 25 MB file at 0.2 MB/s takes about 2 min
+//                      and passes; one that crawls to hold a place does not)
+//   A visitor is one IPv4 address, or one IPv6 /64 (one line or household has a whole /64).
 //   CLIENT_IP_HEADER   behind a proxy or tunnel: the header in which it names the visitor's
 //                      address, one address it sets itself (cf-connecting-ip, for example).
 //   TRUSTED_PROXIES    the addresses that proxy connects from (127.0.0.1,::1 for a tunnel on
@@ -49,7 +55,13 @@ function settings(env = process.env) {
     maxBytes: Math.round(number("MAX_MB", 25) * 1048576),
     maxTotal: Math.round(number("MAX_TOTAL_MB", 4096) * 1048576),
     uploadsPerHour: number("UPLOADS_PER_HOUR", 30),
+    uploadBytesPerDay: Math.round(number("UPLOAD_MB_PER_DAY", 150) * 1048576),
     fetchesPerMinute: number("FETCHES_PER_MINUTE", 60),
+    downloadBytesPerHour: Math.round(number("DOWNLOAD_MB_PER_HOUR", 1024) * 1048576),
+    allUploadBytesPerHour: Math.round(number("ALL_UPLOAD_MB_PER_HOUR", 300) * 1048576),
+    allUploadBytesPerDay: Math.round(number("ALL_UPLOAD_MB_PER_DAY", 1024) * 1048576),
+    minUploadBytesPerSecond: Math.round(number("MIN_UPLOAD_KB_S", 40) * 1024),
+    uploadGraceMs: Math.round(number("UPLOAD_GRACE_S", 15) * 1000),
     ipHeader: (env.CLIENT_IP_HEADER || "").toLowerCase(),
     trustedProxies: String(env.TRUSTED_PROXIES || "").split(",").map((a) => a.trim()).filter(Boolean),
   };
@@ -73,20 +85,35 @@ const SAFE = {
 // The page: its own script and style only, it talks to this service only, and nothing can frame it.
 const PAGE_POLICY = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-/** Counts per visitor in a window of time (`per` ms): `take(who)` is false once `most` are used. */
+/**
+ * Counts per visitor in a window of time (`per` ms): `take(who, n)` uses up `n` (requests, or
+ * bytes) and is false, using nothing, when that would be more than `most`; `fits` only asks.
+ * `wait(who)` is how many seconds are left until the visitor's window starts anew.
+ */
 function limiter(most, per, now) {
   const seen = new Map();
+  const entryOf = (who) => {
+    const t = now();
+    let entry = seen.get(who);
+    if (!entry || t - entry.start >= per) {
+      entry = { start: t, count: 0 };
+      seen.set(who, entry);
+    }
+    return entry;
+  };
   return {
-    take(who) {
-      const t = now();
-      let entry = seen.get(who);
-      if (!entry || t - entry.start >= per) {
-        entry = { start: t, count: 0 };
-        seen.set(who, entry);
-      }
-      if (entry.count >= most) return false;
-      entry.count++;
+    take(who, n = 1) {
+      const entry = entryOf(who);
+      if (entry.count + n > most) return false;
+      entry.count += n;
       return true;
+    },
+    fits(who, n = 1) {
+      return entryOf(who).count + n <= most;
+    },
+    wait(who) {
+      const entry = seen.get(who);
+      return entry ? Math.max(1, Math.ceil((entry.start + per - now()) / 1000)) : 1;
     },
     tidy() {
       const t = now();
@@ -96,15 +123,38 @@ function limiter(most, per, now) {
 }
 
 /**
+ * Who a visitor is, for the limits: an IPv4 address as it is, an IPv6 address as its /64 (the
+ * part a line or household gets whole, so that its other addresses are the same visitor).
+ */
+function visitorOf(address) {
+  if (!net.isIPv6(address)) return address;
+  let a = address.split("%")[0].toLowerCase();
+  const four = /:(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(a); // an IPv4 tail, as in 64:ff9b::1.2.3.4
+  if (four) {
+    const [b0, b1, b2, b3] = four.slice(1).map(Number);
+    a = a.slice(0, four.index + 1) + ((b0 << 8) | b1).toString(16) + ":" + ((b2 << 8) | b3).toString(16);
+  }
+  const [head, tail] = a.split("::");
+  const front = head ? head.split(":") : [];
+  const back = tail === undefined ? [] : tail ? tail.split(":") : [];
+  const groups = tail === undefined ? front : [...front, ...Array(8 - front.length - back.length).fill("0"), ...back];
+  return groups.slice(0, 4).map((g) => parseInt(g || "0", 16).toString(16)).join(":") + "::/64";
+}
+
+/**
  * Starts the service. `config` as `settings()` gives it; `now` stands in for the clock in tests.
  * Resolves to { server, port, sweep, close }.
  */
-async function start(config = settings(), { now = () => Date.now(), quiet = false } = {}) {
+async function start(config = settings(), { now = () => Date.now(), tick = () => Date.now(), quiet = false } = {}) {
   fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
   const keep = config.keepDays * DAY;
   const fileOf = (id) => path.join(config.dataDir, id);
   const uploads = limiter(config.uploadsPerHour, 3600e3, now);
   const fetches = limiter(config.fetchesPerMinute, 60e3, now);
+  const sent = limiter(config.uploadBytesPerDay, DAY, now); // bytes each visitor sent
+  const got = limiter(config.downloadBytesPerHour, 3600e3, now); // bytes each visitor fetched
+  const allHour = limiter(config.allUploadBytesPerHour, 3600e3, now); // bytes all visitors sent
+  const allDay = limiter(config.allUploadBytesPerDay, DAY, now);
   const pages = Object.fromEntries(
     Object.entries(STATIC).map(([route, [name, type]]) => [route, { body: fs.readFileSync(path.join(__dirname, name)), type }]),
   );
@@ -139,8 +189,7 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
         gone++;
       }
     }
-    uploads.tidy();
-    fetches.tidy();
+    for (const l of [uploads, fetches, sent, got, allHour, allDay]) l.tidy();
     return gone;
   };
   sweep();
@@ -148,17 +197,20 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
   timer.unref();
 
   let busy = 0; // uploads under way
+  let promised = 0; // the bytes uploads under way may still add (so that together they fit)
   const sending = new Map(); // visitor -> their uploads under way
   const plain = (address) => String(address || "?").replace(/^::ffff:(?=\d+\.)/, "");
   const trusted = new Set((config.trustedProxies || []).map(plain));
   /** Who is asking: the connection's address, or the one a trusted proxy names (see TRUSTED_PROXIES). */
-  const visitor = (req) => {
+  const address = (req) => {
     const peer = plain(req.socket.remoteAddress);
     if (!config.ipHeader || !trusted.has(peer)) return peer;
     const said = req.headers[config.ipHeader];
     const last = typeof said === "string" ? said.split(",").pop().trim() : "";
     return net.isIP(last) ? plain(last) : peer;
   };
+  /** The visitor as the limits count them (see visitorOf). */
+  const visitor = (req) => visitorOf(address(req));
   const send = (res, status, body, headers = {}) => {
     const data = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === "string" ? body : JSON.stringify(body));
     res.writeHead(status, { ...SAFE, "Content-Length": data.length, "Cache-Control": "no-store", ...(typeof body === "object" && !Buffer.isBuffer(body) ? { "Content-Type": "application/json" } : {}), ...headers });
@@ -175,9 +227,15 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
     const length = req.headers["content-length"] === undefined ? null : Number(req.headers["content-length"]);
     if (length !== null && (!Number.isInteger(length) || length > config.maxBytes)) return send(res, 413, { error: "large" }, { Connection: "close" });
     if (length !== null && length < SMALLEST) return send(res, 400, { error: "small" });
-    if (total + (length || 0) > config.maxTotal) return send(res, 507, { error: "full" });
+    // Room for this file next to those coming in: when the store is (nearly) full, nothing new
+    // is taken. What is kept is never deleted for room; it goes only when its 30 days are over.
+    const coming = length === null ? config.maxBytes : length;
+    if (total + promised + coming > config.maxTotal) return send(res, 507, { error: "full" }, { Connection: "close" });
+    if (!sent.fits(who, length || SMALLEST)) return send(res, 429, { error: "busy" }, { "Retry-After": String(sent.wait(who)), Connection: "close" });
+    if (!allHour.fits("*", length || SMALLEST) || !allDay.fits("*", length || SMALLEST)) return send(res, 503, { error: "busy" }, { "Retry-After": String(Math.max(allHour.fits("*", length || SMALLEST) ? 0 : allHour.wait("*"), allDay.fits("*", length || SMALLEST) ? 0 : allDay.wait("*"))), Connection: "close" });
     if (busy >= 8) return send(res, 503, { error: "busy" }, { "Retry-After": "30" });
     busy++;
+    promised += coming;
     sending.set(who, (sending.get(who) || 0) + 1);
     // An upload that stops sending is dropped after a few seconds, and its place is free again.
     req.setTimeout(config.idleMs || 10e3, () => req.destroy(new Error("idle")));
@@ -186,10 +244,27 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
     let size = 0;
     let head = Buffer.alloc(0);
     let failed = null;
+    let pace = null;
     try {
       await new Promise((resolve, reject) => {
+        // Slower than the least speed on average, once the first seconds are over: dropped,
+        // so that a sender crawling a byte at a time cannot hold a place.
+        const began = tick();
+        pace = setInterval(() => {
+          const ms = tick() - began;
+          if (failed || ms <= config.uploadGraceMs || size >= (config.minUploadBytesPerSecond * ms) / 1000) return;
+          failed = 408;
+          req.pause();
+          resolve();
+        }, Math.min(1000, config.uploadGraceMs));
         req.on("data", (chunk) => {
           if (failed) return;
+          // What arrives counts toward the visitor's bytes of the day and everyone's of the hour.
+          if (!sent.take(who, chunk.length) || !allHour.take("*", chunk.length) || !allDay.take("*", chunk.length)) {
+            failed = 429;
+            req.pause();
+            return resolve();
+          }
           size += chunk.length;
           if (head.length < MAGIC.length) head = Buffer.concat([head, chunk.subarray(0, MAGIC.length - head.length)]);
           if (size > config.maxBytes) {
@@ -211,12 +286,14 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
         req.on("error", reject);
         req.on("aborted", () => reject(new Error("aborted")));
       });
+      clearInterval(pace);
       await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
       if (!failed && (size < SMALLEST || !head.equals(MAGIC))) failed = 400;
       if (!failed && total + size > config.maxTotal) failed = 507;
       if (failed) {
         fs.rmSync(part, { force: true });
-        return send(res, failed, { error: failed === 413 ? "large" : failed === 507 ? "full" : "bad" }, { Connection: "close" });
+        const error = { 413: "large", 507: "full", 408: "slow", 429: "busy" }[failed] || "bad";
+        return send(res, failed, { error }, { Connection: "close", ...(failed === 429 ? { "Retry-After": String(sent.wait(who)) } : {}) });
       }
       let id;
       do id = crypto.randomBytes(16).toString("base64url");
@@ -233,7 +310,9 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
       fs.rmSync(part, { force: true });
       if (!res.headersSent) send(res, 400, { error: "bad" });
     } finally {
+      clearInterval(pace);
       busy--;
+      promised -= coming;
       if ((sending.get(who) || 0) <= 1) sending.delete(who);
       else sending.set(who, sending.get(who) - 1);
       if (req.socket) req.socket.setTimeout(0);
@@ -241,12 +320,15 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
   }
 
   function fetchOne(req, res, id) {
-    if (!fetches.take(visitor(req))) return send(res, 429, { error: "busy" }, { "Retry-After": "60" });
+    const who = visitor(req);
+    if (!fetches.take(who)) return send(res, 429, { error: "busy" }, { "Retry-After": "60" });
     const entry = kept.get(id);
     if (!entry || now() - entry.at >= keep) {
       if (entry) forget(id);
       return send(res, 404, { error: "gone" });
     }
+    // The bytes a visitor fetches in an hour are counted too: the line this runs on is shared.
+    if (req.method !== "HEAD" && !got.take(who, entry.size)) return send(res, 429, { error: "busy" }, { "Retry-After": String(got.wait(who)) });
     res.writeHead(200, { ...SAFE, "Content-Type": "application/octet-stream", "Content-Length": entry.size, "Cache-Control": "no-store" });
     if (req.method === "HEAD") return res.end();
     fs.createReadStream(fileOf(id)).on("error", () => res.destroy()).pipe(res);
@@ -279,9 +361,10 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
       if (!res.headersSent) send(res, 500, { error: "server" });
     }
   });
-  // Slow senders do not hold the service: a request has 2 minutes, its head 10 seconds, and an
-  // upload that stops sending goes after 10 seconds (above).
-  server.requestTimeout = 120e3;
+  // Slow senders do not hold the service: a request's head has 10 seconds, an upload that stops
+  // sending goes after 10 seconds and one slower than the least speed after its first seconds
+  // (above); 15 minutes is the most any request takes (25 MB at the least speed takes 11).
+  server.requestTimeout = 900e3;
   server.headersTimeout = 10e3;
   server.keepAliveTimeout = 5e3;
   await new Promise((resolve) => server.listen(config.port, config.bind, resolve));
@@ -299,7 +382,7 @@ async function start(config = settings(), { now = () => Date.now(), quiet = fals
   };
 }
 
-module.exports = { start, settings, MAGIC };
+module.exports = { start, settings, visitorOf, MAGIC };
 
 if (require.main === module) {
   start().catch((err) => {

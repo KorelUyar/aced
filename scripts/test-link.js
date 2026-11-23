@@ -307,6 +307,157 @@ test("the service stops taking files when its space is used up", async () => {
   }
 });
 
+test("a visitor is one IPv4 address or one IPv6 /64", () => {
+  const v = service.visitorOf;
+  assert.equal(v("203.0.113.7"), "203.0.113.7");
+  assert.notEqual(v("203.0.113.7"), v("203.0.113.8"), "IPv4: each address on its own");
+  const home = v("2001:db8:1:2::1");
+  assert.equal(home, "2001:db8:1:2::/64");
+  for (const same of ["2001:db8:1:2::ffff", "2001:db8:1:2:aaaa:bbbb:cccc:dddd", "2001:0DB8:0001:0002:0000:0000:0000:0009", "2001:db8:1:2::1%en0", "2001:db8:1:2:0:0:1.2.3.4"]) assert.equal(v(same), home, same);
+  for (const other of ["2001:db8:1:3::1", "2001:db8::1", "::1", "fe80::1"]) assert.notEqual(v(other), home, other);
+  assert.equal(v("::"), "0:0:0:0::/64");
+});
+
+/** A visitor's upload, sent by hand: `steps` of [bytes, fake ms passing] after the head. */
+function sendSlowly(port, { who, length, steps, wait = 15 }) {
+  return new Promise((resolve) => {
+    const sock = require("net").connect(port, "127.0.0.1");
+    let answer = "";
+    sock.on("data", (d) => (answer += d));
+    sock.on("error", () => {});
+    sock.on("close", () => resolve(Number((/^HTTP\/1\.1 (\d+)/.exec(answer) || [])[1]) || "closed"));
+    sock.write(`POST /api/s HTTP/1.1\r\nHost: x\r\nContent-Type: application/octet-stream\r\nContent-Length: ${length}\r\n${who ? `cf-connecting-ip: ${who}\r\n` : ""}Connection: close\r\n\r\n`);
+    (async () => {
+      for (const [bytes, ms] of steps) {
+        if (sock.destroyed) return;
+        sock.write(bytes);
+        tickNow += ms;
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    })();
+  });
+}
+let tickNow = 0;
+const tick = () => tickNow;
+
+test("a slow line passes: 25 MB at 0.2 MB/s, with the settings as they are", async () => {
+  const s = await service.start({ ...service.settings({}), port: 0, dataDir: scratch() }, { now, tick, quiet: true });
+  try {
+    const size = 25 * 1048576;
+    const body = Buffer.concat([link.MAGIC, crypto.randomBytes(size - link.MAGIC.length)]);
+    const steps = [];
+    for (let at = 0; at < size; at += 200000) steps.push([body.subarray(at, at + 200000), 1000]); // 200,000 bytes each second
+    assert.ok(steps.length * 1000 > s.server.requestTimeout / 10 && steps.length * 1000 < s.server.requestTimeout, "about 2 minutes, well inside what a request may take");
+    assert.equal(await sendSlowly(s.port, { length: size, steps, wait: 20 }), 201, "taken");
+    assert.equal(s.stored().count, 1);
+  } finally {
+    await s.close();
+  }
+});
+
+test("an upload that crawls to hold a place is dropped after its first seconds; the places are free again", async () => {
+  const s = await service.start({ ...service.settings({}), port: 0, dataDir: scratch(), ipHeader: "cf-connecting-ip", trustedProxies: ["127.0.0.1"] }, { now, tick, quiet: true });
+  try {
+    const crawl = Array.from({ length: 8 }, (_, i) => [Buffer.from([1]), 0]);
+    // 4 visitors with 2 uploads each: every place taken, a byte at a time
+    const held = [];
+    for (let v = 0; v < 4; v++) for (let k = 0; k < 2; k++) held.push(sendSlowly(s.port, { who: `198.51.100.${v + 1}`, length: 1000000, steps: [[link.MAGIC, 0], ...crawl], wait: 250 }));
+    await new Promise((r) => setTimeout(r, 150));
+    const blob = link.seal(Buffer.alloc(50)).blob;
+    const as = (who) => ({ method: "POST", body: blob, headers: { "cf-connecting-ip": who } });
+    assert.equal((await call(s.port, "/api/s", as("203.0.113.9"))).status, 503, "while 8 crawl, a 9th waits");
+    tickNow += 16000; // the first 15 seconds are over: a byte now and then is far below 40 KB/s
+    const dropped = await Promise.all(held);
+    assert.ok(dropped.every((r) => r === 408 || r === "closed"), `the crawlers are dropped: ${dropped}`);
+    assert.equal((await call(s.port, "/api/s", as("203.0.113.9"))).status, 201, "and the 9th gets a place");
+    assert.equal(fs.readdirSync(dirs[dirs.length - 1]).filter((n) => n.startsWith(".part-")).length, 0, "nothing half written is left");
+  } finally {
+    await s.close();
+  }
+});
+
+test("the limits count an IPv6 /64 as one visitor", async () => {
+  const s = await serve({ uploadsPerHour: 3, ipHeader: "cf-connecting-ip", trustedProxies: ["127.0.0.1"] });
+  try {
+    const blob = link.seal(Buffer.alloc(50)).blob;
+    let ok = 0;
+    for (let i = 1; i <= 40; i++) if ((await call(s.port, "/api/s", { method: "POST", body: blob, headers: { "cf-connecting-ip": `2001:db8:1:2::${i.toString(16)}` } })).status === 201) ok++;
+    assert.equal(ok, 3, "40 addresses of one /64 are one visitor");
+    assert.equal((await call(s.port, "/api/s", { method: "POST", body: blob, headers: { "cf-connecting-ip": "2001:db8:1:3::1" } })).status, 201, "the next /64 is another");
+  } finally {
+    await s.close();
+  }
+});
+
+test("bytes are counted: per visitor a day, all visitors together an hour, fetched per visitor an hour", async () => {
+  const blob = link.seal(Buffer.alloc(1200)).blob; // about 1.2 kB
+  const as = (who, extra = {}) => ({ method: "POST", body: blob, headers: { "cf-connecting-ip": who }, ...extra });
+  const proxied = { ipHeader: "cf-connecting-ip", trustedProxies: ["127.0.0.1"], uploadsPerHour: 100, fetchesPerMinute: 100 };
+  const one = await serve({ ...proxied, uploadBytesPerDay: 3000 });
+  try {
+    assert.equal((await call(one.port, "/api/s", as("10.1.0.1"))).status, 201);
+    assert.equal((await call(one.port, "/api/s", as("10.1.0.1"))).status, 201);
+    const third = await call(one.port, "/api/s", as("10.1.0.1"));
+    assert.equal(third.status, 429, "a visitor's bytes of the day are used up");
+    assert.ok(Number(third.headers["retry-after"]) > 3600, "come back tomorrow");
+    assert.equal((await call(one.port, "/api/s", as("10.1.0.2"))).status, 201, "another visitor");
+    clock += 864e5;
+    assert.equal((await call(one.port, "/api/s", as("10.1.0.1"))).status, 201, "a day later");
+  } finally {
+    await one.close();
+  }
+  const all = await serve({ ...proxied, allUploadBytesPerHour: 3000 });
+  try {
+    assert.equal((await call(all.port, "/api/s", as("10.2.0.1"))).status, 201);
+    assert.equal((await call(all.port, "/api/s", as("10.2.0.2"))).status, 201);
+    assert.equal((await call(all.port, "/api/s", as("10.2.0.3"))).status, 503, "everyone's bytes of the hour are used up");
+    clock += 3600e3;
+    assert.equal((await call(all.port, "/api/s", as("10.2.0.3"))).status, 201, "an hour later");
+  } finally {
+    await all.close();
+  }
+  const down = await serve({ ...proxied, downloadBytesPerHour: 3000 });
+  try {
+    const { id } = JSON.parse((await call(down.port, "/api/s", as("10.3.0.1"))).body);
+    const get = (who, method = "GET") => call(down.port, `/api/s/${id}`, { method, headers: { "cf-connecting-ip": who } });
+    assert.equal((await get("10.3.0.2")).status, 200);
+    assert.equal((await get("10.3.0.2")).status, 200);
+    assert.equal((await get("10.3.0.2")).status, 429, "a visitor's bytes fetched this hour are used up");
+    assert.equal((await get("2001:db8:9::1")).status, 200, "another visitor");
+    assert.equal((await get("2001:db8:9::2")).status, 200);
+    assert.equal((await get("2001:db8:9::3")).status, 429, "an IPv6 /64 counts as one");
+    clock += 3600e3;
+    assert.equal((await get("10.3.0.2")).status, 200, "an hour later");
+  } finally {
+    await down.close();
+  }
+});
+
+test("nearly full: new files wait for room, what is kept stays", async () => {
+  const s = await serve({ maxTotal: 4000, uploadsPerHour: 100, idleMs: 300 });
+  const dir = dirs[dirs.length - 1];
+  try {
+    const blob = link.seal(Buffer.alloc(1200)).blob;
+    const { id } = JSON.parse((await call(s.port, "/api/s", { method: "POST", body: blob })).body);
+    // an upload under way says it brings 2,000 bytes: with it, the next one does not fit
+    const sock = require("net").connect(s.port, "127.0.0.1");
+    sock.on("error", () => {});
+    sock.write(`POST /api/s HTTP/1.1\r\nHost: x\r\nContent-Type: application/octet-stream\r\nContent-Length: 2000\r\n\r\n`);
+    sock.write(link.MAGIC);
+    await new Promise((r) => setTimeout(r, 100));
+    const full = await call(s.port, "/api/s", { method: "POST", body: blob });
+    assert.equal(full.status, 507);
+    assert.equal(JSON.parse(full.body).error, "full");
+    assert.ok((await call(s.port, `/api/s/${id}`)).body.equals(blob), "the link made before still works");
+    await new Promise((r) => setTimeout(r, 700)); // the stalled upload is dropped
+    sock.destroy();
+    assert.equal((await call(s.port, "/api/s", { method: "POST", body: blob })).status, 201, "room again");
+    assert.equal(fs.readdirSync(dir).filter((n) => !n.startsWith(".")).length, 2, "nothing kept was deleted for room");
+  } finally {
+    await s.close();
+  }
+});
+
 test("a restart finds what was kept and drops what was half written", async () => {
   const dataDir = scratch();
   const first = await service.start({ ...service.settings({}), port: 0, dataDir }, { now, quiet: true });
@@ -351,6 +502,14 @@ test("make a link, fetch it back: the same Aced file", async () => {
   }
 });
 
+test("the installed app's service is aced.uyarid.com, over https", () => {
+  assert.equal(link.HOST, "https://aced.uyarid.com");
+  assert.equal(link.originOf(link.HOST), link.HOST);
+  const { key } = link.seal(Buffer.from("x"));
+  assert.deepEqual(link.parse(`https://aced.uyarid.com/s/${ID}#${key}`), { id: ID, key }, "its own links are taken");
+  assert.equal(link.parse(`https://aced.uyarid.com.evil.example/s/${ID}#${key}`), null, "a look-alike is not");
+});
+
 test("what the app says when the service cannot help", async () => {
   await assert.rejects(link.make(Buffer.alloc(10), { host: "" }), { code: "linkOff" });
   await assert.rejects(link.make(Buffer.alloc(link.MAX + 1), { host: HOST }), { code: "linkTooBig" });
@@ -364,7 +523,7 @@ test("what the app says when the service cannot help", async () => {
   const liar = http.createServer((req, res) => {
     if (req.url === "/api/s") {
       req.resume();
-      const answers = { busy: [429, "{}"], large: [413, "{}"], nonsense: [201, "{\"id\":\"../../x\"}"], broken: [500, "oops"] };
+      const answers = { busy: [429, "{}"], large: [413, "{}"], full: [507, "{}"], nonsense: [201, "{\"id\":\"../../x\"}"], broken: [500, "oops"] };
       const [status, body] = answers[liar.mode];
       res.writeHead(status, { "Content-Type": "application/json" });
       return res.end(body);
@@ -384,7 +543,7 @@ test("what the app says when the service cannot help", async () => {
   await new Promise((r) => liar.listen(0, "127.0.0.1", r));
   const liarHost = `http://127.0.0.1:${liar.address().port}`;
   try {
-    for (const [mode, code] of [["busy", "linkBusy"], ["large", "linkTooBig"], ["nonsense", "linkServer"], ["broken", "linkServer"]]) {
+    for (const [mode, code] of [["busy", "linkBusy"], ["large", "linkTooBig"], ["full", "linkFull"], ["nonsense", "linkServer"], ["broken", "linkServer"]]) {
       liar.mode = mode;
       await assert.rejects(link.make(Buffer.alloc(10), { host: liarHost }), { code }, mode);
     }

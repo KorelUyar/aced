@@ -96,8 +96,8 @@ app.whenReady().then(async () => {
     if (mode === "share") {
       await js(`window.__nav({ name: 'exam', id: 'sample-math' })`);
       await until(`!!document.querySelector('.path .step')`);
-      // Without a share service (ACED_LINK_HOST set and empty): no link.
-      process.env.ACED_LINK_HOST = "";
+      // Without a share service (src/link.js HOST empty): no link.
+      delete process.env.ACED_LINK_HOST;
       await js(`window.__share(true)`);
       await until(`!!document.querySelector('.share-win.no-link')`);
       await sleep(400);

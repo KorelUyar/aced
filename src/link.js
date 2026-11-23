@@ -98,9 +98,10 @@ const dayIn = (days, now = Date.now()) => new Date(now + days * 864e5).toISOStri
 /**
  * Locks an Aced file and puts it on the service. Resolves to { url, expires (YYYY-MM-DD) }.
  * Throws "linkOff" (no service), "linkTooBig" (detail: megabytes), "linkBusy" (too many at
- * once) or "linkServer" (the service did not take it).
+ * once), "linkFull" (the service has no room now) or "linkServer" (the service did not take it).
+ * A slow line has time: 25 MB at the least speed the service takes is about 11 minutes.
  */
-async function make(bytes, { host = HOST, fetch = globalThis.fetch, timeout = 180000 } = {}) {
+async function make(bytes, { host = HOST, fetch = globalThis.fetch, timeout = 900000 } = {}) {
   const origin = originOf(host);
   if (!origin) throw coded("linkOff");
   if (bytes.length > MAX) throw coded("linkTooBig", String(Math.ceil(bytes.length / 1048576)));
@@ -113,6 +114,7 @@ async function make(bytes, { host = HOST, fetch = globalThis.fetch, timeout = 18
   }
   if (answer.status === 413) throw coded("linkTooBig", String(Math.ceil(bytes.length / 1048576)));
   if (answer.status === 429) throw coded("linkBusy");
+  if (answer.status === 507) throw coded("linkFull");
   if (answer.status !== 201) throw coded("linkServer", String(answer.status));
   let body;
   try {

@@ -885,10 +885,10 @@ async function makeShare(id, output, chosen, dir = shareFolder()) {
   return { file: pdf, left: [] };
 }
 
-// The share service for links (src/link.js). A run from the source folder may name a service
-// of its own (ACED_LINK_HOST), or none at all (ACED_LINK_HOST set but empty: an Aced without
-// links); the installed app only knows its one address.
-const linkHost = () => (!app.isPackaged && typeof process.env.ACED_LINK_HOST === "string" ? process.env.ACED_LINK_HOST : link.HOST);
+// The share service for links (src/link.js). The installed app only knows its one address. A run
+// from the source folder has none unless it names one (ACED_LINK_HOST), so that a try or a test
+// from the source never sends anything to the real service by itself.
+const linkHost = () => (app.isPackaged ? link.HOST : process.env.ACED_LINK_HOST || "");
 
 /** The ways of Aced's share window (ui/share.js). */
 const WAYS = ["link", "airdrop", "messages", "mail", "copy", "save", "pdf", "web", "more"];

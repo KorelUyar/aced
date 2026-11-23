@@ -307,7 +307,7 @@ npm run sample   # the app on invented exams, nothing is saved
 | `electron scripts/e2e-formats.js <outDir>` | the same for screenshots, a Word file with formulas and an Excel file: read, planned, the book at the right page, found by the helper (costs tokens) |
 | `electron scripts/wrong-key.js` | asks the real Anthropic and OpenRouter services with a key that is not one |
 | `scripts/fixtures/claude-stub.sh` | a stand-in for the `claude` command with prepared answers, so the tests can play every state (not signed in, expired, usage limit, offline, a slow run) without touching a real login |
-| `node service/server.js` | the share service behind links, on this Mac (its settings are in its first lines; `service/Dockerfile` and `service/aced-share.service` run it on a server). `ACED_LINK_HOST=http://127.0.0.1:8790 npm start` points a run from the source folder at it (`ACED_LINK_HOST=` empty: a run without links; the suites run so unless they start their own) |
+| `node service/server.js` | the share service behind links, on this Mac (its settings are in its first lines; `service/Dockerfile` and `service/aced-share.service` run it on a server). `ACED_LINK_HOST=http://127.0.0.1:8790 npm start` points a run from the source folder at it (a run from the source folder has no links unless it names a service this way; the installed app uses `HOST`) |
 | `npm run shots` | the pictures in `docs/shots` from the sample exams; with a data folder as third argument to `scripts/shots.js`, the ones with a real book |
 | `npm run dist` | `dist/Aced-macOS.zip`: universal, signed ad hoc |
 
